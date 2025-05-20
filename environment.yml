@@ -1,4 +1,4 @@
-name: tobacco-env
+name: tobacco_env
 channels:
   - defaults
   - https://repo.anaconda.com/pkgs/main
@@ -8,4 +8,5 @@ dependencies:
   - numpy
   - opencv
   - pandas
-prefix: /opt/anaconda3/envs/tobacco-env
+  - ultralytics
+prefix: /opt/anaconda3/envs/tobacco_env
