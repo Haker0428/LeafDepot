@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
-model = YOLO("runs/detect/barcode-yolov8n6/weights/best.pt")
-results = model.predict(source="datasets/barcode/images/train/img0006.jpg", save=True)
+model = YOLO("runs/detect/barcode-yolov8s/weights/best.pt")
+results = model.predict(source="datasets/barcode/images/train/img0001.png", save=True)
 
 # 获取所有检测框
 boxes = results[0].boxes
