@@ -17,10 +17,11 @@
 ```
 conda env create -f environment.yml
 ```
+* 安装torch
 
 * 激活环境
 ```
-conda activate tobacco-env
+conda activate tobacco_env
 ```
 
 后续如果有更新python库，在根目录使用如下命令:

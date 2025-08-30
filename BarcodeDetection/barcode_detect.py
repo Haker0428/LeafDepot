@@ -4,10 +4,11 @@ from ultralytics import YOLO
 model = YOLO('yolov8s.yaml')
 
 # 开始训练
-model.train(
-    data='datasets/barcode/data.yaml',
-    epochs=100,
-    imgsz=1080,
-    batch=16,
-    name='barcode-yolov8s'
-)
+if __name__ == '__main__':
+    model.train(
+        data='datasets/barcode/data.yaml',
+        epochs=100,
+        imgsz=1080,
+        batch=16,
+        name='barcode+box-yolov8s'
+    )
