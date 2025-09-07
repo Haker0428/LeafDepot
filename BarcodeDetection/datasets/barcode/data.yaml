@@ -2,5 +2,5 @@ path: datasets/barcode
 train: ../images/train
 val: ../images/val
 
-nc: 2
-names: ['barcode', 'box']
+nc: 3
+names: ['barcode', 'box', 'pile']

@@ -10,5 +10,5 @@ if __name__ == '__main__':
         epochs=100,
         imgsz=1080,
         batch=16,
-        name='barcode+box-yolov8s'
+        name='barcode+box+piles-yolov8s'
     )
