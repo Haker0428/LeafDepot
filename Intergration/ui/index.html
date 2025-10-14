@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片展示系统</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px 0;
+            background: linear-gradient(135deg, #4b6cb7, #182848);
+            color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .image-card {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .image-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .image-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .image-info {
+            padding: 15px;
+            background: #f9f9f9;
+        }
+
+        .image-info h3 {
+            margin-bottom: 5px;
+            color: #2c3e50;
+        }
+
+        .image-info p {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            padding: 20px;
+            color: #7f8c8d;
+            font-size: 0.9rem;
+            border-top: 1px solid #eee;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-style: italic;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>图片展示系统</h1>
+            <p>使用Nginx作为图片服务器的高效解决方案</p>
+        </header>
+
+        <div id="gallery-container">
+            <div class="loading">正在加载图片...</div>
+        </div>
+
+        <footer>
+            <p>© 2023 图片展示系统 | Nginx + 文件系统存储方案</p>
+        </footer>
+    </div>
+
+    <script>
+        async function loadImages() {
+            try {
+                const response = await fetch('/api/images');
+                if (!response.ok) {
+                    throw new Error('网络响应错误');
+                }
+                const data = await response.json();
+
+                const gallery = document.getElementById('gallery-container');
+                gallery.innerHTML = '';
+
+                if (data.images.length === 0) {
+                    gallery.innerHTML = '<div class="loading">没有找到图片</div>';
+                    return;
+                }
+
+                data.images.forEach(image => {
+                    const card = document.createElement('div');
+                    card.className = 'image-card';
+                    card.innerHTML = `
+                        <div>
+                            <img src="${image.url}" alt="${image.filename}">
+                        </div>
+                        <div class="image-info">
+                            <h3>${image.filename}</h3>
+                            <p>尺寸: ${getFileSize(image.url)}</p>
+                        </div>
+                    `;
+                    gallery.appendChild(card);
+
+                });
+            } catch (error) {
+                console.error('加载图片失败:', error);
+                document.getElementById('gallery-container').innerHTML =
+                    `<div class="loading">加载图片失败: ${error.message}</div>`;
+            }
+        }
+
+        function getFileSize(url) {
+            // 实际项目中应从服务器获取文件大小
+            // 这里使用模拟数据
+            const sizes = {
+                '1.jpg': '1.2 MB',
+                '2.jpg': '850 KB'
+            };
+            const filename = url.split('/').pop();
+            return sizes[filename] || '未知大小';
+        }
+
+        // 页面加载完成后加载图片
+        document.addEventListener('DOMContentLoaded', loadImages);
+    </script>
+</body>
+
+</html>
