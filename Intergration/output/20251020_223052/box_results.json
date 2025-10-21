@@ -1,0 +1,146 @@
+[
+  {
+    "original_image": "1.jpg",
+    "cropped_image": "box_1_0.png",
+    "bbox": [
+      93,
+      1234,
+      1451,
+      2736
+    ],
+    "confidence": 0.9349580407142639,
+    "category": "box"
+  },
+  {
+    "original_image": "img0001.png",
+    "cropped_image": "box_img0001_1.png",
+    "bbox": [
+      152,
+      1548,
+      2145,
+      2977
+    ],
+    "confidence": 0.9513983726501465,
+    "category": "box"
+  },
+  {
+    "original_image": "img0001.png",
+    "cropped_image": "box_img0001_2.png",
+    "bbox": [
+      174,
+      2,
+      2243,
+      1614
+    ],
+    "confidence": 0.9268548488616943,
+    "category": "box"
+  },
+  {
+    "original_image": "img0001.png",
+    "cropped_image": "box_img0001_3.png",
+    "bbox": [
+      255,
+      2837,
+      1963,
+      4084
+    ],
+    "confidence": 0.9028146266937256,
+    "category": "box"
+  },
+  {
+    "original_image": "img0003.png",
+    "cropped_image": "box_img0003_4.png",
+    "bbox": [
+      1302,
+      410,
+      1984,
+      970
+    ],
+    "confidence": 0.9547755122184753,
+    "category": "box"
+  },
+  {
+    "original_image": "img0003.png",
+    "cropped_image": "box_img0003_5.png",
+    "bbox": [
+      859,
+      302,
+      1302,
+      958
+    ],
+    "confidence": 0.9339750409126282,
+    "category": "box"
+  },
+  {
+    "original_image": "img0003.png",
+    "cropped_image": "box_img0003_6.png",
+    "bbox": [
+      169,
+      347,
+      868,
+      927
+    ],
+    "confidence": 0.9199844002723694,
+    "category": "box"
+  },
+  {
+    "original_image": "img0002.png",
+    "cropped_image": "box_img0002_7.png",
+    "bbox": [
+      0,
+      349,
+      925,
+      1800
+    ],
+    "confidence": 0.9450116157531738,
+    "category": "box"
+  },
+  {
+    "original_image": "img0002.png",
+    "cropped_image": "box_img0002_8.png",
+    "bbox": [
+      2233,
+      376,
+      3197,
+      1800
+    ],
+    "confidence": 0.9381872415542603,
+    "category": "box"
+  },
+  {
+    "original_image": "img0002.png",
+    "cropped_image": "box_img0002_9.png",
+    "bbox": [
+      894,
+      243,
+      2253,
+      1798
+    ],
+    "confidence": 0.9378345012664795,
+    "category": "box"
+  },
+  {
+    "original_image": "img0004.png",
+    "cropped_image": "box_img0004_10.png",
+    "bbox": [
+      0,
+      2705,
+      1833,
+      4086
+    ],
+    "confidence": 0.9175184369087219,
+    "category": "box"
+  },
+  {
+    "original_image": "img0004.png",
+    "cropped_image": "box_img0004_11.png",
+    "bbox": [
+      0,
+      0,
+      1906,
+      3068
+    ],
+    "confidence": 0.894053041934967,
+    "category": "box"
+  }
+]

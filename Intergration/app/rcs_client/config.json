@@ -1,7 +1,0 @@
-{
-    "lms": {
-        "base_url": "http://localhost:5000",
-        "user_code": "test",
-        "password": "test"
-    }
-}
