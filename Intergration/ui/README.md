@@ -1,10 +1,4 @@
-# 
 
-项目编号: 7535885851092959523
-
-本项目是由 [网站开发专家](https://space.coze.cn/) 创建.
-
-[**项目地址**](https://space.coze.cn/task/7535885851092959523)
 
 ## 本地开发
 
@@ -25,6 +19,22 @@ pnpm install
 
 ```sh
 pnpm run dev
+```
+
+- 启动 网关模块
+
+```sh
+cd /home/ubuntu/LeafDepot/Intergration/app
+conda activate tobacco_env
+bash start_gateway.sh
+```
+
+- 启动 LMS服务端
+
+```sh
+cd /home/ubuntu/LeafDepot/Intergration/app/sim/lms
+conda activate tobacco_env
+bash start_sim_lms_server.sh
 ```
 
 - 在浏览器访问 http://localhost:3000
