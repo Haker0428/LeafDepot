@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 dog
 person
 cat
@@ -16,3 +17,8 @@ cavity
 box
 barcode
 pile
+=======
+barcode
+box
+pile
+>>>>>>> 8225f8034050537f85a264a70364ab9bb46ba31b
