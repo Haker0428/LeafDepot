@@ -2,8 +2,8 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-21 19:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-10-21 22:28:49
- * @FilePath: /ui/src/main.tsx
+ * @LastEditTime: 2025-10-23 23:15:46
+ * @FilePath: /Intergration/ui/src/main.tsx
  * @Description: 
  * 
  * Copyright (c) 2025 by lizh, All Rights Reserved. 
@@ -17,6 +17,7 @@ import "./index.css";
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { AuthProvider } from '@/contexts/authContext'; // 导入 AuthProvider
+import 'antd/dist/reset.css';
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

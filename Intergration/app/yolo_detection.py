@@ -16,13 +16,13 @@ class YoloDetection:
         初始化条形码检测器
 
         :param model_path: YOLO模型权重文件路径
-        :param class_mapping: 类别ID到名称的映射 (e.g., {0: 'barcode', 1: 'qr', 2: 'piles', 3: 'box'})
+        :param class_mapping: 类别ID到名称的映射 (e.g., {0: 'barcode', 1: 'QR', 2: 'piles', 3: 'box'})
         :param confidence_threshold: 置信度阈值
         :param padding: 裁剪边界扩展像素
         """
         self.model = YOLO(model_path)
         self.class_mapping = class_mapping or {
-            0: 'barcode', 1: 'qr', 2: 'piles', 3: 'box'}
+            0: 'barcode', 1: 'QR', 2: 'piles', 3: 'box'}
         self.confidence_threshold = confidence_threshold
         self.padding = padding
 
@@ -175,7 +175,7 @@ if __name__ == "__main__":
             0: 'barcode',
             1: 'box',
             2: 'piles',
-            3: 'qr'
+            3: 'QR'
         },
         confidence_threshold=0.7,
         padding=50
