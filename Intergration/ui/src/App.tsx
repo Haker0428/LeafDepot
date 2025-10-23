@@ -1,3 +1,13 @@
+/*
+ * @Author: big box big box@qq.com
+ * @Date: 2025-10-21 19:45:34
+ * @LastEditors: big box big box@qq.com
+ * @LastEditTime: 2025-10-23 23:15:56
+ * @FilePath: /Intergration/ui/src/App.tsx
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by lizh, All Rights Reserved. 
+ */
 import { Routes, Route, Navigate } from "react-router-dom";
 import Home from "@/pages/Home";
 import Dashboard from "@/pages/Dashboard";

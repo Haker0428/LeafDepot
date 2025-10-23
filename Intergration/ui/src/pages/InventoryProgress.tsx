@@ -26,6 +26,51 @@ interface LocationInfo {
   locationName: string;
 }
 
+// 定义盘点任务接口（与InventoryStart保持一致）
+interface CountingTask {
+  taskNo: string;
+  taskDetailId: string;
+  binId: string;
+  binDesc: string;
+  binCode: string;
+  itemId: string;
+  itemCode: string;
+  itemDesc: string;
+  invQty: number;
+  qtyUnit: string;
+  countQty: number;
+  status: string;
+}
+
+// 定义任务清单接口
+interface TaskManifest {
+  id: string;
+  name?: string;
+  createdAt: string;
+  createdTimestamp?: number;
+  taskCount: number;
+  tasks: CountingTask[];
+  status: string;
+  totalItems: number;
+  progress?: {
+    total: number;
+    completed: number;
+    pending: number;
+    percentage: number;
+  };
+  statistics?: {
+    totalItems: number;
+    totalValue: number;
+    locations: number;
+    products: number;
+  };
+  metadata?: {
+    createdBy: string;
+    version: string;
+    source: string;
+  };
+}
+
 export default function InventoryProgress() {
   // 统一使用 useAuth 钩子
   const { authToken } = useAuth();
@@ -41,22 +86,89 @@ export default function InventoryProgress() {
   const [selectedLocation, setSelectedLocation] = useState<LocationInfo | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // 从路由状态获取选中的库位信息
+  // 新增状态：任务清单相关
+  const [currentTaskManifest, setCurrentTaskManifest] = useState<TaskManifest | null>(null);
+  const [manifestTasks, setManifestTasks] = useState<CountingTask[]>([]);
+  const [showManifest, setShowManifest] = useState(false);
+
+  // 从本地存储获取任务清单
   useEffect(() => {
-    if (location.state && location.state.selectedLocation) {
-      setSelectedLocation(location.state.selectedLocation);
-      // 模拟加载盘点数据
-      loadInventoryData(location.state.selectedLocation);
-    } else {
-      toast.error('未获取到库位信息，请返回重新选择');
-      setTimeout(() => navigate('/inventory/start'), 1500);
-    }
-  }, [location, navigate]);
+    const loadTaskManifest = () => {
+      try {
+        const manifestData = localStorage.getItem('currentTaskManifest');
+        if (manifestData) {
+          const manifest: TaskManifest = JSON.parse(manifestData);
+          setCurrentTaskManifest(manifest);
+          setManifestTasks(manifest.tasks);
+          toast.success(`已加载任务清单，包含 ${manifest.tasks.length} 个任务`);
+        }
+      } catch (error) {
+        console.error('加载任务清单失败:', error);
+      }
+    };
+
+    loadTaskManifest();
+  }, []);
+
+  // 从路由状态获取选中的库位信息
+  // useEffect(() => {
+  //   if (location.state && location.state.selectedLocation) {
+  //     setSelectedLocation(location.state.selectedLocation);
+  //     // 模拟加载盘点数据
+  //     loadInventoryData(location.state.selectedLocation);
+  //   } else {
+  //     // 如果没有库位信息，尝试从任务清单加载数据
+  //     if (manifestTasks.length > 0) {
+  //       loadInventoryDataFromManifest();
+  //     } else {
+  //       toast.error('未获取到库位信息和任务清单，请返回重新选择');
+  //       setTimeout(() => navigate('/inventory/start'), 1500);
+  //     }
+  //   }
+  // }, [location, navigate, manifestTasks]);
+
+  // 从任务清单加载盘点数据
+  const loadInventoryDataFromManifest = () => {
+    if (manifestTasks.length === 0) return;
+
+    // 将任务清单中的任务转换为盘点数据格式
+    const inventoryData: InventoryItem[] = manifestTasks.map((task, index) => ({
+      id: task.taskDetailId,
+      productName: task.itemDesc || task.taskNo,
+      specification: task.binDesc,
+      systemQuantity: task.invQty,
+      actualQuantity: null,
+      unit: task.qtyUnit,
+      locationId: task.binId,
+      locationName: task.binDesc
+    }));
+
+    setInventoryItems(inventoryData);
+
+    // 模拟进度更新
+    const interval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 30) {
+          clearInterval(interval);
+          return 30; // 初始加载完成30%
+        }
+        return prev + 5;
+      });
+    }, 200);
+
+    return () => clearInterval(interval);
+  };
 
   // 模拟加载盘点数据
   const loadInventoryData = (location: LocationInfo) => {
     // 模拟API请求延迟
     setTimeout(() => {
+      // 如果存在任务清单，优先使用任务清单数据
+      if (manifestTasks.length > 0) {
+        loadInventoryDataFromManifest();
+        return;
+      }
+
       // 模拟盘点数据，包含一些差异项
       const mockItems: InventoryItem[] = [
         {
@@ -155,19 +267,19 @@ export default function InventoryProgress() {
     try {
       setIsSaving(true);
 
-      // 获取盘点结果数据
-      const inventoryResults = [
-        {
-          taskDetailId: "DT20251021001",
-          itemId: "ITEM001",
-          countQty: 15,
-        },
-        {
-          taskDetailId: "DT20251021002",
-          itemId: "ITEM002",
-          countQty: 8,
-        }
-      ];
+      // 获取盘点结果数据 - 从任务清单中获取
+      const inventoryResults = inventoryItems
+        .filter(item => item.actualQuantity !== null)
+        .map(item => ({
+          taskDetailId: item.id,
+          itemId: item.id.replace('INV', 'ITEM'), // 简单转换，实际应根据数据结构调整
+          countQty: item.actualQuantity || 0,
+        }));
+
+      if (inventoryResults.length === 0) {
+        toast.error('请先完成盘点数据录入');
+        return;
+      }
 
       // ✅ 直接使用从函数组件顶部获取的 authToken
       const response = await fetch(`${GATEWAY_URL}/lms/setTaskResults`, {
@@ -199,7 +311,6 @@ export default function InventoryProgress() {
     }
   };
 
-
   // 处理保存盘点结果
   const handleSaveInventory = () => {
     // 检查是否所有项目都已输入实际数量
@@ -217,16 +328,21 @@ export default function InventoryProgress() {
       setIsSaving(false);
       toast.success('盘点结果保存成功！');
 
-      // 2秒后返回仪表盘
+      // 20秒后返回仪表盘
       setTimeout(() => {
         navigate('/dashboard');
-      }, 2000);
+      }, 20000);
     }, 1500);
   };
 
   // 处理返回按钮
   const handleBack = () => {
     navigate('/inventory/start');
+  };
+
+  // 显示/隐藏任务清单
+  const toggleManifestDisplay = () => {
+    setShowManifest(!showManifest);
   };
 
   return (
@@ -251,12 +367,25 @@ export default function InventoryProgress() {
             </div>
           </div>
 
-          <button
-            onClick={handleBack}
-            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-all flex items-center"
-          >
-            <i className="fa-solid fa-arrow-left mr-2"></i>返回
-          </button>
+          <div className="flex items-center space-x-3">
+            {/* 显示任务清单按钮 */}
+            {currentTaskManifest && (
+              <button
+                onClick={toggleManifestDisplay}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-all flex items-center"
+              >
+                <i className="fa-solid fa-list-check mr-2"></i>
+                {showManifest ? '隐藏任务清单' : '显示任务清单'}
+              </button>
+            )}
+
+            <button
+              onClick={handleBack}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-all flex items-center"
+            >
+              <i className="fa-solid fa-arrow-left mr-2"></i>返回
+            </button>
+          </div>
         </div>
       </header>
 
@@ -270,6 +399,95 @@ export default function InventoryProgress() {
           </h2>
           <p className="text-gray-600 mt-1">正在盘点选中库位的库存，请输入实际数量</p>
         </div>
+
+        {/* 任务清单显示区域 */}
+        {showManifest && currentTaskManifest && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="mb-8 bg-white rounded-xl shadow-md p-6 border border-gray-100"
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-green-800 flex items-center">
+                <i className="fa-solid fa-clipboard-list mr-2 text-green-600"></i>
+                当前任务清单
+              </h3>
+              <div className="flex items-center space-x-4">
+                <span className="text-sm text-gray-500">
+                  生成时间: {new Date(currentTaskManifest.createdAt).toLocaleString()}
+                </span>
+                <span className="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full">
+                  {currentTaskManifest.taskCount} 个任务
+                </span>
+              </div>
+            </div>
+
+            {/* 任务清单统计信息 */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-blue-50 p-4 rounded-lg text-center">
+                <p className="text-2xl font-bold text-blue-700">{currentTaskManifest.taskCount}</p>
+                <p className="text-sm text-blue-600">总任务数</p>
+              </div>
+              <div className="bg-green-50 p-4 rounded-lg text-center">
+                <p className="text-2xl font-bold text-green-700">{currentTaskManifest.totalItems}</p>
+                <p className="text-sm text-green-600">总库存数量</p>
+              </div>
+              <div className="bg-purple-50 p-4 rounded-lg text-center">
+                <p className="text-2xl font-bold text-purple-700">
+                  {currentTaskManifest.statistics?.locations || 'N/A'}
+                </p>
+                <p className="text-sm text-purple-600">库位数量</p>
+              </div>
+              <div className="bg-orange-50 p-4 rounded-lg text-center">
+                <p className="text-2xl font-bold text-orange-700">
+                  {currentTaskManifest.statistics?.products || 'N/A'}
+                </p>
+                <p className="text-sm text-orange-600">商品种类</p>
+              </div>
+            </div>
+
+            {/* 任务清单详情表格 */}
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">序号</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">任务编号</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">库位描述</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品描述</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">库存数量</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">单位</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {currentTaskManifest.tasks.map((task, index) => (
+                    <tr key={task.taskDetailId} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{task.taskNo}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{task.binDesc}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{task.itemDesc}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{task.invQty}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{task.qtyUnit}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${task.status === '1' ? 'bg-green-100 text-green-800' :
+                          task.status === '2' ? 'bg-yellow-100 text-yellow-800' :
+                            task.status === '3' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
+                          }`}>
+                          {task.status === '1' ? '正常' :
+                            task.status === '2' ? '预警' :
+                              task.status === '3' ? '异常' : '已锁定'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )}
 
         {/* 盘点进度 */}
         <div className="mb-8 bg-white rounded-xl shadow-md p-6 border border-gray-100">
@@ -304,6 +522,26 @@ export default function InventoryProgress() {
               <div className="bg-gray-50 p-3 rounded-lg">
                 <p className="text-gray-500">库位</p>
                 <p className="font-medium text-gray-800">{selectedLocation.locationName} ({selectedLocation.locationId})</p>
+              </div>
+            </div>
+          )}
+
+          {/* 任务清单信息（如果存在） */}
+          {currentTaskManifest && !showManifest && (
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <i className="fa-solid fa-clipboard-check text-blue-600 mr-2"></i>
+                  <span className="text-sm text-blue-700">
+                    当前使用任务清单: {currentTaskManifest.taskCount} 个任务，总计 {currentTaskManifest.totalItems} 件商品
+                  </span>
+                </div>
+                <button
+                  onClick={toggleManifestDisplay}
+                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                >
+                  查看详情
+                </button>
               </div>
             </div>
           )}
@@ -425,7 +663,6 @@ export default function InventoryProgress() {
                 <button
                   onClick={handleSaveInventoryToLMS}
                   // disabled={isSaving || progress < 100}
-
                   className={`px-6 py-3 rounded-lg transition-colors flex items-center 
                     ? 'bg-gray-400 cursor-not-allowed'
                     : 'bg-green-700 hover:bg-green-800 text-white'

@@ -5,67 +5,66 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner'; // 添加 toast 导入
 import { GATEWAY_URL } from '@/config/ip_address'; // 导入常量
 
-
 export default function Dashboard() {
   // 统一使用 useAuth 钩子
   const { authToken, logout } = useAuth(); // 从 useAuth 获取 logout
-  const [bins, setBins] = useState<any[]>([]);
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  // const [bins, setBins] = useState<any[]>([]);
+  // const [tasks, setTasks] = useState<any[]>([]);
+  // const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate(); // 添加 navigate
 
   // 获取库位信息
-  const fetchBins = async () => {
-    if (!authToken) return;
+  // const fetchBins = async () => {
+  //   if (!authToken) return;
 
-    setLoading(true);
-    try {
-      const response = await fetch(`${GATEWAY_URL}/lms/getLmsBin?authToken=${authToken}`);
-      if (response.ok) {
-        const data = await response.json();
-        setBins(data);
-        console.log('获取库位信息成功:', data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch bins:', error);
-      toast.error('获取库位信息失败');
-    } finally {
-      setLoading(false);
-    }
-  };
+  //   setLoading(true);
+  //   try {
+  //     const response = await fetch(`${GATEWAY_URL}/lms/getLmsBin?authToken=${authToken}`);
+  //     if (response.ok) {
+  //       const data = await response.json();
+  //       setBins(data);
+  //       console.log('获取库位信息成功:', data);
+  //     }
+  //   } catch (error) {
+  //     console.error('Failed to fetch bins:', error);
+  //     toast.error('获取库位信息失败');
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
 
   // 获取盘点任务
-  const fetchTasks = async () => {
-    if (!authToken) return;
+  // const fetchTasks = async () => {
+  //   if (!authToken) return;
 
-    setLoading(true); const { authToken, logout } = useAuth(); // 从 useAuth 获取 logout
+  //   setLoading(true); const { authToken, logout } = useAuth(); // 从 useAuth 获取 logout
 
-    try {
-      const response = await fetch(`${GATEWAY_URL}/lms/getCountTasks?authToken=${authToken}`);
-      if (response.ok) {
-        const data = await response.json();
-        setTasks(data);
-        console.log('获取盘点任务成功:', data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch tasks:', error);
-      toast.error('获取盘点任务失败');
-    } finally {
-      setLoading(false);
-    }
-  };
+  //   try {
+  //     const response = await fetch(`${GATEWAY_URL}/lms/getCountTasks?authToken=${authToken}`);
+  //     if (response.ok) {
+  //       const data = await response.json();
+  //       setTasks(data);
+  //       console.log('获取盘点任务成功:', data);
+  //     }
+  //   } catch (error) {
+  //     console.error('Failed to fetch tasks:', error);
+  //     toast.error('获取盘点任务失败');
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
 
   // 开始盘点按钮点击处理
-  const handleStartInventory = () => {
-    // 获取库位信息
-    fetchBins();
-    // 获取盘点任务
-    fetchTasks();
+  // const handleStartInventory = () => {
+  //   // 获取库位信息
+  //   // fetchBins();
+  //   // 获取盘点任务
+  //   // fetchTasks();
 
-    // 跳转到盘点页面
-    navigate('/inventory/start');
-  };
+  //   // 跳转到盘点页面
+  //   navigate('/inventory/start');
+  // };
 
   // 设置当前日期
   useEffect(() => {
