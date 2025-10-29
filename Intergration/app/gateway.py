@@ -1,5 +1,5 @@
 # gateway.py
-from fastapi import FastAPI, Request, HTTPException, status, Header
+from fastapi import FastAPI, Request, HTTPException, status, Header, BackgroundTasks
 from fastapi.responses import JSONResponse, Response
 import requests
 import json
@@ -7,7 +7,11 @@ import logging
 from typing import Dict, Any
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
-import utils
+import custom_utils
+import uuid
+import time
+import asyncio
+from typing import Dict, List, Optional
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -15,13 +19,17 @@ logger = logging.getLogger(__name__)
 
 # 模拟服务的地址
 LMS_BASE_URL = "http://localhost:6000"
+RCS_BASE_URL = "http://localhost:4001"
 
 app = FastAPI(title="LMS Gateway", version="1.0.0")
 
 # 定义允许的源列表
 origins = [
     "http://localhost",
-    "http://localhost:3000",  # 常见的前端开发服务器端口
+    "http://localhost:3000",  # UI
+    "http://localhost:4001",  # RCS
+    "http://localhost:5000",  # CamSys
+    "http://localhost:6000"  # LMS
 ]
 
 # 将 CORS 中间件添加到应用
@@ -33,8 +41,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 存储RCS任务状态（用于网关层面的状态管理）
+rcs_tasks: Dict[str, dict] = {}
 
 ######################################### LMS #########################################
+
+
 @app.post("/login")
 async def login(request: Request):
     """处理前端登录请求，调用LMS的login接口"""
@@ -130,7 +142,8 @@ async def get_lms_bin(authToken: str):
         if response.status_code == 200:
             # 关键修复：处理LMS返回的压缩编码字符串
             try:
-                uncompressed_data = utils.decompress_and_decode(response.text)
+                uncompressed_data = custom_utils.decompress_and_decode(
+                    response.text)
 
                 logger.info("成功解压缩并解析库位数据")
                 return JSONResponse(uncompressed_data)
@@ -170,7 +183,8 @@ async def get_count_tasks(authToken: str):
         if response.status_code == 200:
             # 关键修复：处理LMS返回的压缩编码字符串
             try:
-                uncompressed_data = utils.decompress_and_decode(response.text)
+                uncompressed_data = custom_utils.decompress_and_decode(
+                    response.text)
 
                 logger.info("成功解压缩并解析盘点任务数据")
                 return JSONResponse(uncompressed_data)
@@ -221,7 +235,7 @@ async def set_task_results(request: Request):
 
         # 2. 从请求体获取JSON数据（前端发送的是标准JSON）
         data = await request.json()
-        encoded_data = utils.compress_and_encode(data)
+        encoded_data = custom_utils.compress_and_encode(data)
 
         # 6. 调用LMS接口（使用压缩后的数据）
         lms_results_url = f"{LMS_BASE_URL}/third/api/v1/RcsToLmsService/setTaskResults"
@@ -247,6 +261,58 @@ async def set_task_results(request: Request):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="提交盘点结果请求处理失败"
         )
+
+######################################### RCS #########################################
+
+rcs_service_prefix = "/rcs/rtas"
+
+
+@app.post("/rcs/controller/task/group")
+async def set_tasks_group(request: Request):
+    """调用RCS的任务组接口"""
+
+    logger.info("发送请求到RCS服务...")
+
+    rcs_task_group_url = f"{RCS_BASE_URL}{rcs_service_prefix}/api/robot/controller/task/group"
+
+    try:
+        logger.info(f"发送任务组创建请求: {rcs_task_group_url}")
+
+        json_data = await request.json()
+        logger.info(f"接收到的任务组数据: {json_data}")
+
+        response = requests.post(
+            url=rcs_task_group_url,
+            json=json_data,
+            headers=dict(request.headers),  # 转换为普通字典
+            timeout=30
+        )
+
+        logger.info(f"响应状态码: {response.status_code}")
+        logger.info(f"响应内容: {response.text}")
+
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("code") == "SUCCESS":
+                logger.info("任务组创建成功")
+            else:
+                logger.warning(f"任务组创建返回业务异常: {result.get('message')}")
+            return result
+        else:
+            logger.error(f"HTTP请求失败: {response.status_code}")
+            return {
+                "code": f"HTTP_ERROR_{response.status_code}",
+                "message": f"HTTP请求失败: {response.status_code}",
+                "data": None
+            }
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"请求异常: {str(e)}")
+        return {
+            "code": "REQUEST_ERROR",
+            "message": f"请求异常: {str(e)}",
+            "data": None
+        }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

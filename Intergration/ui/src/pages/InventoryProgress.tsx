@@ -1,9 +1,25 @@
+/*
+ * @Author: big box big box@qq.com
+ * @Date: 2025-10-21 19:45:34
+ * @LastEditors: big box big box@qq.com
+ * @LastEditTime: 2025-10-28 00:37:46
+ * @FilePath: /ui/src/pages/InventoryProgress.tsx
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by lizh, All Rights Reserved. 
+ */
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { GATEWAY_URL } from '@/config/ip_address'; // 导入常量
 import { useAuth } from '@/contexts/authContext';
+
+import { v4 as uuidv4 } from 'uuid';
+import { createTaskGroupData } from '../hooks/taskUtils';
+import { CreateTaskGroupRequest, TaskData, TargetRoute, ApiResponse } from '../hooks/types';
+
+
 
 // 定义接口类型
 interface InventoryItem {
@@ -71,6 +87,24 @@ interface TaskManifest {
   };
 }
 
+// 定义任务状态响应接口
+interface TaskStatusResponse {
+  success: boolean;
+  data: {
+    taskNo: string;
+    status: string;
+    totalTasks: number;
+    completedTasks: number;
+    progress: number;
+    completedItems: Array<{
+      taskDetailId: string;
+      status: string;
+      countedQty: number;
+    }>;
+  };
+  message?: string;
+}
+
 export default function InventoryProgress() {
   // 统一使用 useAuth 钩子
   const { authToken } = useAuth();
@@ -85,11 +119,15 @@ export default function InventoryProgress() {
   const [progress, setProgress] = useState(0);
   const [selectedLocation, setSelectedLocation] = useState<LocationInfo | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isIssuingTask, setIsIssuingTask] = useState(false); // 下发任务状态
+  const [currentTaskNo, setCurrentTaskNo] = useState<string | null>(null); // 当前任务号
+  const [taskStatus, setTaskStatus] = useState<TaskStatusResponse['data'] | null>(null); // 任务状态
 
   // 新增状态：任务清单相关
   const [currentTaskManifest, setCurrentTaskManifest] = useState<TaskManifest | null>(null);
   const [manifestTasks, setManifestTasks] = useState<CountingTask[]>([]);
   const [showManifest, setShowManifest] = useState(false);
+  const [response, setResponse] = useState<ApiResponse | null>(null);
 
   // 从本地存储获取任务清单
   useEffect(() => {
@@ -100,6 +138,12 @@ export default function InventoryProgress() {
           const manifest: TaskManifest = JSON.parse(manifestData);
           setCurrentTaskManifest(manifest);
           setManifestTasks(manifest.tasks);
+
+          // 如果任务清单中有任务，设置第一个任务的taskNo
+          if (manifest.tasks.length > 0) {
+            setCurrentTaskNo(manifest.tasks[0].taskNo);
+          }
+
           toast.success(`已加载任务清单，包含 ${manifest.tasks.length} 个任务`);
         }
       } catch (error) {
@@ -110,22 +154,113 @@ export default function InventoryProgress() {
     loadTaskManifest();
   }, []);
 
-  // 从路由状态获取选中的库位信息
-  // useEffect(() => {
-  //   if (location.state && location.state.selectedLocation) {
-  //     setSelectedLocation(location.state.selectedLocation);
-  //     // 模拟加载盘点数据
-  //     loadInventoryData(location.state.selectedLocation);
-  //   } else {
-  //     // 如果没有库位信息，尝试从任务清单加载数据
-  //     if (manifestTasks.length > 0) {
-  //       loadInventoryDataFromManifest();
-  //     } else {
-  //       toast.error('未获取到库位信息和任务清单，请返回重新选择');
-  //       setTimeout(() => navigate('/inventory/start'), 1500);
-  //     }
-  //   }
-  // }, [location, navigate, manifestTasks]);
+  // 下发盘点任务
+  const handleIssueCountingTask = async () => {
+    if (!currentTaskManifest || currentTaskManifest.tasks.length === 0) {
+      toast.error('没有可下发的任务清单');
+      return;
+    }
+
+    if (!currentTaskNo) {
+      toast.error('无法获取任务号');
+      return;
+    }
+
+    try {
+      // 生成任务组数据
+      // const taskGroupData: CreateTaskGroupRequest = createTaskGroupData();
+
+      // 将 currentTaskManifest 中的任务转换为 RCS 任务组格式
+      const taskData: TaskData[] = currentTaskManifest.tasks.map((task, index) => ({
+        robotTaskCode: task.taskNo, // 使用 manifest 中的 taskNo
+        sequence: index + 1 // 按顺序编号
+      }));
+
+      // 目标路由
+      const targetRoute: TargetRoute = {
+        type: "ZONE",
+        code: "A3"
+      };
+
+      const taskGroupRequest: CreateTaskGroupRequest = {
+        groupCode: currentTaskManifest.id,
+        strategy: "GROUP_SEQ",
+        strategyValue: "1", // 组间及组内都有序
+        groupSeq: 10,
+        targetRoute: targetRoute,
+        data: taskData
+      };
+
+      console.log('发送的任务组数据:', JSON.stringify(taskGroupRequest, null, 2));
+
+      // 调用网关接口
+      const result = await fetch(`${GATEWAY_URL}/rcs/controller/task/group`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-lr-request-id': uuidv4(),
+          'x-lr-trace-id': uuidv4(),
+        },
+        body: JSON.stringify(taskGroupRequest)
+      });
+
+      const responseData: ApiResponse = await result.json();
+      setResponse(responseData);
+
+      if (responseData.code === 'SUCCESS') {
+        toast.error(`任务组下发成功`);
+
+        console.log('任务组下发成功');
+      } else {
+        console.warn('任务组下发返回业务异常:', responseData.message);
+      }
+
+    } catch (error) {
+      console.error('下发任务组失败:', error);
+      toast.error(`任务组下发失败: ${error.message}`);
+    } finally {
+      setIsIssuingTask(false);
+    }
+  };
+
+  // 轮询任务状态
+  const startPollingTaskStatus = () => {
+    if (!currentTaskNo) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`${GATEWAY_URL}/rcs/task-progress/${currentTaskNo}`, {
+          method: 'GET',
+          headers: {
+            'authToken': authToken || '',
+          },
+        });
+
+        if (response.ok) {
+          const result: TaskStatusResponse = await response.json();
+          if (result.success && result.data) {
+            setTaskStatus(result.data);
+
+            // 更新进度
+            setProgress(result.data.progress);
+
+            // 如果任务完成，停止轮询
+            if (result.data.status === 'COMPLETED' || result.data.progress >= 100) {
+              clearInterval(pollInterval);
+              toast.success('盘点任务已完成');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('获取任务状态失败:', error);
+      }
+    }, 3000); // 每3秒轮询一次
+
+    // 10分钟后停止轮询
+    setTimeout(() => {
+      clearInterval(pollInterval);
+    }, 10 * 60 * 1000);
+  };
 
   // 从任务清单加载盘点数据
   const loadInventoryDataFromManifest = () => {
@@ -159,87 +294,6 @@ export default function InventoryProgress() {
     return () => clearInterval(interval);
   };
 
-  // 模拟加载盘点数据
-  const loadInventoryData = (location: LocationInfo) => {
-    // 模拟API请求延迟
-    setTimeout(() => {
-      // 如果存在任务清单，优先使用任务清单数据
-      if (manifestTasks.length > 0) {
-        loadInventoryDataFromManifest();
-        return;
-      }
-
-      // 模拟盘点数据，包含一些差异项
-      const mockItems: InventoryItem[] = [
-        {
-          id: 'INV001',
-          productName: '黄鹤楼',
-          specification: '硬盒',
-          systemQuantity: 50,
-          actualQuantity: null,
-          unit: '箱',
-          locationId: location.locationId,
-          locationName: location.locationName
-        },
-        {
-          id: 'INV002',
-          productName: '玉溪',
-          specification: '软盒',
-          systemQuantity: 35,
-          actualQuantity: null,
-          unit: '箱',
-          locationId: location.locationId,
-          locationName: location.locationName
-        },
-        {
-          id: 'INV003',
-          productName: '荷花',
-          specification: '细支',
-          systemQuantity: 28,
-          actualQuantity: null,
-          unit: '箱',
-          locationId: location.locationId,
-          locationName: location.locationName
-        },
-        {
-          id: 'INV004',
-          productName: '利群',
-          specification: '新版',
-          systemQuantity: 42,
-          actualQuantity: null,
-          unit: '箱',
-          locationId: location.locationId,
-          locationName: location.locationName
-        },
-        {
-          id: 'INV005',
-          productName: 'ESSE',
-          specification: '蓝盒',
-          systemQuantity: 60,
-          actualQuantity: null,
-          unit: '箱',
-          locationId: location.locationId,
-          locationName: location.locationName
-        }
-      ];
-
-      setInventoryItems(mockItems);
-
-      // 模拟进度更新
-      const interval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 30) {
-            clearInterval(interval);
-            return 30; // 初始加载完成30%
-          }
-          return prev + 5;
-        });
-      }, 200);
-
-      return () => clearInterval(interval);
-    }, 1000);
-  };
-
   // 处理实际数量输入变化
   const handleActualQuantityChange = (id: string, value: string) => {
     const numericValue = value ? parseInt(value, 10) : null;
@@ -261,7 +315,7 @@ export default function InventoryProgress() {
     setProgress(Math.min(Math.round(newProgress), 100));
   };
 
-  // ✅ 修正：不再在异步函数中调用 useAuth
+  // 保存盘点结果到LMS
   const handleSaveInventoryToLMS = async () => {
     if (isSaving) return;
     try {
@@ -281,7 +335,6 @@ export default function InventoryProgress() {
         return;
       }
 
-      // ✅ 直接使用从函数组件顶部获取的 authToken
       const response = await fetch(`${GATEWAY_URL}/lms/setTaskResults`, {
         method: 'POST',
         headers: {
@@ -296,6 +349,11 @@ export default function InventoryProgress() {
         if (result.success) {
           toast.success('盘点结果已成功上传至LMS');
           setProgress(100);
+
+          // 更新任务状态
+          if (currentTaskNo) {
+            startPollingTaskStatus();
+          }
         } else {
           throw new Error(result.message || '上传失败');
         }
@@ -368,6 +426,33 @@ export default function InventoryProgress() {
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* 下发任务按钮 */}
+            {currentTaskManifest && !taskStatus && (
+              <button
+                onClick={handleIssueCountingTask}
+                disabled={isIssuingTask}
+                className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg transition-all flex items-center disabled:bg-orange-400"
+              >
+                {isIssuingTask ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin mr-2"></i>下发中...
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-play mr-2"></i>下发盘点任务
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* 显示任务状态 */}
+            {taskStatus && (
+              <div className="bg-blue-100 text-blue-800 px-4 py-2 rounded-lg flex items-center">
+                <i className="fa-solid fa-info-circle mr-2"></i>
+                任务进度: {taskStatus.completedTasks}/{taskStatus.totalTasks} ({taskStatus.progress}%)
+              </div>
+            )}
+
             {/* 显示任务清单按钮 */}
             {currentTaskManifest && (
               <button
@@ -507,6 +592,30 @@ export default function InventoryProgress() {
               transition={{ duration: 0.5, ease: "easeOut" }}
             ></motion.div>
           </div>
+
+          {/* 任务状态信息 */}
+          {taskStatus && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mb-4">
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <p className="text-blue-500">任务状态</p>
+                <p className="font-medium text-blue-800">
+                  {taskStatus.status === 'IN_PROGRESS' ? '进行中' :
+                    taskStatus.status === 'COMPLETED' ? '已完成' :
+                      taskStatus.status}
+                </p>
+              </div>
+              <div className="bg-green-50 p-3 rounded-lg">
+                <p className="text-green-500">完成情况</p>
+                <p className="font-medium text-green-800">
+                  {taskStatus.completedTasks} / {taskStatus.totalTasks} 项
+                </p>
+              </div>
+              <div className="bg-purple-50 p-3 rounded-lg">
+                <p className="text-purple-500">任务编号</p>
+                <p className="font-medium text-purple-800">{taskStatus.taskNo}</p>
+              </div>
+            </div>
+          )}
 
           {/* 库位信息 */}
           {selectedLocation && (
@@ -662,8 +771,8 @@ export default function InventoryProgress() {
 
                 <button
                   onClick={handleSaveInventoryToLMS}
-                  // disabled={isSaving || progress < 100}
-                  className={`px-6 py-3 rounded-lg transition-colors flex items-center 
+                  disabled={isSaving}
+                  className={`px-6 py-3 rounded-lg transition-colors flex items-center ${isSaving
                     ? 'bg-gray-400 cursor-not-allowed'
                     : 'bg-green-700 hover:bg-green-800 text-white'
                     }`}
