@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Add custom path to sys.path
 sys.path.append('../../')
-import utils # fmt:off
+import custom_utils # fmt:off
 
 
 # LMS模拟服务配置
@@ -176,7 +176,7 @@ async def get_lms_bin(request: Request):
         )
 
     # 返回储位信息
-    encoded_data = utils.compress_and_encode(bins_data)
+    encoded_data = custom_utils.compress_and_encode(bins_data)
     return Response(content=encoded_data, media_type="text/plain")
 
 
@@ -192,7 +192,7 @@ async def get_count_tasks(request: Request):
         )
 
     # 返回盘点任务
-    encoded_data = utils.compress_and_encode(tasks_data)
+    encoded_data = custom_utils.compress_and_encode(tasks_data)
     return Response(content=encoded_data, media_type="text/plain")
 
 
@@ -217,7 +217,7 @@ async def set_task_results(request: Request):
         # 解码并解析请求体
         encoded_data = await request.body()
         encoded_data_str = encoded_data.decode('utf-8')
-        task_data = utils.decompress_and_decode(encoded_data_str)
+        task_data = custom_utils.decompress_and_decode(encoded_data_str)
         return "update countQty success"
 
     except Exception as e:

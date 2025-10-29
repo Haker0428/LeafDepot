@@ -1,160 +1,149 @@
-import zmq
+'''
+Author: big box big box@qq.com
+Date: 2025-10-20 23:13:24
+LastEditors: big box big box@qq.com
+LastEditTime: 2025-10-27 23:16:03
+FilePath: /rcs/sim_rcs_server.py
+Description: 
+
+Copyright (c) 2025 by lizh, All Rights Reserved. 
+'''
+# main.py
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import asyncio
+import uuid
 import time
+from typing import Dict
 import logging
-import os
-from PIL import Image
-import io
-import base64
-import requests
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+from enum import Enum
+import hashlib
+import hmac
+import json
 
 # 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("rcs_simulator.log"),
-        logging.StreamHandler()
-    ]
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(
+    title="RCS-2000",
+    description="模拟RCS-2000系统处理盘点任务清单",
+    version="1.0.0"
 )
-logger = logging.getLogger("RCSSimulator")
+
+# 定义允许的源列表
+origins = [
+    "http://localhost",
+    "http://localhost:8000",  # 内部网关端口
+    "http://localhost:5000",  # CamSys
+]
+
+# 将 CORS 中间件添加到应用
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+service_prefix = "/rcs/rtas"
+
+# 存储任务组信息的内存数据库
+task_groups_db = {}
+
+# 请求和响应模型
 
 
-class RCSSimulator:
-    """RCS系统模拟服务，负责执行任务、调用相机系统（HTTP）和与外部网关通信"""
+class TargetRoute(BaseModel):
+    type: str = Field(..., description="目标类型: SITE-站点别名, ZONE-目标所处区域编号")
+    code: str = Field(..., description="目标编号")
 
-    def __init__(self, external_gateway_addr: str = "tcp://localhost:6666"):
-        """
-        初始化RCS模拟器
 
-        :param external_gateway_addr: 外部网关的RCS通信地址
-        """
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.REQ)
-        self.socket.connect(external_gateway_addr)
-        logger.info(
-            "RCS Simulator connected to external gateway at %s", external_gateway_addr)
-        self.image_dir = "../cam_sys/camera_images"
-        os.makedirs(self.image_dir, exist_ok=True)
-        logger.info("Camera image directory created: %s", self.image_dir)
+class TaskData(BaseModel):
+    robotTaskCode: str = Field(..., description="任务号，全局唯一")
+    sequence: Optional[int] = Field(None, description="任务顺序(数字)，从1开始到9999")
 
-        # 配置cam_sys URL (假设cam_sys运行在localhost:5010)
-        self.cam_sys_url = "http://localhost:5010/take_photo"
 
-    def simulate_task_execution(self, task_id: str, bin_code: str):
-        """模拟RCS任务执行流程，调用cam_sys拍照"""
-        logger.info("RCS: Starting task %s for bin %s", task_id, bin_code)
+class TaskGroupRequest(BaseModel):
+    groupCode: Optional[str] = Field(None, description="任务组编号，全局唯一")
+    strategy: str = Field(...,
+                          description="执行策略: GROUP_SEQ, GROUP_ASSIGN, GROUP_CARRIER_ADJUST")
+    strategyValue: Optional[str] = Field(None, description="策略值")
+    groupSeq: Optional[int] = Field(None, description="组顺序(数字)，从1到9999999999")
+    targetRoute: Optional[TargetRoute] = Field(
+        None, description="执行任务的下一个目标位置")
+    data: List[TaskData] = Field(..., description="任务数据列表")
 
-        # 模拟任务执行过程（5秒）
-        logger.info("RCS: Task in progress...")
-        time.sleep(2)
 
-        # 模拟就位状态
-        # self._send_task_status(task_id, "positioned")
-        logger.info("RCS: Positioning complete")
+class TaskGroupResponse(BaseModel):
+    code: str = Field(..., description="消息码")
+    message: str = Field(..., description="消息内容")
 
-        # 调用cam_sys拍照 (HTTP POST)
-        self._take_photo(task_id, bin_code)
-        logger.info("RCS: Photo taken via cam_sys")
+# 任务组接口
 
-        # 模拟任务完成状态
-        # self._send_task_status(task_id, "completed")
-        logger.info("RCS: Task completed")
 
-    def _take_photo(self, task_id: str, bin_code: str):
-        """通过HTTP调用cam_sys拍照 (模拟请求-响应)"""
-        try:
-            # 发送HTTP POST请求到cam_sys
-            payload = {
-                "task_id": task_id,
-                "bin_code": bin_code
+@app.post(service_prefix + "/api/robot/controller/task/group")
+async def create_task_group(request: TaskGroupRequest):
+
+    try:
+        # 验证必要参数
+        if not request.data:
+            raise HTTPException(status_code=400, detail="任务数据不能为空")
+
+        if not request.strategy:
+            raise HTTPException(status_code=400, detail="执行策略不能为空")
+
+        # 验证策略值
+        valid_strategies = ["GROUP_SEQ",
+                            "GROUP_ASSIGN", "GROUP_CARRIER_ADJUST"]
+        if request.strategy not in valid_strategies:
+            raise HTTPException(
+                status_code=400, detail=f"不支持的策略类型: {request.strategy}")
+
+        # 验证任务顺序
+        sequences = [
+            task.sequence for task in request.data if task.sequence is not None]
+        if sequences and len(sequences) != len(set(sequences)):
+            raise HTTPException(status_code=400, detail="任务顺序不能重复")
+
+        # 生成任务组编号（如果未提供）
+        group_code = request.groupCode or str(
+            uuid.uuid4()).replace("-", "")[:32]
+
+        # 存储任务组信息
+        task_group_info = {
+            "groupCode": group_code,
+            "strategy": request.strategy,
+            "strategyValue": request.strategyValue,
+            "groupSeq": request.groupSeq,
+            "targetRoute": request.targetRoute.model_dump() if request.targetRoute else None,
+            "data": [task.model_dump() for task in request.data],
+        }
+
+        task_groups_db[group_code] = task_group_info
+
+        # 返回成功响应
+        return JSONResponse(
+            status_code=200,
+            content={
+                "code": "SUCCESS",
+                "message": "成功"
             }
-            response = requests.post(self.cam_sys_url, json=payload)
-            response.raise_for_status()
+        )
 
-            # 从cam_sys响应中获取照片信息
-            result = response.json()
-            logger.info("RCS: cam_sys response: %s", result)
-
-            # 如果cam_sys返回成功，继续流程
-            if result.get("status") == "success":
-                logger.info("RCS: Photo saved by cam_sys at %s",
-                            result.get("image_path"))
-            else:
-                logger.error("RCS: cam_sys error: %s",
-                             result.get("message", "Unknown error"))
-        except Exception as e:
-            logger.error("RCS: Failed to call cam_sys: %s", str(e))
-            # 回退到内部模拟拍照 (用于测试)
-            self._simulate_internal_photo(task_id, bin_code)
-
-    def _simulate_internal_photo(self, task_id: str, bin_code: str):
-        """内部模拟拍照 (当cam_sys不可用时)"""
-        # 创建模拟图片
-        img = Image.new('RGB', (800, 600), color=(random.randint(
-            0, 255), random.randint(0, 255), random.randint(0, 255)))
-        img_io = io.BytesIO()
-        img.save(img_io, format='PNG')
-        img_data = img_io.getvalue()
-
-        # 保存到SD卡 (使用模拟SD卡路径)
-        image_path = os.path.join(
-            self.image_dir, f"simulated_sd_{task_id}_{bin_code}.png")
-        with open(image_path, "wb") as f:
-            f.write(img_data)
-        logger.info("RCS: Internal photo saved to %s", image_path)
-
-    def _send_task_status(self, task_id: str, status: str):
-        """发送任务状态到外部网关 (ZMQ)"""
-        status_msg = f"task_status_update:{task_id},{status}"
-        self.socket.send_string(status_msg)
-        response = self.socket.recv_string()
-        logger.info("RCS: Status update response: %s", response)
-
-    def get_image(self, task_id: str):
-        """获取指定任务的图片 (通过cam_sys的HTTP接口)"""
-        # 实际系统中，这里会调用cam_sys的HTTP接口
-        # 但为简化，我们直接从本地文件读取
-        image_path = os.path.join(
-            self.image_dir, f"simulated_sd_{task_id}_*.png")
-        image_files = [f for f in os.listdir(
-            self.image_dir) if f.startswith(f"simulated_sd_{task_id}_")]
-
-        if image_files:
-            image_file = image_files[0]
-            image_path = os.path.join(self.image_dir, image_file)
-            with open(image_path, "rb") as f:
-                image_data = f.read()
-
-            # 编码为Base64
-            image_base64 = base64.b64encode(image_data).decode('utf-8')
-            return {
-                "task_id": task_id,
-                "image": image_base64,
-                "format": "png"
-            }
-        else:
-            logger.error("RCS: Image not found for task %s", task_id)
-            return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        # 记录错误日志
+        print(f"创建任务组时发生错误: {str(e)}")
+        raise HTTPException(status_code=500, detail="内部服务器错误")
 
 
 if __name__ == "__main__":
-    # 初始化RCS模拟器
-    rcs = RCSSimulator()
-
-    # 模拟任务执行
-    task_id = "TASK_001"
-    bin_code = "BIN001"
-
-    print("\n=== RCS SYSTEM SIMULATION ===")
-    print(f"Starting task {task_id} for bin {bin_code}")
-    rcs.simulate_task_execution(task_id, bin_code)
-
-    print("\n=== RCS: Requesting image for task", task_id)
-    image_data = rcs.get_image(task_id)
-    if image_data:
-        print("RCS: Image retrieved successfully (via cam_sys)")
-        # 在实际系统中，这里会将图片发送给内部网关
-    else:
-        print("RCS: Failed to retrieve image")
-
-    print("\n=== RCS SIMULATION COMPLETED ===")
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=4001)
