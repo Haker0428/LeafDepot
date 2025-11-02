@@ -2,7 +2,7 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-29 22:34:54
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-10-29 22:56:54
+ * @LastEditTime: 2025-11-02 22:28:04
  * @FilePath: /cam_sys/src/CameraController.h
  * @Description:
  *
@@ -12,6 +12,7 @@
 #define CAMERACONTROLLER_H
 
 #include <string>
+#include <vector>
 
 #include "HCNetSDK/HCNetSDK.h"
 
@@ -77,7 +78,7 @@ class CameraController {
   // 图片处理
   int doFindPicture(int channel, const LinuxSystemTime& startTime,
                     const LinuxSystemTime& endTime,
-                    NET_DVR_FIND_PICTURE_V50& fileInfo);
+                    std::vector<NET_DVR_FIND_PICTURE_V50>& foundPictures);
   bool doGetPicture(const NET_DVR_FIND_PICTURE_V50& fileInfo);
 
   // 时间转换

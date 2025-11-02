@@ -8,6 +8,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <vector>
 
 CameraController::CameraController()
     : m_userId(-1), m_isConnected(false), m_isInitialized(false) {
@@ -114,19 +115,32 @@ int CameraController::findPictures(int channel,
     return 0;
   }
 
-  NET_DVR_FIND_PICTURE_V50 fileInfo = {0};
-  int fileCount = doFindPicture(channel, startTime, endTime, fileInfo);
+  std::vector<NET_DVR_FIND_PICTURE_V50> foundPictures;
+  int fileCount = doFindPicture(channel, startTime, endTime, foundPictures);
 
   if (fileCount > 0) {
     std::cout << "Found " << fileCount << " pictures. Downloading..."
               << std::endl;
-    // 保存最后找到的图片信息
-    m_lastFoundPicture = fileInfo;
-    if (doGetPicture(fileInfo)) {
-      std::cout << "Picture downloaded successfully" << std::endl;
-    } else {
-      std::cout << "Failed to download picture" << std::endl;
+
+    int successCount = 0;
+    for (const auto& picture : foundPictures) {
+      if (doGetPicture(picture)) {
+        successCount++;
+        std::cout << "Picture downloaded successfully: " << picture.sFileName
+                  << std::endl;
+      } else {
+        std::cout << "Failed to download picture: " << picture.sFileName
+                  << std::endl;
+      }
     }
+
+    // 保存最后找到的图片信息
+    if (!foundPictures.empty()) {
+      m_lastFoundPicture = foundPictures.back();
+    }
+
+    std::cout << "Download completed: " << successCount << "/" << fileCount
+              << " pictures downloaded successfully" << std::endl;
   }
 
   return fileCount;
@@ -198,10 +212,10 @@ void CameraController::convertToNetDvrTime(const LinuxSystemTime& src,
   dst.dwSecond = src.second;
 }
 
-int CameraController::doFindPicture(int channel,
-                                    const LinuxSystemTime& startTime,
-                                    const LinuxSystemTime& endTime,
-                                    NET_DVR_FIND_PICTURE_V50& fileInfo) {
+int CameraController::doFindPicture(
+    int channel, const LinuxSystemTime& startTime,
+    const LinuxSystemTime& endTime,
+    std::vector<NET_DVR_FIND_PICTURE_V50>& foundPictures) {
   int fileCount = 0;
 
   NET_DVR_FIND_PICTURE_PARAM findParam = {0};
@@ -222,9 +236,10 @@ int CameraController::doFindPicture(int channel,
 
   bool keepFinding = true;
   LONG result = -1;
-  NET_DVR_FIND_PICTURE_V50 fileInfoV50 = {0};
+  foundPictures.clear();
 
   while (keepFinding) {
+    NET_DVR_FIND_PICTURE_V50 fileInfoV50 = {0};
     result = NET_DVR_FindNextPicture_V50(findHandle, &fileInfoV50);
 
     switch (result) {
@@ -243,6 +258,8 @@ int CameraController::doFindPicture(int channel,
                   << fileInfoV50.struTime.dwSecond
                   << ", FileSize: " << fileInfoV50.dwFileSize << std::endl;
         fileCount++;
+        // 保存找到的图片信息到向量中
+        foundPictures.push_back(fileInfoV50);
         continue;
       case 1002:
         usleep(5000);
@@ -268,12 +285,12 @@ int CameraController::doFindPicture(int channel,
   }
 
   std::cout << "Total number of pictures: " << fileCount << std::endl;
-  fileInfo = fileInfoV50;
   return fileCount;
 }
 
 bool CameraController::doGetPicture(const NET_DVR_FIND_PICTURE_V50& fileInfo) {
   NET_DVR_PIC_PARAM picParam = {0};
+  // picParam.dwSize = sizeof(picParam);
   picParam.pDVRFileName = const_cast<char*>(fileInfo.sFileName);
   picParam.dwBufLen = fileInfo.dwFileSize;
 

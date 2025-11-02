@@ -1,3 +1,13 @@
+/*
+ * @Author: big box big box@qq.com
+ * @Date: 2025-10-29 21:44:16
+ * @LastEditors: big box big box@qq.com
+ * @LastEditTime: 2025-11-02 22:23:31
+ * @FilePath: /cam_sys/src/main.cpp
+ * @Description:
+ *
+ * Copyright (c) 2025 by lizh, All Rights Reserved.
+ */
 #include <iostream>
 
 #include "CameraController.h"
@@ -31,39 +41,16 @@ int main() {
     std::cout << "No pictures found on channel " << channel
               << " with default time range." << std::endl;
 
-    // 方法2：使用指定时间范围（示例：前一天）
-    std::cout << "\n2. Trying with custom time range (previous day)..."
-              << std::endl;
+    // 方法2：直接使用硬编码的时间范围
+    std::cout << "\n3. Searching with hardcoded time range..." << std::endl;
+    LinuxSystemTime customStart(2025, 11, 2, 0, 0, 0);
+    LinuxSystemTime customEnd(2025, 11, 2, 23, 59, 59);
+    int pictureCount3 = camera.findPictures(channel, customStart, customEnd);
 
-    // 获取当前时间
-    LinuxSystemTime currentTime = camera.getLocalTime();
-
-    // 设置前一天的时间范围
-    LinuxSystemTime startTime(currentTime.year, currentTime.month,
-                              currentTime.day - 1, 0, 0, 0);
-    LinuxSystemTime endTime(currentTime.year, currentTime.month,
-                            currentTime.day - 1, 23, 59, 59);
-
-    int pictureCount2 = camera.findPictures(channel, startTime, endTime);
-
-    if (pictureCount2 == 0) {
-      std::cout << "No pictures found on channel " << channel
-                << " with custom time range either." << std::endl;
+    if (pictureCount3 > 0) {
+      std::cout << "Found " << pictureCount3
+                << " pictures in custom time range." << std::endl;
     }
-  } else {
-    std::cout << "Successfully found and downloaded " << pictureCount1
-              << " pictures." << std::endl;
-  }
-
-  // 方法3：直接使用硬编码的时间范围
-  std::cout << "\n3. Searching with hardcoded time range..." << std::endl;
-  LinuxSystemTime customStart(2024, 1, 1, 0, 0, 0);
-  LinuxSystemTime customEnd(2024, 12, 31, 23, 59, 59);
-  int pictureCount3 = camera.findPictures(channel, customStart, customEnd);
-
-  if (pictureCount3 > 0) {
-    std::cout << "Found " << pictureCount3 << " pictures in custom time range."
-              << std::endl;
   }
 
   // 等待用户输入退出
