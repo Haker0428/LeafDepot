@@ -153,6 +153,30 @@ src/CameraController.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cam_sys.dir/build.make CMakeFiles/cam_sys.dir/src/CameraController.cpp.s
 .PHONY : src/CameraController.cpp.s
 
+src/ConfigManager.o: src/ConfigManager.cpp.o
+.PHONY : src/ConfigManager.o
+
+# target to build an object file
+src/ConfigManager.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cam_sys.dir/build.make CMakeFiles/cam_sys.dir/src/ConfigManager.cpp.o
+.PHONY : src/ConfigManager.cpp.o
+
+src/ConfigManager.i: src/ConfigManager.cpp.i
+.PHONY : src/ConfigManager.i
+
+# target to preprocess a source file
+src/ConfigManager.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cam_sys.dir/build.make CMakeFiles/cam_sys.dir/src/ConfigManager.cpp.i
+.PHONY : src/ConfigManager.cpp.i
+
+src/ConfigManager.s: src/ConfigManager.cpp.s
+.PHONY : src/ConfigManager.s
+
+# target to generate assembly for a file
+src/ConfigManager.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cam_sys.dir/build.make CMakeFiles/cam_sys.dir/src/ConfigManager.cpp.s
+.PHONY : src/ConfigManager.cpp.s
+
 src/main.o: src/main.cpp.o
 .PHONY : src/main.o
 
@@ -189,6 +213,9 @@ help:
 	@echo "... src/CameraController.o"
 	@echo "... src/CameraController.i"
 	@echo "... src/CameraController.s"
+	@echo "... src/ConfigManager.o"
+	@echo "... src/ConfigManager.i"
+	@echo "... src/ConfigManager.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"

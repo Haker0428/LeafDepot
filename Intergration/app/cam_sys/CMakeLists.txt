@@ -12,6 +12,7 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 add_executable(${PROJECT_NAME} 
     src/main.cpp
     src/CameraController.cpp
+    src/ConfigManager.cpp
 )
 
 # 设置RPATH - 使用相对路径
@@ -94,4 +95,9 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "${CMAKE_SOURCE_DIR}/lib/HCNetSDKCom/*.so"
         $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMENT "Copying required libraries to build directory"
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        "${CMAKE_SOURCE_DIR}/config.json"
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>  
+    COMMENT "Copying config.json to build directory"
 )

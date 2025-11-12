@@ -1,6 +1,8 @@
 file(REMOVE_RECURSE
   "CMakeFiles/cam_sys.dir/src/CameraController.cpp.o"
   "CMakeFiles/cam_sys.dir/src/CameraController.cpp.o.d"
+  "CMakeFiles/cam_sys.dir/src/ConfigManager.cpp.o"
+  "CMakeFiles/cam_sys.dir/src/ConfigManager.cpp.o.d"
   "CMakeFiles/cam_sys.dir/src/main.cpp.o"
   "CMakeFiles/cam_sys.dir/src/main.cpp.o.d"
   "cam_sys"
