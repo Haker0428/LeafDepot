@@ -9,6 +9,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/home/ubuntu/LeafDepot/Intergration/app/cam_sys/src/CameraController.cpp" "CMakeFiles/cam_sys.dir/src/CameraController.cpp.o" "gcc" "CMakeFiles/cam_sys.dir/src/CameraController.cpp.o.d"
+  "/home/ubuntu/LeafDepot/Intergration/app/cam_sys/src/ConfigManager.cpp" "CMakeFiles/cam_sys.dir/src/ConfigManager.cpp.o" "gcc" "CMakeFiles/cam_sys.dir/src/ConfigManager.cpp.o.d"
   "/home/ubuntu/LeafDepot/Intergration/app/cam_sys/src/main.cpp" "CMakeFiles/cam_sys.dir/src/main.cpp.o" "gcc" "CMakeFiles/cam_sys.dir/src/main.cpp.o.d"
   )
 

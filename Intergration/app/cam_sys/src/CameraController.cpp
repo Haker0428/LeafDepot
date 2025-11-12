@@ -43,7 +43,7 @@ void g_RealDataCallBack_V30(LONG lRealHandle, DWORD dwDataType, BYTE* pBuffer,
           break;
         }
 
-        if (!PlayM4_Play(m_playPort, NULL))  // 播放开始
+        if (!PlayM4_Play(m_playPort, 0))  // 播放开始
         {
           break;
         }
@@ -165,7 +165,9 @@ bool CameraController::login(const std::string& deviceAddress,
 
   // 时间同步
   NET_DVR_TIME current_time_cam = getLocalTime2Cam();
-  sync_time(current_time_cam);
+  if (sync_time(current_time_cam) < 0) {
+    std::cerr << "sync time error: " << std::endl;
+  }
 
   return true;
 }
@@ -281,6 +283,7 @@ int CameraController::sync_time(NET_DVR_TIME current_time) {
     int error_code = NET_DVR_GetLastError();
     std::cerr << "get time config error, error_code: " << error_code
               << std::endl;
+    return -1;
   };
 
   if (!NET_DVR_SetDVRConfig(m_userId, NET_DVR_SET_TIMECFG, 0xFFFFFFFF,
@@ -288,7 +291,9 @@ int CameraController::sync_time(NET_DVR_TIME current_time) {
     int error_code = NET_DVR_GetLastError();
     std::cerr << "sync time config error, error_code: " << error_code
               << std::endl;
+    return -1;
   };
+  return 0;
 }
 
 bool CameraController::createDirectory(const std::string& path) {
@@ -442,7 +447,7 @@ bool CameraController::doGetPicture(const NET_DVR_FIND_PICTURE_V50& fileInfo) {
 int CameraController::getRealPlay(int channel, int streamType, int linkMode,
                                   int blocked) {
   m_struPlayInfo.hPlayWnd =
-      NULL;  // 需要SDK解码时句柄设为有效值，仅取流不解码时可设为空
+      0;  // 需要SDK解码时句柄设为有效值，仅取流不解码时可设为空
   m_struPlayInfo.lChannel = channel;  // 预览通道号
   m_struPlayInfo.dwStreamType =
       streamType;  // 0-主码流，1-子码流，2-码流3，3-码流4，以此类推

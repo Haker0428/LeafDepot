@@ -180,4 +180,144 @@ CMakeFiles/cam_sys.dir/src/main.cpp.o: \
  /usr/include/c++/11/bits/stl_bvector.h \
  /usr/include/c++/11/bits/vector.tcc \
  /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/HCNetSDK/HCNetSDK.h \
- /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/HCNetSDK/plaympeg4.h
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/HCNetSDK/plaympeg4.h \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/src/ConfigManager.h \
+ /usr/include/c++/11/fstream /usr/include/c++/11/bits/codecvt.h \
+ /usr/include/x86_64-linux-gnu/c++/11/bits/basic_file.h \
+ /usr/include/x86_64-linux-gnu/c++/11/bits/c++io.h \
+ /usr/include/c++/11/bits/fstream.tcc \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/json.hpp \
+ /usr/include/c++/11/algorithm /usr/include/c++/11/utility \
+ /usr/include/c++/11/bits/stl_relops.h \
+ /usr/include/c++/11/bits/stl_algo.h \
+ /usr/include/c++/11/bits/algorithmfwd.h \
+ /usr/include/c++/11/bits/stl_heap.h \
+ /usr/include/c++/11/bits/stl_tempbuf.h \
+ /usr/include/c++/11/bits/uniform_int_dist.h \
+ /usr/include/c++/11/pstl/glue_algorithm_defs.h \
+ /usr/include/c++/11/functional /usr/include/c++/11/tuple \
+ /usr/include/c++/11/array /usr/include/c++/11/bits/uses_allocator.h \
+ /usr/include/c++/11/bits/invoke.h /usr/include/c++/11/bits/refwrap.h \
+ /usr/include/c++/11/bits/std_function.h \
+ /usr/include/c++/11/unordered_map \
+ /usr/include/c++/11/ext/aligned_buffer.h \
+ /usr/include/c++/11/bits/hashtable.h \
+ /usr/include/c++/11/bits/hashtable_policy.h \
+ /usr/include/c++/11/bits/enable_special_members.h \
+ /usr/include/c++/11/bits/node_handle.h \
+ /usr/include/c++/11/bits/unordered_map.h \
+ /usr/include/c++/11/bits/erase_if.h \
+ /usr/include/c++/11/pstl/execution_defs.h /usr/include/c++/11/cstddef \
+ /usr/include/c++/11/iterator /usr/include/c++/11/bits/stream_iterator.h \
+ /usr/include/c++/11/memory \
+ /usr/include/c++/11/bits/stl_raw_storage_iter.h \
+ /usr/include/c++/11/bits/align.h /usr/include/c++/11/bit \
+ /usr/include/c++/11/bits/unique_ptr.h \
+ /usr/include/c++/11/bits/shared_ptr.h \
+ /usr/include/c++/11/bits/shared_ptr_base.h \
+ /usr/include/c++/11/bits/allocated_ptr.h \
+ /usr/include/c++/11/ext/concurrence.h \
+ /usr/include/c++/11/bits/shared_ptr_atomic.h \
+ /usr/include/c++/11/bits/atomic_base.h \
+ /usr/include/c++/11/bits/atomic_lockfree_defines.h \
+ /usr/include/c++/11/backward/auto_ptr.h \
+ /usr/include/c++/11/pstl/glue_memory_defs.h \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/adl_serializer.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/abi_macros.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/conversions/from_json.hpp \
+ /usr/include/c++/11/forward_list /usr/include/c++/11/bits/forward_list.h \
+ /usr/include/c++/11/bits/forward_list.tcc /usr/include/c++/11/map \
+ /usr/include/c++/11/bits/stl_tree.h /usr/include/c++/11/bits/stl_map.h \
+ /usr/include/c++/11/bits/stl_multimap.h /usr/include/c++/11/valarray \
+ /usr/include/c++/11/cmath /usr/include/math.h \
+ /usr/include/x86_64-linux-gnu/bits/math-vector.h \
+ /usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h \
+ /usr/include/x86_64-linux-gnu/bits/flt-eval-method.h \
+ /usr/include/x86_64-linux-gnu/bits/fp-logb.h \
+ /usr/include/x86_64-linux-gnu/bits/fp-fast.h \
+ /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h \
+ /usr/include/x86_64-linux-gnu/bits/mathcalls.h \
+ /usr/include/x86_64-linux-gnu/bits/mathcalls-narrow.h \
+ /usr/include/x86_64-linux-gnu/bits/iscanonical.h \
+ /usr/include/c++/11/bits/specfun.h /usr/include/c++/11/limits \
+ /usr/include/c++/11/tr1/gamma.tcc \
+ /usr/include/c++/11/tr1/special_function_util.h \
+ /usr/include/c++/11/tr1/bessel_function.tcc \
+ /usr/include/c++/11/tr1/beta_function.tcc \
+ /usr/include/c++/11/tr1/ell_integral.tcc \
+ /usr/include/c++/11/tr1/exp_integral.tcc \
+ /usr/include/c++/11/tr1/hypergeometric.tcc \
+ /usr/include/c++/11/tr1/legendre_function.tcc \
+ /usr/include/c++/11/tr1/modified_bessel_func.tcc \
+ /usr/include/c++/11/tr1/poly_hermite.tcc \
+ /usr/include/c++/11/tr1/poly_laguerre.tcc \
+ /usr/include/c++/11/tr1/riemann_zeta.tcc \
+ /usr/include/c++/11/bits/valarray_array.h \
+ /usr/include/c++/11/bits/valarray_array.tcc \
+ /usr/include/c++/11/bits/valarray_before.h \
+ /usr/include/c++/11/bits/slice_array.h \
+ /usr/include/c++/11/bits/valarray_after.h \
+ /usr/include/c++/11/bits/gslice.h \
+ /usr/include/c++/11/bits/gslice_array.h \
+ /usr/include/c++/11/bits/mask_array.h \
+ /usr/include/c++/11/bits/indirect_array.h \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/exceptions.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/value_t.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/macro_scope.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/detected.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/void_t.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/thirdparty/hedley/hedley.hpp \
+ /usr/include/c++/11/version /usr/include/c++/11/cassert \
+ /usr/include/assert.h \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/string_escape.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/input/position_t.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/cpp_future.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/type_traits.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/iterators/iterator_traits.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/call_std/begin.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/call_std/end.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/json_fwd.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/string_concat.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/identity_tag.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/std_fs.hpp \
+ /usr/include/c++/11/filesystem /usr/include/c++/11/bits/fs_fwd.h \
+ /usr/include/c++/11/chrono /usr/include/c++/11/ratio \
+ /usr/include/c++/11/ctime /usr/include/c++/11/bits/parse_numbers.h \
+ /usr/include/c++/11/bits/fs_path.h /usr/include/c++/11/locale \
+ /usr/include/c++/11/bits/locale_facets_nonio.h \
+ /usr/include/x86_64-linux-gnu/c++/11/bits/time_members.h \
+ /usr/include/x86_64-linux-gnu/c++/11/bits/messages_members.h \
+ /usr/include/libintl.h /usr/include/c++/11/bits/locale_facets_nonio.tcc \
+ /usr/include/c++/11/bits/locale_conv.h /usr/include/c++/11/iomanip \
+ /usr/include/c++/11/bits/quoted_string.h /usr/include/c++/11/sstream \
+ /usr/include/c++/11/bits/sstream.tcc /usr/include/c++/11/codecvt \
+ /usr/include/c++/11/bits/fs_dir.h /usr/include/c++/11/bits/fs_ops.h \
+ /usr/include/c++/11/optional \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/conversions/to_json.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/iterators/iteration_proxy.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/string_utils.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/byte_container_with_subtype.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/hash.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/input/binary_reader.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/input/input_adapters.hpp \
+ /usr/include/c++/11/numeric /usr/include/c++/11/bits/stl_numeric.h \
+ /usr/include/c++/11/pstl/glue_numeric_defs.h \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/input/json_sax.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/input/lexer.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/meta/is_sax.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/input/parser.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/iterators/internal_iterator.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/iterators/primitive_iterator.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/iterators/iter_impl.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/iterators/json_reverse_iterator.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/json_custom_base_class.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/json_pointer.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/json_ref.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/output/binary_writer.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/output/output_adapters.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/output/serializer.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/conversions/to_chars.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/ordered_map.hpp \
+ /usr/include/c++/11/any \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/detail/macro_unscope.hpp \
+ /home/ubuntu/LeafDepot/Intergration/app/cam_sys/include/nlohmann/thirdparty/hedley/hedley_undef.hpp
