@@ -2,7 +2,7 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-29 21:44:16
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-11-02 22:23:31
+ * @LastEditTime: 2025-11-12 23:13:20
  * @FilePath: /cam_sys/src/main.cpp
  * @Description:
  *
@@ -23,14 +23,23 @@ int main() {
   }
 
   // 连接到设备
-  if (!camera.login("10.17.34.28", 8000, "admin", "abc12345")) {
+  if (!camera.login("192.168.1.64", 8000, "admin", "leafdepot2025")) {
     std::cerr << "Login failed: " << camera.getLastError() << std::endl;
     return -1;
   }
 
   std::cout << "=== Camera Controller Demo ===" << std::endl;
 
-  int channel = 3;
+  int channel = 1;
+  // 入参
+  // （1）预览通道号
+  //      （2） 0-主码流，1-子码流，2-码流3，3-码流4，以此类推
+  //      （3）0- TCP方式，1- UDP方式，2-
+  //      多播方式，3-RTP方式，4-RTP/RTSP，5-RSTP/HTTP
+  // （4）0- 非阻塞取流，1- 阻塞取流
+  camera.getRealPlay(channel, 0, 1, 0);
+
+  camera.doGetCapturePicture();
 
   // 方法1：使用默认时间范围（当天）
   std::cout << "\n1. Searching pictures with default time range (today)..."

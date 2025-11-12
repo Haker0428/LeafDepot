@@ -1,18 +1,79 @@
 #include "CameraController.h"
 
-#include <dirent.h>
-#include <stdio.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
+void CALLBACK g_ExceptionCallBack(DWORD dwType, LONG lUserID, LONG lHandle,
+                                  void* pUser) {
+  char tempbuf[256] = {0};
+  switch (dwType) {
+    case EXCEPTION_RECONNECT:  // 预览时重连
+      printf("----------reconnect--------\n");
+      break;
+    default:
+      break;
+  }
+}
 
-#include <cstring>
-#include <iostream>
-#include <vector>
+LONG m_playPort;  // 全局的播放库port号
+
+void g_RealDataCallBack_V30(LONG lRealHandle, DWORD dwDataType, BYTE* pBuffer,
+                            DWORD dwBufSize, void* dwUser) {
+  // HWND hWnd = GetConsoleWindowAPI();
+
+  switch (dwDataType) {
+    case NET_DVR_SYSHEAD:  // 系统头
+      if (m_playPort >= 0) {
+        break;  // 该通道取流之前已经获取到句柄，后续接口不需要再调用
+      }
+
+      if (!PlayM4_GetPort(&m_playPort))  // 获取播放库未使用的通道号
+      {
+        break;
+      }
+      // m_iPort = m_playPort;
+      // //第一次回调的是系统头，将获取的播放库port号赋值给全局port，下次回调数据时即使用此port号播放
+      if (dwBufSize > 0) {
+        if (!PlayM4_SetStreamOpenMode(m_playPort,
+                                      STREAME_REALTIME))  // 设置实时流播放模式
+        {
+          break;
+        }
+
+        if (!PlayM4_OpenStream(m_playPort, pBuffer, dwBufSize,
+                               1024 * 1024))  // 打开流接口
+        {
+          break;
+        }
+
+        if (!PlayM4_Play(m_playPort, NULL))  // 播放开始
+        {
+          break;
+        }
+      }
+      break;
+    case NET_DVR_STREAMDATA:  // 码流数据
+      if (dwBufSize > 0 && m_playPort != -1) {
+        if (!PlayM4_InputData(m_playPort, pBuffer, dwBufSize)) {
+          break;
+        }
+      }
+      break;
+    default:  // 其他数据
+      if (dwBufSize > 0 && m_playPort != -1) {
+        if (!PlayM4_InputData(m_playPort, pBuffer, dwBufSize)) {
+          break;
+        }
+      }
+      break;
+  }
+}
 
 CameraController::CameraController()
-    : m_userId(-1), m_isConnected(false), m_isInitialized(false) {
+    : m_userId(-1),
+      m_isConnected(false),
+      m_isInitialized(false),
+      m_isGetRealPlay(false),
+      m_realPlayHandle(-1) {
   memset(&m_lastFoundPicture, 0, sizeof(m_lastFoundPicture));
+  m_struPlayInfo = {0};
 }
 
 CameraController::~CameraController() { cleanup(); }
@@ -24,6 +85,9 @@ bool CameraController::initialize() {
 
   NET_DVR_Init();
   m_isInitialized = true;
+
+  // 设置异常消息回调函数
+  NET_DVR_SetExceptionCallBack_V30(0, NULL, g_ExceptionCallBack, NULL);
 
   // 设置保存目录
   std::string exePath = getExecutablePath();
@@ -40,13 +104,27 @@ bool CameraController::initialize() {
 }
 
 void CameraController::cleanup() {
-  if (m_isConnected) {
-    logout();
-  }
+  stopRealPlay();
+
+  // 释放播放库资源
+  PlayM4_Stop(m_playPort);
+  PlayM4_CloseStream(m_playPort);
+  PlayM4_FreePort(m_playPort);
+
+  logout();
 
   if (m_isInitialized) {
     NET_DVR_Cleanup();
     m_isInitialized = false;
+  }
+}
+
+void CameraController::stopRealPlay() {
+  if (m_isGetRealPlay && m_realPlayHandle >= 0) {
+    NET_DVR_StopRealPlay(m_realPlayHandle);
+    m_realPlayHandle = -1;
+    m_isGetRealPlay = false;
+    std::cout << "Stop Real Play" << std::endl;
   }
 }
 
@@ -84,6 +162,11 @@ bool CameraController::login(const std::string& deviceAddress,
   m_isConnected = true;
   std::cout << "Successfully connected to device: " << deviceAddress
             << std::endl;
+
+  // 时间同步
+  NET_DVR_TIME current_time_cam = getLocalTime2Cam();
+  sync_time(current_time_cam);
+
   return true;
 }
 
@@ -171,6 +254,41 @@ LinuxSystemTime CameraController::getLocalTime() {
   sysTime.second = timeInfo->tm_sec;
 
   return sysTime;
+}
+
+NET_DVR_TIME CameraController::getLocalTime2Cam() {
+  time_t rawTime;
+  struct tm* timeInfo;
+  time(&rawTime);
+  timeInfo = localtime(&rawTime);
+
+  NET_DVR_TIME sysTime;
+  sysTime.dwYear = timeInfo->tm_year + 1900;
+  sysTime.dwMonth = timeInfo->tm_mon + 1;
+  sysTime.dwDay = timeInfo->tm_mday;
+  sysTime.dwHour = timeInfo->tm_hour;
+  sysTime.dwMinute = timeInfo->tm_min;
+  sysTime.dwSecond = timeInfo->tm_sec;
+
+  return sysTime;
+}
+
+int CameraController::sync_time(NET_DVR_TIME current_time) {
+  LPVOID lpOutBuffer;
+  LPDWORD lpBytesReturned;
+  if (!NET_DVR_GetDVRConfig(m_userId, NET_DVR_GET_TIMECFG, 0xFFFFFFFF,
+                            lpOutBuffer, 1024, lpBytesReturned)) {
+    int error_code = NET_DVR_GetLastError();
+    std::cerr << "get time config error, error_code: " << error_code
+              << std::endl;
+  };
+
+  if (!NET_DVR_SetDVRConfig(m_userId, NET_DVR_SET_TIMECFG, 0xFFFFFFFF,
+                            lpOutBuffer, 1024)) {
+    int error_code = NET_DVR_GetLastError();
+    std::cerr << "sync time config error, error_code: " << error_code
+              << std::endl;
+  };
 }
 
 bool CameraController::createDirectory(const std::string& path) {
@@ -319,4 +437,87 @@ bool CameraController::doGetPicture(const NET_DVR_FIND_PICTURE_V50& fileInfo) {
 
   delete[] picParam.pSavedFileBuf;
   return success;
+}
+
+int CameraController::getRealPlay(int channel, int streamType, int linkMode,
+                                  int blocked) {
+  m_struPlayInfo.hPlayWnd =
+      NULL;  // 需要SDK解码时句柄设为有效值，仅取流不解码时可设为空
+  m_struPlayInfo.lChannel = channel;  // 预览通道号
+  m_struPlayInfo.dwStreamType =
+      streamType;  // 0-主码流，1-子码流，2-码流3，3-码流4，以此类推
+  m_struPlayInfo.dwLinkMode =
+      linkMode;                       // 0- TCP方式，1- UDP方式，2- 多播方式，3-
+                                      // RTP方式，4-RTP/RTSP，5-RSTP/HTTP
+  m_struPlayInfo.bBlocked = blocked;  // 0- 非阻塞取流，1- 阻塞取流
+
+  m_realPlayHandle = NET_DVR_RealPlay_V40(m_userId, &m_struPlayInfo,
+                                          g_RealDataCallBack_V30, NULL);
+
+  if (m_realPlayHandle < 0) {
+    printf("NET_DVR_RealPlay_V40 error\n");
+    cleanup();
+    return -1;
+  }
+
+  return 0;
+}
+
+int CameraController::doGetCapturePicture() {
+  // 3. 获取 BMP 数据大小
+
+  DWORD dwBmpSize = 0;
+
+  if (!PlayM4_GetBMP(m_playPort, NULL, 0, &dwBmpSize)) {
+    printf("Failed to get BMP size\n");
+
+    return -1;
+  }
+
+  // 4. 分配缓冲区并获取 BMP 数据
+
+  BYTE* pBmpData = new BYTE[dwBmpSize];
+
+  if (!pBmpData) {
+    printf("Memory allocation failed\n");
+
+    return -1;
+  }
+
+  if (!PlayM4_GetBMP(m_playPort, pBmpData, dwBmpSize, &dwBmpSize)) {
+    printf("PlayM4_GetBMP failed\n");
+
+    delete[] pBmpData;
+
+    return -1;
+  }
+
+  // 5. 保存 BMP 文件
+
+  char filename[256];
+
+  time_t now = time(0);
+
+  struct tm* tm = localtime(&now);
+
+  strftime(filename, sizeof(filename), "capture_%Y%m%d_%H%M%S.bmp", tm);
+
+  FILE* pFile = fopen(filename, "wb");
+
+  if (pFile) {
+    fwrite(pBmpData, 1, dwBmpSize, pFile);
+
+    fclose(pFile);
+
+    printf("BMP image saved to %s\n", filename);
+
+  } else {
+    printf("Failed to create file %s\n", filename);
+  }
+
+  // 6. 清理
+
+  delete[] pBmpData;
+
+  return 0;
 }
