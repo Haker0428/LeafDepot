@@ -284,15 +284,15 @@ DLLEXPORT_API int __stdcall StopRegisterDrawFun(DWORD nport);
 */
 #define SERIAL_NUMBER_LENGTH 12  // �忨���кų���
 typedef struct tagDS_BOARD_DETAIL {
-  BOARD_TYPE_DS type;       // �忨����
-  BYTE sn[16];              // ���к�
-  UINT dspCount;            // �忨������DSP����
-  UINT firstDspIndex;       // �忨�ϵ�һ��DSP������
-  UINT encodeChannelCount;  // �忨�����ı���ͨ������
-  UINT firstEncodeChannelIndex;  // �忨�ϵ�һ������ͨ��������
-  UINT decodeChannelCount;  // �忨�����Ľ���ͨ������
-  UINT firstDecodeChannelIndex;  // �忨�ϵ�һ������ͨ��������
-  UINT displayChannelCount;  // �忨��������Ƶ���ͨ������
+  BOARD_TYPE_DS type;             // �忨����
+  BYTE sn[16];                    // ���к�
+  UINT dspCount;                  // �忨������DSP����
+  UINT firstDspIndex;             // �忨�ϵ�һ��DSP������
+  UINT encodeChannelCount;        // �忨�����ı���ͨ������
+  UINT firstEncodeChannelIndex;   // �忨�ϵ�һ������ͨ��������
+  UINT decodeChannelCount;        // �忨�����Ľ���ͨ������
+  UINT firstDecodeChannelIndex;   // �忨�ϵ�һ������ͨ��������
+  UINT displayChannelCount;       // �忨��������Ƶ���ͨ������
   UINT firstDisplayChannelIndex;  // �忨�ϵ�һ����Ƶ���ͨ��������
   UINT reserved1;
   UINT reserved2;
@@ -300,11 +300,11 @@ typedef struct tagDS_BOARD_DETAIL {
   UINT reserved4;
 } DS_BOARD_DETAIL;
 typedef struct tagDSP_DETAIL {
-  UINT encodeChannelCount;  // �忨�����ı���ͨ������
-  UINT firstEncodeChannelIndex;  // �忨�ϵ�һ������ͨ��������
-  UINT decodeChannelCount;  // �忨�����Ľ���ͨ������
-  UINT firstDecodeChannelIndex;  // �忨�ϵ�һ������ͨ��������
-  UINT displayChannelCount;  // �忨��������Ƶ���ͨ������
+  UINT encodeChannelCount;        // �忨�����ı���ͨ������
+  UINT firstEncodeChannelIndex;   // �忨�ϵ�һ������ͨ��������
+  UINT decodeChannelCount;        // �忨�����Ľ���ͨ������
+  UINT firstDecodeChannelIndex;   // �忨�ϵ�һ������ͨ��������
+  UINT displayChannelCount;       // �忨��������Ƶ���ͨ������
   UINT firstDisplayChannelIndex;  // �忨�ϵ�һ����Ƶ���ͨ��������
   UINT reserved1;
   UINT reserved2;

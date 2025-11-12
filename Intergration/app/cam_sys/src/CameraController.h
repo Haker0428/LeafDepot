@@ -2,7 +2,7 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-29 22:34:54
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-11-02 22:28:04
+ * @LastEditTime: 2025-11-12 22:40:34
  * @FilePath: /cam_sys/src/CameraController.h
  * @Description:
  *
@@ -11,10 +11,19 @@
 #ifndef CAMERACONTROLLER_H
 #define CAMERACONTROLLER_H
 
+#include <dirent.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <cstring>
+#include <iostream>
 #include <string>
 #include <vector>
 
 #include "HCNetSDK/HCNetSDK.h"
+#include "HCNetSDK/plaympeg4.h"
 
 // Linux 系统时间结构体，替换 Windows 的 SYSTEMTIME
 struct LinuxSystemTime {
@@ -48,6 +57,8 @@ class CameraController {
              const std::string& userName, const std::string& password);
   void logout();
 
+  void stopRealPlay();
+
   // 图片操作 - 使用当前时间自动查找
   int findPictures(int channel);
 
@@ -68,6 +79,14 @@ class CameraController {
   }
 
   LinuxSystemTime getLocalTime();
+  NET_DVR_TIME getLocalTime2Cam();
+
+  // 预览及抓图
+  int getRealPlay(int channel, int streamType, int linkMode, int blocked);
+  int doGetCapturePicture();
+
+  // 时间同步
+  int sync_time(NET_DVR_TIME current_time);
 
  private:
   // 工具函数
@@ -91,6 +110,11 @@ class CameraController {
   std::string m_lastError;
   std::string m_saveDirectory;
   NET_DVR_FIND_PICTURE_V50 m_lastFoundPicture;
+
+  // 预览及抓图
+  bool m_isGetRealPlay;
+  LONG m_realPlayHandle;
+  NET_DVR_PREVIEWINFO m_struPlayInfo;
 };
 
 #endif  // CAMERACONTROLLER_H
