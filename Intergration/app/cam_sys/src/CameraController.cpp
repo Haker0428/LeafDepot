@@ -34,17 +34,33 @@ void g_RealDataCallBack_V30(LONG lRealHandle, DWORD dwDataType, BYTE* pBuffer,
         if (!PlayM4_SetStreamOpenMode(m_playPort,
                                       STREAME_REALTIME))  // 设置实时流播放模式
         {
+          int error = PlayM4_GetLastError(m_playPort);
+          printf("Failed PlayM4_SetStreamOpenMode, error code: %d\n", error);
           break;
         }
 
         if (!PlayM4_OpenStream(m_playPort, pBuffer, dwBufSize,
                                1024 * 1024))  // 打开流接口
         {
+          int error = PlayM4_GetLastError(m_playPort);
+
+          printf("Failed PlayM4_OpenStream, error code: %d\n", error);
+          break;
+        }
+
+        if (!PlayM4_SetDisplayCallBack(m_playPort, NULL)) {
+          int error = PlayM4_GetLastError(m_playPort);
+
+          printf("Failed PlayM4_SetDisplayCallBack, error code: %d\n", error);
+
           break;
         }
 
         if (!PlayM4_Play(m_playPort, 0))  // 播放开始
         {
+          int error = PlayM4_GetLastError(m_playPort);
+
+          printf("Failed PlayM4_Play, error code: %d\n", error);
           break;
         }
       }
@@ -74,6 +90,7 @@ CameraController::CameraController()
       m_realPlayHandle(-1) {
   memset(&m_lastFoundPicture, 0, sizeof(m_lastFoundPicture));
   m_struPlayInfo = {0};
+  m_pCapBuf = NULL;
 }
 
 CameraController::~CameraController() { cleanup(); }
@@ -276,23 +293,48 @@ NET_DVR_TIME CameraController::getLocalTime2Cam() {
 }
 
 int CameraController::sync_time(NET_DVR_TIME current_time) {
-  LPVOID lpOutBuffer;
-  LPDWORD lpBytesReturned;
-  if (!NET_DVR_GetDVRConfig(m_userId, NET_DVR_GET_TIMECFG, 0xFFFFFFFF,
-                            lpOutBuffer, 1024, lpBytesReturned)) {
+  // 为输出缓冲区分配内存
+  NET_DVR_TIME timeCfg = {0};
+  DWORD dwReturned = 0;
+  DWORD dwSize = sizeof(NET_DVR_TIME);
+
+  // 获取当前设备时间配置
+  if (!NET_DVR_GetDVRConfig(m_userId, NET_DVR_GET_TIMECFG, 0xFFFFFFFF, &timeCfg,
+                            dwSize, &dwReturned)) {
     int error_code = NET_DVR_GetLastError();
     std::cerr << "get time config error, error_code: " << error_code
               << std::endl;
     return -1;
-  };
+  }
 
+  // 打印获取到的时间配置
+  std::cout << "Current device time config:" << std::endl;
+  std::cout << "Year: " << timeCfg.dwYear << std::endl;
+  std::cout << "Month: " << timeCfg.dwMonth << std::endl;
+  std::cout << "Day: " << timeCfg.dwDay << std::endl;
+  std::cout << "Hour: " << timeCfg.dwHour << std::endl;
+  std::cout << "Minute: " << timeCfg.dwMinute << std::endl;
+  std::cout << "Second: " << timeCfg.dwSecond << std::endl;
+
+  // 设置新的时间（使用传入的current_time）
   if (!NET_DVR_SetDVRConfig(m_userId, NET_DVR_SET_TIMECFG, 0xFFFFFFFF,
-                            lpOutBuffer, 1024)) {
+                            &current_time, dwSize)) {
     int error_code = NET_DVR_GetLastError();
     std::cerr << "sync time config error, error_code: " << error_code
               << std::endl;
     return -1;
-  };
+  }
+
+  // 打印获取到的时间配置
+  std::cout << "Set device time config:" << std::endl;
+  std::cout << "Year: " << current_time.dwYear << std::endl;
+  std::cout << "Month: " << current_time.dwMonth << std::endl;
+  std::cout << "Day: " << current_time.dwDay << std::endl;
+  std::cout << "Hour: " << current_time.dwHour << std::endl;
+  std::cout << "Minute: " << current_time.dwMinute << std::endl;
+  std::cout << "Second: " << current_time.dwSecond << std::endl;
+
+  std::cout << "Time synchronized successfully!" << std::endl;
   return 0;
 }
 
@@ -469,60 +511,56 @@ int CameraController::getRealPlay(int channel, int streamType, int linkMode,
 }
 
 int CameraController::doGetCapturePicture() {
-  // 3. 获取 BMP 数据大小
-
   DWORD dwBmpSize = 0;
 
-  if (!PlayM4_GetBMP(m_playPort, NULL, 0, &dwBmpSize)) {
-    printf("Failed to get BMP size\n");
+  uint w = 2560;
+  uint h = 2160;
+  uint dWSize = w * h * 5;
+
+  if (m_pCapBuf == NULL) {
+    m_pCapBuf = new unsigned char[dWSize];
+    if (m_pCapBuf == NULL) {
+      return -1;
+    }
+  }
+
+  if (!PlayM4_GetBMP(m_playPort, m_pCapBuf, dWSize, &dwBmpSize)) {
+    int error = PlayM4_GetLastError(m_playPort);
+
+    printf("Failed PlayM4_GetBMP, error code: %d\n", error);
 
     return -1;
   }
 
-  // 4. 分配缓冲区并获取 BMP 数据
+  // 检查获取到的大小是否有效
 
-  BYTE* pBmpData = new BYTE[dwBmpSize];
-
-  if (!pBmpData) {
-    printf("Memory allocation failed\n");
+  if (dwBmpSize == 0) {
+    printf("BMP size is zero, no image available\n");
 
     return -1;
   }
 
-  if (!PlayM4_GetBMP(m_playPort, pBmpData, dwBmpSize, &dwBmpSize)) {
-    printf("PlayM4_GetBMP failed\n");
+  std::cout << "dwBmpSize: " << dwBmpSize << std::endl;
 
-    delete[] pBmpData;
+  // 保存BMP到文件的示例
 
-    return -1;
-  }
+  FILE* fp = fopen("capture.bmp", "wb");
 
-  // 5. 保存 BMP 文件
+  if (fp) {
+    fwrite(m_pCapBuf, 1, dwBmpSize, fp);
 
-  char filename[256];
+    fclose(fp);
 
-  time_t now = time(0);
-
-  struct tm* tm = localtime(&now);
-
-  strftime(filename, sizeof(filename), "capture_%Y%m%d_%H%M%S.bmp", tm);
-
-  FILE* pFile = fopen(filename, "wb");
-
-  if (pFile) {
-    fwrite(pBmpData, 1, dwBmpSize, pFile);
-
-    fclose(pFile);
-
-    printf("BMP image saved to %s\n", filename);
+    printf("BMP image saved successfully, size: %u bytes\n", dwBmpSize);
 
   } else {
-    printf("Failed to create file %s\n", filename);
+    printf("Failed to open file for saving BMP\n");
   }
 
-  // 6. 清理
-
-  delete[] pBmpData;
+  // 释放分配的内存
+  if (m_pCapBuf != NULL) {
+    delete[] m_pCapBuf;
+  }
 
   return 0;
 }

@@ -115,6 +115,8 @@ class CameraController {
   bool m_isGetRealPlay;
   LONG m_realPlayHandle;
   NET_DVR_PREVIEWINFO m_struPlayInfo;
+
+  unsigned char* m_pCapBuf;
 };
 
 #endif  // CAMERACONTROLLER_H
