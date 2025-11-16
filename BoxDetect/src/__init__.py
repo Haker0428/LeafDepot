@@ -12,6 +12,8 @@ from utils import PileNotFoundError, PileTypeDatabase, extract_yolo_detections
 # 检测模块
 from detection import (
     prepare_logic,
+    filter_rear_boxes_if_multilayer,
+    remove_fake_top_layer,
     cluster_layers,
     cluster_layers_with_roi,
     cluster_layers_with_box_roi,
@@ -50,6 +52,8 @@ __all__ = [
     "calc_cv_gap",
     "calc_cv_width",
     "verify_full_stack",
+    "filter_rear_boxes_if_multilayer",
+    "remove_fake_top_layer",
     # 可视化模块
     "prepare_scene",
     "visualize_pile_scene",

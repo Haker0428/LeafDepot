@@ -51,7 +51,7 @@ def verify_full_stack(layers, template_layers, pile_roi):
     top_layer = layers[0]  # ✅ 最上层
     C_top = template_layers[0] if template_layers else 0
     O_top = len(top_layer["boxes"])
-
+    print(f'layers {len(layers)}')
     coverage = calc_coverage(top_layer["boxes"], pile_roi)
     cv_gap = calc_cv_gap(top_layer["boxes"])
     cv_width = calc_cv_width(top_layer["boxes"])
@@ -67,7 +67,22 @@ def verify_full_stack(layers, template_layers, pile_roi):
         full = False
         reason = "low_coverage_or_gap"
 
-    total = sum(template_layers) if full else sum(template_layers[:-1]) + O_top
+    print(len(template_layers))
+    total = 0
+    n_detected = len(layers)
+    n_template = len(template_layers)
+
+    if n_detected == n_template and full:
+        # 完整匹配 → 满堆
+        total = sum(template_layers)
+
+    elif n_detected < n_template and full:
+        # 少拍了上层（相机视角），但可见部分是满层
+        total = sum(template_layers[:n_detected])
+
+    else:
+        # 顶层不满（可见缺箱）
+        total = sum(template_layers[:-1]) + O_top
 
     result = {
         "full": full,
