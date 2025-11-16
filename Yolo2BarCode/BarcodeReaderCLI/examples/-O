@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+Date: Fri, 12 May 2023 20:18:33 GMT
+Server: Apache
+Upgrade: h2,h2c
+Connection: Upgrade
+Last-Modified: Fri, 12 May 2023 19:45:20 GMT
+Accept-Ranges: bytes
+Content-Length: 6860
+Vary: Accept-Encoding,User-Agent
+Content-Type: image/tiff
+
