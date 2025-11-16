@@ -1,0 +1,15 @@
+{
+    "camera": {
+        "ip": "192.168.1.64",
+        "port": 8000,
+        "username": "admin",
+        "password": "leafdepot2025",
+        "channel": 1,
+        "stream_type": 0,
+        "connection_type": 1,
+        "stream_mode": 0
+    },
+    "search": {
+        "picture_search_seconds": 30
+    }
+}

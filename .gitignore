@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.env
+.idea/
+tobacco-env/
+新照片/
+垛堆图/

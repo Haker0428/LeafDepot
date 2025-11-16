@@ -1,0 +1,14 @@
+[
+  {
+    "original_image": "img0129.jpg",
+    "cropped_image": "piles_img0129_0.png",
+    "bbox": [
+      36,
+      663,
+      1622,
+      2329
+    ],
+    "confidence": 0.7579836249351501,
+    "category": "piles"
+  }
+]

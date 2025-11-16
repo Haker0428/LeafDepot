@@ -1,0 +1,12 @@
+[
+  {
+    "filename": "barcode_0.png",
+    "output": "{\n  \"sessions\": [\n    {\n      \"barcodes\": [],\n      \"files\": [\n        {\n          \"abspath\": \"/home/ubuntu/LeafDepot/Yolo2BarCode/output/run_20250917_231952/barcode_0.png\",\n          \"pages\": [\n            {\n              \"bpp\": 24,\n              \"cntBC\": 0,\n              \"height\": 306,\n              \"memSizeKB\": 213,\n              \"number\": 1,\n              \"width\": 238\n            }\n          ],\n          \"path\": \"output/run_20250917_231952/barcode_0.png\"\n        }\n      ],\n      \"info\": {\n        \"start\": \"2025-09-17 15:19:52 UTC\",\n        \"version\": \"12.0.7729\"\n      }\n    }\n  ]\n}",
+    "error": ""
+  },
+  {
+    "filename": "barcode_1.png",
+    "output": "{\n  \"sessions\": [\n    {\n      \"barcodes\": [],\n      \"files\": [\n        {\n          \"abspath\": \"/home/ubuntu/LeafDepot/Yolo2BarCode/output/run_20250917_231952/barcode_1.png\",\n          \"pages\": [\n            {\n              \"bpp\": 24,\n              \"cntBC\": 0,\n              \"height\": 308,\n              \"memSizeKB\": 212,\n              \"number\": 1,\n              \"width\": 236\n            }\n          ],\n          \"path\": \"output/run_20250917_231952/barcode_1.png\"\n        }\n      ],\n      \"info\": {\n        \"start\": \"2025-09-17 15:19:52 UTC\",\n        \"version\": \"12.0.7729\"\n      }\n    }\n  ]\n}",
+    "error": ""
+  }
+]

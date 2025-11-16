@@ -1,0 +1,11 @@
+path: datasets/barcode
+train: ../images/train
+val: ../images/val
+
+<<<<<<< HEAD
+nc: 4
+names: ['barcode', 'box', 'pile','QR']
+=======
+nc: 3
+names: ['barcode', 'box', 'pile']
+>>>>>>> 8225f8034050537f85a264a70364ab9bb46ba31b

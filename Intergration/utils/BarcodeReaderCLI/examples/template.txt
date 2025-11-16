@@ -1,0 +1,20 @@
+[onSession]{tab}SESSION:  application: {app.filename}{tab} {app.version}
+{tab} date/time: {start.date} {start.time}
+[onSource]{tab|#x2}SOURCE:  type: {type}  path: {path}
+{tab|#x2} files: {files}  bc.count: {bc.count}
+[onFile]{tab|#x3}FILE path: {path}
+{tab|#x3} pages: {pages}  format: {format}  size: {size}  bc.count: {bc.count}
+[onPage]{tab|#x4}PAGE:path: {path}  page: {page}
+{tab|#x4} width: {width}  height: {height}  bpp: {bpp}  hdpi: {hdpi}  vdpi: {vdpi}
+{tab|#x4} compr: {compr}  bc.count: {bc.count}
+[onBarcode]{tab|#x5}BARCODE:  type: {type}  length: {length}  
+{tab|#x5} rectangle: {rectangle.left}:{rectangle.top}-{rectangle.right}:{rectangle.bottom}
+{tab|#x5} rotation: {rotation}  path: {path}  page: {page}
+{tab|#x5} skew: {skew}  mode: {mod}  charset: {charset}
+{tab|#x5} text: {text}
+{tab|#x5} data: {data}
+[onDrvLic]{tab|#x6} DRIVER LICENSE:
+{tab|#x6} NAME: {last}   {middle}   {first}
+{tab|#x6} DATA: {dob}  EYES: {eyes} HAIR: {hair}  SEX: {sex} HEIGHT: {height} WEIGHT: {weight} 
+{tab|#x6} ADDRESS: {street}  {city}  {state}  {postal}
+{tab|#x6} LICENSE: {id}  ISSUED: {issued}  EXPIRES: {expires}
