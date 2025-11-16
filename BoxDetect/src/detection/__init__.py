@@ -1,6 +1,6 @@
 """检测模块：场景准备、分层聚类、满层判断"""
 
-from detection.scene_prepare import prepare_logic
+from detection.scene_prepare import prepare_logic, filter_rear_boxes_if_multilayer, remove_fake_top_layer
 from detection.layer_clustering import (
     cluster_layers,
     cluster_layers_with_roi,
@@ -21,6 +21,7 @@ from detection.full_layer_verification import (
 
 __all__ = [
     "prepare_logic",
+    "filter_rear_boxes_if_multilayer",
     "cluster_layers",
     "cluster_layers_with_roi",
     "cluster_layers_with_box_roi",
@@ -34,5 +35,6 @@ __all__ = [
     "calc_cv_gap",
     "calc_cv_width",
     "verify_full_stack",
+    "remove_fake_top_layer",
 ]
 

@@ -15,7 +15,7 @@ from ultralytics import YOLO
 from detect_utils import *
 from utils.path_utils import ensure_output_dir
 
-img_path = "../tests/full/sample5.jpg"
+img_path = "../tests/partial/sample1.jpg"
 model = YOLO("../yolo_weights/best.pt")
 results = model.predict(source=img_path, save=True)
 
@@ -76,26 +76,42 @@ layers_result = visualize_layers_with_box_roi(
     box_thickness=5,
     output_dir=output_dir
 )
-
-print(result)
+def reindex_layers(layers):
+    """
+    重新为层编号：最上层为1，依次递增
+    """
+    if not layers:
+        return layers
+    layers_sorted = sorted(layers, key=lambda l: l["avg_y"])
+    for i, layer in enumerate(layers_sorted, 1):
+        layer["index"] = i
+    return layers_sorted
 
 # 3️⃣ 满层判定
 # template_layers = [5, 5, 5, 5, 5]  # 假设满垛 5 层，每层 2 箱
 template_layers = [10, 10, 10]
+# template_layers = [8, 8, 8, 8, 8]
 # 2️⃣ 分层聚类
 layers_result = cluster_layers_with_box_roi(prepared["boxes"], prepared["pile_roi"])
 
+# layers_filtered = filter_rear_boxes_if_multilayer(layers_result["layers"], prepared["pile_roi"])
+print(layers_result)
 
-result = verify_full_stack(layers_result["layers"], template_layers, prepared["pile_roi"])
-if not result["full"]:
-    draw_layers_with_box_roi(
-        img_path=img_path,
-        pile_roi=prepared["pile_roi"],
-        layer_result=layers_result,
-        save_path="annotated_top_incomplete.jpg",
-        target_layers=1,
-        layer_color=(0, 0, 255),  # 红色阴影
-        alpha=0.35,
-        show=False,
-        output_dir=output_dir
-    )
+# 🆕 去除俯视误层
+layers_result["layers"] = remove_fake_top_layer(layers_result["layers"])
+
+layers_result["layers"] = reindex_layers(layers_result["layers"])
+
+result = verify_full_stack(layers_result["layers"] , template_layers, prepared["pile_roi"])
+
+draw_layers_with_box_roi(
+    img_path=img_path,
+    pile_roi=prepared["pile_roi"],
+    layer_result=layers_result,
+    save_path="annotated_top_complete.jpg",
+    target_layers=1,
+    layer_color=(0, 0, 255),  # 红色阴影
+    alpha=0.35,
+    show=False,
+    output_dir=output_dir
+)
