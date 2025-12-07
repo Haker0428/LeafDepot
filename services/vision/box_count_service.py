@@ -89,7 +89,7 @@ class BoxCountService:
         # TODO: 实现图片拉取逻辑
         # 1. 根据 task_id 和 bin_code 从相机系统拉取图片
         # 2. 可以调用相机系统API（如 services/sim/cam_sys 或 hardware/cam_sys）
-        # 3. 将图片保存到工作目录
+         # 3. 将图片保存到工作目录
         # 4. 返回保存后的图片路径
         
         raise NotImplementedError(
@@ -257,6 +257,11 @@ class BoxCountService:
             
             # Step 2: 计数
             result = self.count_boxes(image_path, pile_id, task_id)
+            
+            # Step 3: 添加图片路径到结果中
+            if result.get("success"):
+                result["image_path"] = image_path
+            
             return result
             
         except NotImplementedError as e:

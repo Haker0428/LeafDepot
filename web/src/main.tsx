@@ -25,18 +25,7 @@ createRoot(document.getElementById("root")!).render(
       <AuthProvider> {/* 在这里使用 AuthProvider */}
         <App />
       </AuthProvider>
-      <Toaster 
-        position="top-right"
-        richColors
-        closeButton
-        toastOptions={{
-          style: {
-            zIndex: 9999,
-            pointerEvents: 'auto',
-          },
-          className: 'toast-pointer-events-auto',
-        }}
-      />
+      <Toaster />
     </BrowserRouter>
   </StrictMode>
 );

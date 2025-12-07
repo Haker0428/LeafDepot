@@ -1,6 +1,6 @@
 # gateway.py
 from fastapi import FastAPI, Request, HTTPException, status, Header, BackgroundTasks
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, FileResponse
 import requests
 import json
 import logging
@@ -14,6 +14,7 @@ import time
 import asyncio
 from typing import Dict, List, Optional
 from pathlib import Path
+import os
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -349,7 +350,7 @@ async def get_task_progress(task_no: str, authToken: str = Header(None)):
 async def box_count(request: Request):
     """
     箱体计数接口
-    功能：拉取图片 + 调用boxdetect算法 + 返回实际数量
+    功能：拉取图片 + 调用boxdetect算法 + 返回实际数量和图片URL
     
     请求体格式：
     {
@@ -362,7 +363,9 @@ async def box_count(request: Request):
     {
         "success": bool,            # 是否成功
         "total_count": int,         # 实际箱体数量
-        "status": str               # 状态信息（"success" 或错误信息）
+        "status": str,              # 状态信息（"success" 或错误信息）
+        "image_url": str,           # 原始图片URL（如果成功）
+        "debug_image_url": str      # debug图片URL（如果生成成功）
     }
     """
     try:
@@ -397,6 +400,17 @@ async def box_count(request: Request):
             auth_token=auth_token
         )
         
+        # 构建图片URL（如果存在图片路径）
+        if result.get("success") and result.get("image_path"):
+            image_path = result.get("image_path")
+            # 生成图片URL（使用task_id作为标识）
+            result["image_url"] = f"/vision/images/original/{task_id}"
+        
+        if result.get("debug_image_path"):
+            debug_image_path = result.get("debug_image_path")
+            # 生成debug图片URL
+            result["debug_image_url"] = f"/vision/images/debug/{task_id}"
+        
         logger.info(f"箱体计数完成: task_id={task_id}, total_count={result.get('total_count', 0)}")
         
         return result
@@ -408,6 +422,132 @@ async def box_count(request: Request):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"箱体计数处理失败: {str(e)}"
+        )
+
+
+@app.get("/vision/images/original/{task_id}")
+async def get_original_image(task_id: str):
+    """
+    获取原始图片文件
+    
+    :param task_id: 任务ID
+    :return: 图片文件
+    """
+    try:
+        box_count_service = get_box_count_service()
+        # 根据task_id查找图片文件
+        work_dir = box_count_service.work_dir
+        
+        # 按照实际目录结构查找原始图片
+        # 格式: origin/{task_id}.jpg
+        image_files = []
+        
+        # 1. 优先查找 origin/{task_id}.jpg
+        origin_file = work_dir / "origin" / f"{task_id}.jpg"
+        if origin_file.exists():
+            image_files.append(origin_file)
+            logger.info(f"找到原始图片: origin/{task_id}.jpg")
+        else:
+            # 2. 查找 origin/{task_id}/*.jpg
+            origin_dir = work_dir / "origin" / task_id
+            if origin_dir.exists():
+                subdir_files = list(origin_dir.glob("*.jpg")) + \
+                              list(origin_dir.glob("*.png")) + \
+                              list(origin_dir.glob("*.jpeg"))
+                image_files.extend(subdir_files)
+            
+            # 3. 查找根目录下的 {task_id}out.jpg
+            root_file = work_dir / f"{task_id}out.jpg"
+            if root_file.exists():
+                image_files.append(root_file)
+        
+        if not image_files:
+            logger.warning(f"未找到任务 {task_id} 的原始图片，work_dir: {work_dir}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"未找到任务 {task_id} 的原始图片（查找路径: origin/{task_id}.jpg）"
+            )
+        
+        image_path = image_files[0]
+        logger.info(f"找到原始图片: {image_path.name} for task_id={task_id}")
+        return FileResponse(
+            path=str(image_path),
+            media_type="image/png" if image_path.suffix == ".png" else "image/jpeg",
+            filename=image_path.name
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取原始图片失败: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取图片失败: {str(e)}"
+        )
+
+
+@app.get("/vision/images/debug/{task_id}")
+async def get_debug_image(task_id: str):
+    """
+    获取debug标注图片文件
+    
+    :param task_id: 任务ID
+    :return: debug图片文件
+    """
+    try:
+        box_count_service = get_box_count_service()
+        work_dir = box_count_service.work_dir
+        logger.debug(f"查找debug图片，work_dir: {work_dir}, task_id: {task_id}")
+        
+        # 按照实际目录结构查找debug图片
+        # 格式: debug/{task_id}out.jpg
+        debug_files = []
+        
+        # 1. 优先查找 debug/{task_id}out.jpg
+        debug_file = work_dir / "debug" / f"{task_id}out.jpg"
+        if debug_file.exists():
+            debug_files.append(debug_file)
+            logger.info(f"找到debug图片: debug/{task_id}out.jpg")
+        else:
+            logger.warning(f"未找到 debug/{task_id}out.jpg，尝试其他路径")
+            # 2. 查找 debug/{task_id}/*.jpg
+            debug_subdir = work_dir / "debug" / task_id
+            if debug_subdir.exists():
+                subdir_files = list(debug_subdir.glob("*.jpg")) + \
+                              list(debug_subdir.glob("*.png")) + \
+                              list(debug_subdir.glob("*.jpeg"))
+                debug_files.extend(subdir_files)
+                logger.debug(f"在 debug/{task_id}/ 目录中找到 {len(subdir_files)} 个文件")
+            
+            # 3. 查找根目录下的 debug_{task_id}*.jpg
+            root_debug = list(work_dir.glob(f"debug_{task_id}*.jpg")) + \
+                        list(work_dir.glob(f"layers_debug_{task_id}*.jpg"))
+            debug_files.extend(root_debug)
+        
+        if not debug_files:
+            logger.warning(f"未找到任务 {task_id} 的debug图片，work_dir: {work_dir}")
+            logger.debug(f"查找路径: debug/{task_id}out.jpg")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"未找到任务 {task_id} 的debug图片（查找路径: debug/{task_id}out.jpg）"
+            )
+        
+        # 优先返回layers标注图片，如果没有则返回其他debug图片
+        layers_image = [f for f in debug_files if "layers" in f.name]
+        image_path = layers_image[0] if layers_image else debug_files[0]
+        logger.info(f"找到debug图片: {image_path.name} for task_id={task_id}")
+        
+        return FileResponse(
+            path=str(image_path),
+            media_type="image/jpeg" if image_path.suffix in [".jpg", ".jpeg"] else "image/png",
+            filename=image_path.name
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取debug图片失败: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取debug图片失败: {str(e)}"
         )
 
 
