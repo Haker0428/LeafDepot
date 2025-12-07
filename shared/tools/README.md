@@ -15,3 +15,4 @@
 2. 在代码中使用时，路径应为：`shared/tools/BarcodeReaderCLI/bin/BarcodeReaderCLI`
 3. 或使用相对路径从项目根目录访问
 
+
