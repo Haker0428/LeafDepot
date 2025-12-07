@@ -7,3 +7,5 @@ __pycache__/
 tobacco-env/
 新照片/
 垛堆图/
+.vscode
+node_modules/
