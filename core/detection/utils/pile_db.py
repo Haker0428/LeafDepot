@@ -38,4 +38,9 @@ class PileTypeDatabase:
     def list_piles(self) -> List[Dict]:
         """列出所有堆的基本信息。"""
         return [{"id": p["id"], "name": p["name"]} for p in self._piles.values()]
+    
+    def get_template_layers(self, pile_id: int) -> List[int]:
+        """获取指定堆的模板层配置（每层期望的箱数列表）。"""
+        layers = self.get_layers(pile_id)
+        return [layer.get("count", 0) for layer in layers]
 

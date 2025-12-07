@@ -144,6 +144,61 @@ async def create_task_group(request: TaskGroupRequest):
         raise HTTPException(status_code=500, detail="内部服务器错误")
 
 
+@app.get(service_prefix + "/api/robot/controller/task/progress/{task_no}")
+async def get_task_progress(task_no: str):
+    """查询任务进度"""
+    try:
+        # 模拟任务进度数据
+        # 在实际场景中，这里应该查询真实的任务状态
+        
+        # 查找任务组（简化实现）
+        task_info = None
+        for group_code, group_info in task_groups_db.items():
+            for task_data in group_info.get("data", []):
+                if task_data.get("robotTaskCode") == task_no:
+                    task_info = task_data
+                    break
+            if task_info:
+                break
+        
+        if not task_info:
+            raise HTTPException(status_code=404, detail=f"未找到任务: {task_no}")
+        
+        # 模拟任务进度（可以根据实际情况修改）
+        import random
+        progress = min(random.randint(70, 95), 100)  # 模拟进度在70-95%之间
+        
+        # 模拟已完成的任务列表（包含图片路径信息）
+        completed_tasks = []
+        # 假设每个任务都有对应的库位和图片
+        # 这里模拟返回一些已完成的任务数据
+        for i in range(min(3, len(task_groups_db.get(list(task_groups_db.keys())[0], {}).get("data", [])))):
+            completed_tasks.append({
+                "taskDetailId": f"DT{i+1}",
+                "binCode": f"BIN00{i+1}",
+                "imagePath": f"services/sim/cam_sys/camera_images/simulated_sd_{task_no}_BIN00{i+1}.png",  # 模拟图片路径
+                "countedQty": random.randint(50, 100)
+            })
+        
+        status = "COMPLETED" if progress >= 100 else "IN_PROGRESS"
+        
+        return {
+            "success": True,
+            "data": {
+                "taskNo": task_no,
+                "status": status,
+                "progress": progress,
+                "completedTasks": completed_tasks,
+                "totalTasks": len(task_groups_db.get(list(task_groups_db.keys())[0], {}).get("data", [])) if task_groups_db else 0
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查询任务进度异常: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"查询任务进度失败: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=4001)

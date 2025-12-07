@@ -8,10 +8,12 @@ from typing import Dict, Any
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from services.utils.compression import compress_and_encode, decompress_and_decode
+from services.vision.box_count_service import get_box_count_service
 import uuid
 import time
 import asyncio
 from typing import Dict, List, Optional
+from pathlib import Path
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -313,6 +315,100 @@ async def set_tasks_group(request: Request):
             "message": f"请求异常: {str(e)}",
             "data": None
         }
+
+
+@app.get("/rcs/task-progress/{task_no}")
+async def get_task_progress(task_no: str, authToken: str = Header(None)):
+    """查询RCS任务进度"""
+    try:
+        rcs_progress_url = f"{RCS_BASE_URL}{rcs_service_prefix}/api/robot/controller/task/progress/{task_no}"
+        
+        headers = {
+            "authToken": authToken
+        } if authToken else {}
+        
+        response = requests.get(rcs_progress_url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"查询任务进度失败: {response.text}"
+            )
+    except requests.exceptions.RequestException as e:
+        logger.error(f"查询任务进度异常: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"查询任务进度请求失败: {str(e)}"
+        )
+
+
+@app.post("/vision/box-count")
+async def box_count(request: Request):
+    """
+    箱体计数接口
+    功能：拉取图片 + 调用boxdetect算法 + 返回实际数量
+    
+    请求体格式：
+    {
+        "task_id": str,             # 任务ID（必需）
+        "bin_code": str,            # 库位代码（可选）
+        "pile_id": int              # 堆垛ID（可选，默认1）
+    }
+    
+    返回格式：
+    {
+        "success": bool,            # 是否成功
+        "total_count": int,         # 实际箱体数量
+        "status": str               # 状态信息（"success" 或错误信息）
+    }
+    """
+    try:
+        # 获取认证token
+        auth_token = request.headers.get('authToken')
+        if not auth_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="未提供认证令牌"
+            )
+        
+        # 解析请求体
+        data = await request.json()
+        task_id = data.get("task_id")
+        bin_code = data.get("bin_code")
+        pile_id = data.get("pile_id", 1)  # 默认使用pile_id=1
+        
+        if not task_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="缺少必需参数: task_id"
+            )
+        
+        logger.info(f"开始处理箱体计数: task_id={task_id}, bin_code={bin_code}")
+        
+        # 获取服务实例并处理
+        box_count_service = get_box_count_service()
+        result = box_count_service.process_image(
+            task_id=task_id,
+            bin_code=bin_code,
+            pile_id=pile_id,
+            auth_token=auth_token
+        )
+        
+        logger.info(f"箱体计数完成: task_id={task_id}, total_count={result.get('total_count', 0)}")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"箱体计数接口异常: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"箱体计数处理失败: {str(e)}"
+        )
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

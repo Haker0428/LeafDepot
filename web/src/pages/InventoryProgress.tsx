@@ -94,9 +94,14 @@ interface TaskStatusResponse {
     taskNo: string;
     status: string;
     totalTasks: number;
-    completedTasks: number;
+    completedTasks?: Array<{
+      taskDetailId: string;
+      binCode?: string;
+      imagePath?: string;
+      countedQty?: number;
+    }>;
     progress: number;
-    completedItems: Array<{
+    completedItems?: Array<{
       taskDetailId: string;
       status: string;
       countedQty: number;
@@ -263,6 +268,18 @@ export default function InventoryProgress() {
             // 更新进度
             setProgress(result.data.progress);
 
+            // 如果有已完成的任务，调用图片检测接口
+            if (result.data.completedTasks && result.data.completedTasks.length > 0) {
+              for (const completedTask of result.data.completedTasks) {
+                // 检查是否已经有检测结果，避免重复检测
+                const existingItem = inventoryItems.find(item => item.id === completedTask.taskDetailId);
+                if (existingItem && existingItem.actualQuantity === null) {
+                  // 调用图片检测接口（图片拉取在后端完成）
+                  handleBoxCountDetection(completedTask.taskDetailId, currentTaskNo || '', completedTask.binCode);
+                }
+              }
+            }
+
             // 如果任务完成，停止轮询
             if (result.data.status === 'COMPLETED' || result.data.progress >= 100) {
               clearInterval(pollInterval);
@@ -311,6 +328,61 @@ export default function InventoryProgress() {
     }, 200);
 
     return () => clearInterval(interval);
+  };
+
+  // 处理图片检测（箱体计数）
+  const handleBoxCountDetection = async (taskDetailId: string, taskId: string, binCode?: string) => {
+    try {
+      if (!authToken) {
+        toast.error('未找到认证令牌，请重新登录');
+        return;
+      }
+
+      console.log(`开始箱体计数检测: taskDetailId=${taskDetailId}, taskId=${taskId}, binCode=${binCode}`);
+
+      const response = await fetch(`${GATEWAY_URL}/vision/box-count`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'authToken': authToken,
+        },
+        body: JSON.stringify({
+          task_id: taskId,
+          bin_code: binCode,
+          pile_id: 1, // 默认使用pile_id=1，可根据实际情况调整
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: '未知错误' }));
+        throw new Error(errorData.detail || errorData.message || `HTTP错误! 状态: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('箱体计数检测结果:', result);
+
+      if (result.success && result.total_count !== undefined) {
+        // 更新对应项的实际数量和进度（使用函数式更新确保获取最新值）
+        setInventoryItems(prevItems => {
+          const updatedItems = prevItems.map(item =>
+            item.id === taskDetailId
+              ? { ...item, actualQuantity: result.total_count }
+              : item
+          );
+          const completedCount = updatedItems.filter(item => item.actualQuantity !== null).length;
+          const newProgress = 30 + (completedCount / prevItems.length) * 70;
+          setProgress(Math.min(Math.round(newProgress), 100));
+          return updatedItems;
+        });
+
+        toast.success(`箱体计数完成: ${result.total_count} 箱`);
+      } else {
+        toast.error(`箱体计数失败: ${result.status || '未知错误'}`);
+      }
+    } catch (error: any) {
+      console.error('箱体计数检测失败:', error);
+      toast.error(`箱体计数检测失败: ${error.message || '未知错误'}`);
+    }
   };
 
   // 处理实际数量输入变化

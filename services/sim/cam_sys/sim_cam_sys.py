@@ -14,6 +14,7 @@ from PIL import Image
 import io
 import random
 import logging
+import base64
 
 # 配置日志
 logging.basicConfig(
