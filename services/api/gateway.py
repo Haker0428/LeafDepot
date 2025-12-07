@@ -115,15 +115,28 @@ async def auth_token(token: str):
     try:
         # 调用LMS的authToken接口
         lms_auth_url = f"{LMS_BASE_URL}/auth/token?token={token}"
-        response = requests.get(lms_auth_url)
+        response = requests.get(lms_auth_url, timeout=5)
 
         if response.status_code == 200:
             return response.json()
         else:
+            logger.error(f"LMS获取用户信息失败: {response.status_code} - {response.text}")
             raise HTTPException(
                 status_code=response.status_code,
                 detail=f"LMS获取用户信息失败: {response.text}"
             )
+    except requests.exceptions.ConnectionError:
+        logger.error(f"无法连接到LMS服务: {LMS_BASE_URL}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="无法连接到LMS服务，请确保LMS服务正在运行"
+        )
+    except requests.exceptions.Timeout:
+        logger.error("LMS服务请求超时")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="LMS服务响应超时"
+        )
     except Exception as e:
         logger.error(f"获取用户信息请求失败: {str(e)}")
         raise HTTPException(

@@ -46,14 +46,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsAuthenticated(true);
         return true; // 验证成功
       } else {
-        throw new Error('Token verification failed');
+        // 获取更详细的错误信息
+        let errorMessage = 'Token verification failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorData.message || errorMessage;
+        } catch {
+          errorMessage = `Token verification failed (状态码: ${response.status})`;
+        }
+        throw new Error(errorMessage);
       }
     } catch (error) {
       console.error('Token verification failed:', error);
       // Token 验证失败时，只清除认证状态，但保留 token 以便重试
       setIsAuthenticated(false);
       setUser(null);
-      toast.error('会话已过期，请重新登录');
+      // 根据错误类型显示不同的提示
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        toast.error('无法连接到服务器，请检查服务是否运行');
+      } else {
+        const errorMessage = error instanceof Error ? error.message : '会话验证失败';
+        // 如果是404错误，不显示toast，因为可能是服务未启动
+        if (errorMessage.includes('404') || errorMessage.includes('NOT_FOUND')) {
+          console.warn('Token验证返回404，可能是LMS服务未启动');
+          // 不显示错误toast，静默失败
+        } else {
+          toast.error(errorMessage);
+        }
+      }
       return false; // 验证失败
     }
   }, []);
