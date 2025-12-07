@@ -31,6 +31,7 @@ origins = [
     "http://localhost:3000",  # UI
     "http://localhost:4001",  # RCS
     "http://localhost:5000",  # CamSys
+    "http://10.16.82.95:3000",  # Gateway
     "http://localhost:6000"  # LMS
 ]
 
