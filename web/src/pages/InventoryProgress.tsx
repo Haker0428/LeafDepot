@@ -258,11 +258,6 @@ export default function InventoryProgress() {
 
   // 在组件内部添加这两个处理函数
   const handleManualCapture = async (taskNo: string, locationName: string, itemId: string) => {
-    if (isCapturing) {
-      toast.info('正在处理中，请稍候...');
-      return;
-    }
-
     setIsCapturing(true);
     setImageLoading(true);
     setImageError(false);
@@ -312,11 +307,6 @@ export default function InventoryProgress() {
   };
 
   const handleCalculate = async (taskNo: string, locationName: string, itemId: string) => {
-    if (isCapturing) {
-      toast.info('正在处理中，请稍候...');
-      return;
-    }
-
     setIsCapturing(true);
     setImageLoading(true);
     setImageError(false);
@@ -1326,13 +1316,8 @@ export default function InventoryProgress() {
                                       item.id // 传递item.id用于独立索引
                                     );
                                   }}
-                                  disabled={isCapturing}
-                                  className={`px-3 py-1 rounded transition-colors flex items-center justify-center w-full ${
-                                    isCapturing
-                                      ? "bg-gray-400 cursor-not-allowed text-white"
-                                      : "bg-blue-600 hover:bg-blue-700 text-white"
-                                  }`}
-                                  title="手动抓取当前货位图像（每次点击循环显示task_id 0-17）"
+                                  className="px-3 py-1 rounded transition-colors flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white"
+                                  title="手动抓取当前货位图像（每次点击循环显示task_id 1-17）"
                                 >
                                   {isCapturing ? (
                                     <>
@@ -1359,13 +1344,8 @@ export default function InventoryProgress() {
                                       item.id // 传递item.id用于独立索引
                                     );
                                   }}
-                                  disabled={isCapturing}
-                                  className={`px-3 py-1 rounded transition-colors flex items-center justify-center w-full ${
-                                    isCapturing
-                                      ? "bg-gray-400 cursor-not-allowed text-white"
-                                      : "bg-green-600 hover:bg-green-700 text-white"
-                                  }`}
-                                  title="显示debug图片（每次点击循环显示task_id 0-17）"
+                                  className="px-3 py-1 rounded transition-colors flex items-center justify-center w-full bg-green-600 hover:bg-green-700 text-white"
+                                  title="显示debug图片（每次点击循环显示task_id 1-17）"
                                 >
                                   {isCapturing ? (
                                     <>
