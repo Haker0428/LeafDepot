@@ -142,6 +142,20 @@ export default function InventoryProgress() {
           // 如果任务清单中有任务，设置第一个任务的taskNo
           if (manifest.tasks.length > 0) {
             setCurrentTaskNo(manifest.tasks[0].taskNo);
+            
+            // 立即将任务转换为盘点数据
+            const inventoryData: InventoryItem[] = manifest.tasks.map((task) => ({
+              id: task.taskDetailId,
+              productName: task.itemDesc || task.taskNo,
+              specification: task.binDesc,
+              systemQuantity: task.invQty,
+              actualQuantity: null,
+              unit: task.qtyUnit,
+              locationId: task.binId,
+              locationName: task.binDesc
+            }));
+            setInventoryItems(inventoryData);
+            setProgress(30); // 初始进度30%
           }
 
           toast.success(`已加载任务清单，包含 ${manifest.tasks.length} 个任务`);
@@ -208,9 +222,14 @@ export default function InventoryProgress() {
       setResponse(responseData);
 
       if (responseData.code === 'SUCCESS') {
-        toast.error(`任务组下发成功`);
+        toast.success(`任务组下发成功`);
 
         console.log('任务组下发成功');
+        
+        // 立即开始轮询任务状态
+        if (currentTaskNo) {
+          startPollingTaskStatus();
+        }
       } else {
         console.warn('任务组下发返回业务异常:', responseData.message);
       }
