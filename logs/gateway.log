@@ -1,0 +1,15 @@
+INFO:     Will watch for changes in these directories: ['/Users/hepeng/Project/LeafDepot/services/api']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [63784] using StatReload
+INFO:     Started server process [63789]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:56476 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56476 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56476 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56480 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [63789]
+INFO:     Stopping reloader process [63784]
