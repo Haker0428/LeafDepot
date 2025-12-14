@@ -1,19 +1,24 @@
 # gateway.py
+from fastapi.security import APIKeyHeader
+from pathlib import Path
+from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Query, HTTPException, Depends
 from fastapi import FastAPI, Request, HTTPException, status, Header, BackgroundTasks
 from fastapi.responses import JSONResponse, Response
 import requests
 import json
 import logging
-from typing import Dict, Any
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
-from services.utils.compression import compress_and_encode, decompress_and_decode
-from services.vision.box_count_service import get_box_count_service
+import custom_utils
 import uuid
 import time
 import asyncio
-from typing import Dict, List, Optional
-from pathlib import Path
+from typing import Dict, List, Optional, Any, Union
+import base64
+from datetime import datetime
+from pydantic import BaseModel, Field
+import os
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -22,8 +27,11 @@ logger = logging.getLogger(__name__)
 # 模拟服务的地址
 LMS_BASE_URL = "http://localhost:6000"
 RCS_BASE_URL = "http://localhost:4001"
+CAMERA_BASE_URL = "http://localhost:5000"
+RCS_PREFIX = "/rcs/rtas"
+REAL_RCS_BASE_URL = "http://10.4.180.190:80/rcs/rtas"
 
-app = FastAPI(title="LMS Gateway", version="1.0.0")
+app = FastAPI(title="Gateway", version="1.0.0")
 
 # 定义允许的源列表
 origins = [
@@ -31,7 +39,6 @@ origins = [
     "http://localhost:3000",  # UI
     "http://localhost:4001",  # RCS
     "http://localhost:5000",  # CamSys
-    "http://10.16.82.95:3000",  # Gateway
     "http://localhost:6000"  # LMS
 ]
 
@@ -44,8 +51,286 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 存储RCS任务状态（用于网关层面的状态管理）
-rcs_tasks: Dict[str, dict] = {}
+robot_status_store = {}
+status_events = {}
+task_timeouts = {}
+
+
+STATUS_KEY = "ldui_2025"  # 固定状态键
+status_event = asyncio.Event()  # 单个事件对象
+robot_status_store: Dict[str, Any] = {}  # 状态存储
+TASK_TIMEOUT = 300  # 超时时间（秒）
+
+
+# 抓图脚本路径配置
+CAPTURE_SCRIPTS = [
+    "../cam_sys_ok/build/3d_capture.py",  # 第一个抓图脚本
+    "../cam_sys_ok/build/scan_1_capture.py",  # 第二个抓图脚本
+    "../cam_sys_ok/build/scan_2_capture.py"   # 第三个抓图脚本
+]
+
+
+class TaskStatus(BaseModel):
+    task_no: str
+    status: str  # init, running, completed, failed
+    current_step: int
+    total_steps: int
+
+
+# 全局任务状态存储（生产环境建议使用数据库或Redis）
+inventory_tasks: Dict[str, TaskStatus] = {}
+
+######################################### 盘点任务接口 #########################################
+
+
+@app.post("/api/inventory/start-inventory")
+async def start_inventory(request: Request, background_tasks: BackgroundTasks):
+    """启动盘点任务，接收任务编号和储位名称列表"""
+    try:
+        data = await request.json()
+        task_no = data.get("taskNo")
+        bin_locations = data.get("binLocations", [])
+
+        if not task_no or not bin_locations:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="任务编号和储位名称列表不能为空"
+            )
+
+        logger.info(f"启动盘点任务: {task_no}, 包含 {len(bin_locations)} 个储位")
+
+        # 检查任务是否已存在
+        target_route = []
+        for index, location in enumerate(bin_locations):
+            if location in inventory_tasks:
+                existing_task = inventory_tasks[location]
+                if existing_task.status in ["running"]:
+                    return JSONResponse(
+                        status_code=status.HTTP_200_OK,
+                        content={
+                            "code": 200,
+                            "message": "任务已在执行中",
+                            "data": {
+                                "taskNo": existing_task.task_no,
+                                "status": existing_task.status,
+                            }
+                        }
+                    )
+
+        # 在后台异步执行盘点任务
+        background_tasks.add_task(
+            execute_inventory_workflow,
+            task_no=task_no,
+            bin_locations=bin_locations
+        )
+
+        # 1.调用盘点任务下发接口
+
+        # 2.实时接收盘点任务执行状态
+
+        # 3.机器人就位后调用抓图接口
+
+        # 4.抓图成功后调用计算接口，向前端发送图片
+
+        # 5.计算完成后向前端反馈状态，并向前端发送图片
+
+        # 6.调用继续任务接口，重复上述过程，直到全部任务完成
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "code": 200,
+                "message": "盘点任务已启动",
+                "data": {
+                    "taskNo": task_no,
+                    "bin_locations": bin_locations
+                }
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"启动盘点任务失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"启动盘点任务失败: {str(e)}"
+        )
+
+
+async def execute_inventory_workflow(task_no: str, bin_locations: List[str]):
+    """执行完整的盘点工作流"""
+    logger.info(f"开始执行盘点工作流: {task_no}, 共 {len(bin_locations)} 个储位")
+
+    # 初始化任务状态
+    task_status = TaskStatus(
+        task_no=task_no,
+        status="init",
+        current_step=1,
+        total_steps=len(bin_locations)
+    )
+
+    for index, location in enumerate(bin_locations):
+        inventory_tasks[location] = task_status
+
+    # 整体下发盘点任务
+    method = "start"
+    await update_robot_status(method)
+
+    submit_result = await submit_inventory_task(task_no, bin_locations)
+
+    try:
+        # 循环处理每个储位
+        for i, bin_location in enumerate(bin_locations):
+            logger.info(f"开始处理储位 {i+1}/{len(bin_locations)}: {bin_location}")
+
+            # 处理单个储位
+            result = await process_single_bin_location(
+                task_no=task_no,
+                bin_location=bin_location,
+                index=i,
+                total=len(bin_locations)
+            )
+
+            # 保存结果
+            if (result["status"] == "success"):
+                inventory_tasks[bin_location].status = "completed"
+            else:
+                inventory_tasks[bin_location].status = "failed"
+                raise Exception("储位处理失败，终止任务")
+
+        logger.info(f"盘点任务完成: {task_no}, 成功处理 {len(bin_locations)} 个储位")
+
+        # 发送任务完成通知
+        # try:
+        #     async with APIClient(SERVICE_CONFIG["notification_service"]) as client:
+        #         completion_payload = {
+        #             "taskNo": task_no,
+        #             "status": "COMPLETED",
+        #             "totalBins": len(bin_locations),
+        #             "successfulBins": sum(1 for r in inventory_tasks[task_no].results
+        #                                   if r.get("status") == "completed"),
+        #             "failedBins": sum(1 for r in inventory_tasks[task_no].results
+        #                               if r.get("status") == "failed"),
+        #             "completionTime": datetime.now().isoformat(),
+        #             "messageType": "TASK_COMPLETED"
+        #         }
+        #         await client.post("/api/notification/task-complete", json=completion_payload)
+        # except Exception as e:
+        #     logger.warning(f"发送任务完成通知失败: {str(e)}")
+
+    except Exception as e:
+        # 任务执行过程中出现异常
+        logger.error(f"盘点任务失败: {task_no}, 错误: {str(e)}")
+
+        # 发送任务失败通知
+        # try:
+        #     async with APIClient(SERVICE_CONFIG["notification_service"]) as client:
+        #         error_payload = {
+        #             "taskNo": task_no,
+        #             "status": "FAILED",
+        #             "error": str(e),
+        #             "failedAtBin": inventory_tasks[task_no].current_bin,
+        #             "completedBins": len(inventory_tasks[task_no].results),
+        #             "timestamp": datetime.now().isoformat(),
+        #             "messageType": "TASK_FAILED"
+        #         }
+        #         await client.post("/api/notification/task-error", json=error_payload)
+        # except Exception as e2:
+        #     logger.error(f"发送任务失败通知失败: {str(e2)}")
+
+
+async def process_single_bin_location(task_no: str, bin_location: str, index: int, total: int):
+    """处理单个储位的完整流程"""
+    result = {
+        "binLocation": bin_location,
+        "sequence": index + 1,
+        "startTime": datetime.now().isoformat(),
+        "endTime": None,
+        "status": None
+    }
+
+    try:
+        # 更新任务状态
+        if bin_location in inventory_tasks:
+            inventory_tasks[bin_location].status = "running"
+            inventory_tasks[bin_location].current_step = index + 1
+
+            # 等待机器人就位
+            logger.info(f"============等待机器人就位信息: {bin_location}")
+            try:
+                ctu_status = await wait_for_robot_status("end", timeout=300)
+
+                # 这个判断一定会执行，因为wait_for_robot_status会阻塞直到收到end状态或超时
+                if ctu_status and ctu_status.get("method") == "end":
+
+                    # 执行抓图脚本
+                    capture_results = await capture_images_with_scripts(task_no, bin_location)
+                    result["captureResults"] = capture_results
+
+                    # 检查抓图结果
+                    successful_scripts = sum(
+                        1 for r in capture_results if r.get("success"))
+                    if successful_scripts < len(CAPTURE_SCRIPTS):
+                        logger.warning(
+                            f"部分抓图脚本执行失败: {successful_scripts}/{len(CAPTURE_SCRIPTS)}")
+                    else:
+                        logger.info(f"所有抓图脚本执行成功: {bin_location}")
+
+                    if ((index + 1) < total):
+                        logger.info(f"收到机器人结束状态: {bin_location}")
+
+                        # 只有在收到end状态后才调用继续任务接口
+                        continue_result = await continue_inventory_task()
+                        logger.info(f"继续任务接口调用结果: {continue_result}")
+                        result["continueResult"] = continue_result
+
+                else:
+                    # 正常情况下不会执行到这里，除非wait_for_robot_status返回了非end状态
+                    logger.warning(f"未收到预期的结束状态，当前状态: {ctu_status}")
+
+            except asyncio.TimeoutError as e:
+                logger.error(f"等待机器人结束状态超时: {str(e)}")
+                result["error"] = "等待机器人结束状态超时"
+                raise
+
+            # # 2. 机器人就位后调用抓图接口
+            # image_data = await capture_image(task_no, bin_location)
+            # result["imageData"] = image_data
+            # result["captureTime"] = image_data.get("captureTime")
+
+            # # 3. 抓图成功后调用计算接口
+            # compute_result = await compute_inventory(task_no, bin_location, image_data)
+            # result["computeResult"] = compute_result
+            # result["computeTime"] = datetime.now().isoformat()
+
+            # # 4. 向前端发送图片和计算结果
+            # await send_to_frontend(task_no, bin_location, image_data, compute_result)
+
+            result["status"] = "success"
+            result["endTime"] = datetime.now().isoformat()
+
+    except Exception as e:
+        result["status"] = "failed"
+        result["endTime"] = datetime.now().isoformat()
+        logger.error(f"处理储位失败 {bin_location}: {str(e)}")
+
+        # 记录错误但继续处理下一个储位（根据业务需求决定是否中断）
+        # 可以发送错误通知到前端
+        # try:
+        #     async with APIClient(SERVICE_CONFIG["notification_service"]) as client:
+        #         error_payload = {
+        #             "taskNo": task_no,
+        #             "binLocation": bin_location,
+        #             "error": str(e),
+        #             "timestamp": datetime.now().isoformat(),
+        #             "messageType": "ERROR"
+        #         }
+        #         await client.post("/api/notification/error", json=error_payload)
+        # except:
+        #     pass
+
+    return result
+######################################### 盘点任务接口 #########################################
+
 
 ######################################### LMS #########################################
 
@@ -145,7 +430,7 @@ async def get_lms_bin(authToken: str):
         if response.status_code == 200:
             # 关键修复：处理LMS返回的压缩编码字符串
             try:
-                uncompressed_data = decompress_and_decode(
+                uncompressed_data = custom_utils.decompress_and_decode(
                     response.text)
 
                 logger.info("成功解压缩并解析库位数据")
@@ -186,7 +471,7 @@ async def get_count_tasks(authToken: str):
         if response.status_code == 200:
             # 关键修复：处理LMS返回的压缩编码字符串
             try:
-                uncompressed_data = decompress_and_decode(
+                uncompressed_data = custom_utils.decompress_and_decode(
                     response.text)
 
                 logger.info("成功解压缩并解析盘点任务数据")
@@ -238,7 +523,7 @@ async def set_task_results(request: Request):
 
         # 2. 从请求体获取JSON数据（前端发送的是标准JSON）
         data = await request.json()
-        encoded_data = compress_and_encode(data)
+        encoded_data = custom_utils.compress_and_encode(data)
 
         # 6. 调用LMS接口（使用压缩后的数据）
         lms_results_url = f"{LMS_BASE_URL}/third/api/v1/RcsToLmsService/setTaskResults"
@@ -266,150 +551,341 @@ async def set_task_results(request: Request):
         )
 
 ######################################### RCS #########################################
+# @app.post("/api/inventory/submit-task")
+# async def submit_inventory_task(request: Request):
 
-rcs_service_prefix = "/rcs/rtas"
 
-
-@app.post("/rcs/controller/task/group")
-async def set_tasks_group(request: Request):
-    """调用RCS的任务组接口"""
-
-    logger.info("发送请求到RCS服务...")
-
-    rcs_task_group_url = f"{RCS_BASE_URL}{rcs_service_prefix}/api/robot/controller/task/group"
-
+async def submit_inventory_task(task_no: str, bin_locations: List[str]):
+    """下发盘点任务，接收任务编号和储位名称列表"""
     try:
-        logger.info(f"发送任务组创建请求: {rcs_task_group_url}")
 
-        json_data = await request.json()
-        logger.info(f"接收到的任务组数据: {json_data}")
+        logger.info(f"下发盘点任务: {task_no}, 储位: {bin_locations}")
+
+        url = f"{RCS_BASE_URL}{RCS_PREFIX}/api/robot/controller/task/submit"
+        headers = {
+            "X-lr-request-id": "ldui",
+            "Content-Type": "application/json"
+        }
+
+        # 构建targetRoute数组
+        target_route = []
+        for index, location in enumerate(bin_locations):
+            route_item = {
+                "seq": index,
+                "type": "ZONE",
+                "code": location,  # 使用储位名称作为目标区域
+            }
+            target_route.append(route_item)
+
+        # 构建请求体 - 单个任务对象
+        request_body = {
+            "taskType": "PF-CTU-COMMON-TEST",
+            "targetRoute": target_route
+        }
 
         response = requests.post(
-            url=rcs_task_group_url,
-            json=json_data,
-            headers=dict(request.headers),  # 转换为普通字典
-            timeout=30
-        )
-
-        logger.info(f"响应状态码: {response.status_code}")
-        logger.info(f"响应内容: {response.text}")
+            url, json=request_body, headers=headers, timeout=30)
 
         if response.status_code == 200:
-            result = response.json()
-            if result.get("code") == "SUCCESS":
-                logger.info("任务组创建成功")
-            else:
-                logger.warning(f"任务组创建返回业务异常: {result.get('message')}")
-            return result
-        else:
-            logger.error(f"HTTP请求失败: {response.status_code}")
-            return {
-                "code": f"HTTP_ERROR_{response.status_code}",
-                "message": f"HTTP请求失败: {response.status_code}",
-                "data": None
-            }
+            response_data = response.json()
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"请求异常: {str(e)}")
+            if response_data.get("code") == "SUCCESS":
+                logger.info(f"储位 {bin_locations} 已发送到机器人系统")
+                return {"success": True, "message": "盘点任务已下发"}
+        else:
+            return {"success": False, "message": "盘点任务下发失败"}
+
+    except Exception as e:
+        logger.error(f"下发盘点任务失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"下发盘点任务失败: {str(e)}"
+        )
+
+
+# @app.post("/api/inventory/continue-task")
+# async def continue_inventory_task(request: Request):
+async def continue_inventory_task():
+    """继续盘点任务"""
+    try:
+        logger.info(f"继续执行盘点任务")
+
+        url = f"{RCS_BASE_URL}{RCS_PREFIX}/api/robot/controller/task/extend/continue"
+        headers = {
+            "X-lr-request-id": "ldui",
+            "Content-Type": "application/json"
+        }
+
+        # 构建请求体
+        request_body = {
+            "triggerType": "TASK",
+            "triggerCode": "001"
+        }
+
+        response = requests.post(
+            url, json=request_body, headers=headers, timeout=30)
+
+        if response.status_code == 200:
+            response_data = response.json()
+
+            if response_data.get("code") == "SUCCESS":
+                logger.info(f"继续执行盘点任务命令已发送到机器人系统")
+                return {"success": True, "message": "盘点任务已继续"}
+        else:
+            return {"success": False, "message": "盘点任务下发失败"}
+
+    except Exception as e:
+        logger.error(f"继续盘点任务失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"继续盘点任务失败: {str(e)}"
+        )
+
+
+@app.post("/api/robot/reporter/task")
+async def task_status(request: Request):
+    try:
+        # 获取请求数据
+        request_data = await request.json()
+
+        logger.info("反馈任务状态")
+        logger.info(
+            f"请求数据: {json.dumps(request_data, indent=2, ensure_ascii=False)}")
+
+        # 提取任务信息
+        robot_task_code = request_data.get("robotTaskCode")
+        single_robot_code = request_data.get("singleRobotCode")
+        extra = request_data.get("extra", "")
+
+        # 解析extra字段
+        if extra:
+            try:
+                extra_list = json.loads(extra)
+                if isinstance(extra_list, list):
+                    for item in extra_list:
+                        method = item.get("method", "")
+                        logger.info(f"处理method: {method}")
+                        await update_robot_status(method, item)
+
+                        if method == "start":
+                            logger.info("任务开始")
+
+                        elif method == "outbin":
+                            logger.info("走出储位")
+
+                        elif method == "end":
+                            logger.info("任务完成")
+
+                        # 根据不同的method更新您的任务状态...
+            except json.JSONDecodeError:
+                logger.error(f"无法解析extra字段: {extra}")
+
+        # 返回响应
         return {
-            "code": "REQUEST_ERROR",
-            "message": f"请求异常: {str(e)}",
-            "data": None
+            "code": "SUCCESS",
+            "message": "成功",
+            "data": {
+                "robotTaskCode": "ctu001"
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"处理状态反馈失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"处理状态反馈失败: {str(e)}")
+
+
+async def update_robot_status(method: str, data: Optional[Dict] = None):
+    """更新机器人状态并触发事件"""
+    # 保存状态信息
+    robot_status_store[STATUS_KEY] = {
+        "method": method,
+        "timestamp": time.time(),
+        "data": data or {}
+    }
+
+    logger.info(f"更新机器人状态: {method}")
+
+    # 设置事件，通知等待的进程
+    status_event.set()
+
+
+async def wait_for_robot_status(expected_method: str, timeout: int = 300):
+    """
+    等待特定机器人状态的同步函数
+
+    这个函数会阻塞直到收到期望的状态或超时
+    """
+    logger.info(f"开始等待机器人状态: {expected_method}, 超时: {timeout}秒")
+
+    start_time = time.time()
+
+    # 清除事件，确保我们等待的是新的事件
+    status_event.clear()
+
+    # 检查是否已经有期望的状态
+    if STATUS_KEY in robot_status_store:
+        current_status = robot_status_store[STATUS_KEY]
+        if current_status.get("method") == expected_method:
+            logger.info(f"已存在期望状态: {expected_method}")
+            return current_status
+
+    while True:
+        try:
+            # 等待事件被设置
+            await asyncio.wait_for(status_event.wait(), timeout=1.0)
+
+            # 检查状态
+            if STATUS_KEY in robot_status_store:
+                current_status = robot_status_store[STATUS_KEY]
+                logger.info(f"收到机器人状态: {current_status.get('method')}")
+
+                if current_status.get("method") == expected_method:
+                    logger.info(f"收到期望状态: {expected_method}")
+                    return current_status
+
+            # 重置事件，准备下一次等待
+            status_event.clear()
+
+        except asyncio.TimeoutError:
+            # 检查是否总时间超时
+            elapsed_time = time.time() - start_time
+            if elapsed_time >= timeout:
+                logger.error(f"等待机器人状态超时: {expected_method}")
+                raise asyncio.TimeoutError(f"等待 {expected_method} 状态超时")
+
+            # 继续等待
+            continue
+
+######################################### 抓图 #########################################
+
+
+async def execute_capture_script(script_path: str, task_no: str, bin_location: str) -> Dict[str, Any]:
+    """
+    在指定 Conda 环境中执行单个抓图脚本
+
+    Args:
+        script_path: 脚本路径
+        task_no: 任务编号
+        bin_location: 储位名称
+        conda_env: Conda 环境名称，默认为 'your_env_name'
+
+    Returns:
+        脚本执行结果
+    """
+    conda_env = "tobacco_env"
+    try:
+        logger.info(f"在 Conda 环境 '{conda_env}' 中执行抓图脚本: {script_path}")
+
+        # 方法1: 使用 conda run 命令
+        # 构建命令行参数
+        cmd = ["conda", "run", "-n", conda_env, "python", script_path,
+               "--task-no", task_no, "--bin-location", bin_location]
+
+        # 方法2: 直接使用 conda 环境中的 python 路径（如果知道路径）
+        # 假设你的 conda 环境路径是已知的
+        # conda_python_path = f"/home/user/anaconda3/envs/{conda_env}/bin/python"
+        # cmd = [conda_python_path, script_path, "--task-no", task_no, "--bin-location", bin_location]
+
+        # 执行脚本
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        # 等待脚本完成
+        stdout, stderr = await process.communicate()
+
+        # 解析结果
+        result = {
+            "script": os.path.basename(script_path),
+            "conda_env": conda_env,
+            "returncode": process.returncode,
+            "stdout": stdout.decode('utf-8') if stdout else "",
+            "stderr": stderr.decode('utf-8') if stderr else "",
+            "success": process.returncode == 0
+        }
+
+        if process.returncode == 0:
+            logger.info(f"脚本执行成功: {script_path} (环境: {conda_env})")
+        else:
+            logger.error(
+                f"脚本执行失败: {script_path}, 错误: {stderr.decode('utf-8')}")
+
+        return result
+
+    except FileNotFoundError as e:
+        logger.error(f"conda 命令未找到或 Conda 环境 '{conda_env}' 不存在: {str(e)}")
+        return {
+            "script": os.path.basename(script_path),
+            "conda_env": conda_env,
+            "returncode": -1,
+            "stdout": "",
+            "stderr": f"Conda 环境 '{conda_env}' 未找到或 conda 命令不可用",
+            "success": False
+        }
+    except Exception as e:
+        logger.error(f"执行脚本失败 {script_path}: {str(e)}")
+        return {
+            "script": os.path.basename(script_path),
+            "conda_env": conda_env,
+            "returncode": -1,
+            "stdout": "",
+            "stderr": str(e),
+            "success": False
         }
 
 
-@app.get("/rcs/task-progress/{task_no}")
-async def get_task_progress(task_no: str, authToken: str = Header(None)):
-    """查询RCS任务进度"""
-    try:
-        rcs_progress_url = f"{RCS_BASE_URL}{rcs_service_prefix}/api/robot/controller/task/progress/{task_no}"
-        
-        headers = {
-            "authToken": authToken
-        } if authToken else {}
-        
-        response = requests.get(rcs_progress_url, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"查询任务进度失败: {response.text}"
-            )
-    except requests.exceptions.RequestException as e:
-        logger.error(f"查询任务进度异常: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"查询任务进度请求失败: {str(e)}"
-        )
-
-
-@app.post("/vision/box-count")
-async def box_count(request: Request):
+async def capture_images_with_scripts(task_no: str, bin_location: str) -> List[Dict[str, Any]]:
     """
-    箱体计数接口
-    功能：拉取图片 + 调用boxdetect算法 + 返回实际数量
-    
-    请求体格式：
-    {
-        "task_id": str,             # 任务ID（必需）
-        "bin_code": str,            # 库位代码（可选）
-        "pile_id": int              # 堆垛ID（可选，默认1）
-    }
-    
-    返回格式：
-    {
-        "success": bool,            # 是否成功
-        "total_count": int,         # 实际箱体数量
-        "status": str               # 状态信息（"success" 或错误信息）
-    }
-    """
-    try:
-        # 获取认证token
-        auth_token = request.headers.get('authToken')
-        if not auth_token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="未提供认证令牌"
-            )
-        
-        # 解析请求体
-        data = await request.json()
-        task_id = data.get("task_id")
-        bin_code = data.get("bin_code")
-        pile_id = data.get("pile_id", 1)  # 默认使用pile_id=1
-        
-        if not task_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="缺少必需参数: task_id"
-            )
-        
-        logger.info(f"开始处理箱体计数: task_id={task_id}, bin_code={bin_code}")
-        
-        # 获取服务实例并处理
-        box_count_service = get_box_count_service()
-        result = box_count_service.process_image(
-            task_id=task_id,
-            bin_code=bin_code,
-            pile_id=pile_id,
-            auth_token=auth_token
-        )
-        
-        logger.info(f"箱体计数完成: task_id={task_id}, total_count={result.get('total_count', 0)}")
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"箱体计数接口异常: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"箱体计数处理失败: {str(e)}"
-        )
+    按顺序执行三个抓图脚本
 
+    Args:
+        task_no: 任务编号
+        bin_location: 储位名称
+
+    Returns:
+        所有脚本的执行结果
+    """
+    results = []
+
+    for i, script_path in enumerate(CAPTURE_SCRIPTS, 1):
+        logger.info(f"开始执行第 {i} 个抓图脚本: {script_path}")
+
+        try:
+            # 检查脚本文件是否存在
+            if not os.path.exists(script_path):
+                logger.error(f"脚本文件不存在: {script_path}")
+                results.append({
+                    "script": script_path,
+                    "success": False,
+                    "error": "脚本文件不存在"
+                })
+                continue
+
+            # 执行脚本
+            result = await execute_capture_script(script_path, task_no, bin_location)
+            results.append(result)
+
+            # 如果脚本执行失败，可以选择是否继续执行后续脚本
+            if not result["success"]:
+                logger.warning(f"第 {i} 个抓图脚本执行失败，继续执行下一个脚本")
+                # 可以根据业务需求决定是否中断
+                # continue
+
+            # 脚本之间的短暂延迟（可选）
+            if i < len(CAPTURE_SCRIPTS):
+                await asyncio.sleep(0.5)
+
+        except Exception as e:
+            logger.error(f"执行第 {i} 个抓图脚本时发生异常: {str(e)}")
+            results.append({
+                "script": script_path,
+                "success": False,
+                "error": str(e)
+            })
+
+    return results
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

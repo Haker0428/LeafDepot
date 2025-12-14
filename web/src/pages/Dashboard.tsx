@@ -192,8 +192,8 @@ export default function Dashboard() {
           <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 transform transition-all hover:shadow-lg hover:-translate-y-1">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <p className="text-gray-500 text-sm">本月盘点</p>
-                <h3 className="text-3xl font-bold text-green-800 mt-1">24</h3>
+                <p className="text-gray-500 text-sm">本日盘点</p>
+                <h3 className="text-3xl font-bold text-green-800 mt-1">6</h3>
               </div>
               <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center text-purple-600">
                 <i className="fa-solid fa-clipboard-check text-xl"></i>
@@ -201,16 +201,16 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center text-sm">
               <span className="text-green-600 flex items-center">
-                <i className="fa-solid fa-arrow-up mr-1"></i> 8 次
+                <i className="fa-solid fa-arrow-up mr-1"></i> 1 次
               </span>
-              <span className="text-gray-500 ml-2">较上月</span>
+              <span className="text-gray-500 ml-2">较昨日</span>
             </div>
           </div>
 
           <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 transform transition-all hover:shadow-lg hover:-translate-y-1">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <p className="text-gray-500 text-sm">准确率</p>
+                <p className="text-gray-500 text-sm">本月盘点</p>
                 <h3 className="text-3xl font-bold text-green-800 mt-1">99.7%</h3>
               </div>
               <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
@@ -219,7 +219,7 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center text-sm">
               <span className="text-green-600 flex items-center">
-                <i className="fa-solid fa-arrow-up mr-1"></i> 0.3%
+                <i className="fa-solid fa-arrow-up mr-1"></i> 8次
               </span>
               <span className="text-gray-500 ml-2">较上月</span>
             </div>
