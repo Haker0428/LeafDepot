@@ -141,35 +141,13 @@ class CoverageBasedDetector(FullLayerDetector):
             "top_layer": {
                 "index": 1,
                 "expected": C_top,
-                "observed": O_top,
-                "coverage": round(coverage, 3),
-                "cv_gap": round(cv_gap, 3),
-                "cv_width": round(cv_width, 3)
-            },
-            "metrics": {
-                "coverage": round(coverage, 3),
-                "cv_gap": round(cv_gap, 3),
-                "cv_width": round(cv_width, 3),
-                "coverage_threshold": self.coverage_threshold,
-                "cv_gap_threshold": self.cv_gap_threshold
+                "observed": O_top
             }
         }
         
-        # 调试输出
+        # 调试输出（简化）
         if self.enable_debug:
-            print("\n" + "="*50)
-            print("🔍 满层判断模块 - 调试信息")
-            print("="*50)
-            print(f"📊 顶层检测数: {O_top}, 模板期望: {C_top}")
-            print(f"📈 覆盖率: {coverage:.3f} (阈值: {self.coverage_threshold})")
-            print(f"📉 间距变异系数: {cv_gap:.3f} (阈值: {self.cv_gap_threshold})")
-            print(f"📏 宽度变异系数: {cv_width:.3f}")
-            print(f"✅ 判断结果: {'满层' if full else '非满层'}")
-            print(f"📝 判断依据: {reason}")
-            print("="*50 + "\n")
-            
-            if cv_width > 0.4:
-                print("⚠️  宽度差异较大，可能横竖混放或检测框偏移。\n")
+            print(f"🔍 满层判断: {'✅ 满层' if full else '❌ 非满层'} (顶层: {O_top}/{C_top}, 依据: {reason})")
         
         return result
 

@@ -4,7 +4,7 @@ import cv2
 from typing import Dict
 from pathlib import Path
 
-from core.detection.detection.scene_prepare import prepare_logic
+from core.detection.core.scene_prepare import prepare_logic
 from core.detection.utils.path_utils import get_output_path
 
 

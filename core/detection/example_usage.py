@@ -4,7 +4,7 @@
 展示如何使用可扩展的满层判断和处理模块
 """
 
-from core.detection.detection import (
+from core.detection import (
     # 原有接口（向后兼容）
     prepare_logic,
     cluster_layers_with_box_roi,
@@ -142,11 +142,10 @@ def example_5_backward_compatible():
     template_layers = [10, 10, 10]
     pile_roi = {"x1": 0, "y1": 0, "x2": 100, "y2": 200}
     
-    # 原有接口仍然可用，内部使用新架构
-    result = verify_full_stack(layers, template_layers, pile_roi)
+    # 原有接口仍然可用，内部使用新架构（现在只返回总箱数）
+    total_count = verify_full_stack(layers, template_layers, pile_roi)
     
-    print(f"是否满层: {result['full']}")
-    print(f"总箱数: {result['total']}")
+    print(f"总箱数: {total_count}")
 
 
 if __name__ == "__main__":

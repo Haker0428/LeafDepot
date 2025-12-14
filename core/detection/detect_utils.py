@@ -6,7 +6,7 @@
 
 # 从新模块导入所有内容，保持向后兼容
 from core.detection.utils import PileNotFoundError, PileTypeDatabase, extract_yolo_detections
-from core.detection.detection import (
+from core.detection.core import (
     prepare_logic,
     filter_rear_boxes_if_multilayer,
     remove_fake_top_layer,

@@ -12,19 +12,35 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-from core.detection.detect_utils import *
+# 使用新的模块导入路径
+from core.detection.core import (
+    prepare_logic,
+    cluster_layers_with_box_roi,
+    remove_fake_top_layer,
+    draw_layers_with_box_roi,
+    visualize_layers,
+    visualize_layers_with_roi,
+    visualize_layers_with_box_roi,
+)
+# verify_full_stack 从向后兼容模块导入
+from core.detection import verify_full_stack
+from core.detection.utils import extract_yolo_detections, PileTypeDatabase
 from core.detection.utils.path_utils import ensure_output_dir
+from core.detection.visualization import prepare_scene
 
-img_path = "../../tests/test_images/partial/sample1.jpg"
-model = YOLO("../../shared/models/yolo/best.pt")
-results = model.predict(source=img_path, save=True)
+# 从项目根目录计算路径
+_project_root = Path(__file__).resolve().parent.parent.parent.parent
+img_path = str(_project_root / "tests" / "test_images" / "full" / "sample1.jpg")
+model_path = str(_project_root / "shared" / "models" / "yolo" / "best.pt")
+model = YOLO(model_path)
+results = model.predict(source=img_path, save=False)  # 不保存YOLO默认输出
 
 # 获取所有检测框
 detections = extract_yolo_detections(results)
 print(f"检测烟箱数量：{len(detections)}")
 print(f"result is {detections}")
 
-pile_config_path = Path(__file__).resolve().parent.parent / "config" / "pile_config.json"
+pile_config_path = _project_root / "core" / "config" / "pile_config.json"
 pile_db = PileTypeDatabase(pile_config_path)
 pile_id = 1
 count = pile_db.get_total_count(pile_id)
@@ -102,7 +118,8 @@ layers_result["layers"] = remove_fake_top_layer(layers_result["layers"])
 
 layers_result["layers"] = reindex_layers(layers_result["layers"])
 
-result = verify_full_stack(layers_result["layers"] , template_layers, prepared["pile_roi"])
+total_count = verify_full_stack(layers_result["layers"] , template_layers, prepared["pile_roi"])
+print(f"总箱数: {total_count}")
 
 draw_layers_with_box_roi(
     img_path=img_path,

@@ -1,55 +1,20 @@
-"""场景准备逻辑：过滤YOLO输出，确定ROI"""
-
-from typing import Dict, List, Optional
-
-
-def prepare_logic(yolo_output: List[Dict], conf_thr: float = 0.6) -> Optional[Dict]:
-    """
-    过滤 YOLO 输出，只保留 pile 内目标（不做绘图）
-    """
-    # 1️⃣ 找到唯一 pile
-    piles = [b for b in yolo_output if b["cls"] == "pile" and b["conf"] >= conf_thr]
-    if not piles:
-        print("⚠️ 未检测到 pile")
-        return None
-    pile = max(piles, key=lambda b: b["conf"])
-    pile_roi = {
-        "x1": int(pile["x1"]),
-        "y1": int(pile["y1"]),
-        "x2": int(pile["x2"]),
-        "y2": int(pile["y2"])
-    }
-
-    # 2️⃣ pile 内过滤
-    boxes, barcodes = [], []
-    for b in yolo_output:
-        if b["conf"] < conf_thr:
-            continue
-        xc = 0.5 * (b["x1"] + b["x2"])
-        yc = 0.5 * (b["y1"] + b["y2"])
-        if not (pile_roi["x1"] <= xc <= pile_roi["x2"] and pile_roi["y1"] <= yc <= pile_roi["y2"]):
-            continue
-        if b["cls"] == "box":
-            boxes.append(b)
-        elif b["cls"] == "barcode":
-            barcodes.append(b)
-
-    return {
-        "pile_roi": pile_roi,
-        "boxes": boxes,
-        "barcodes": barcodes,
-        "count": {
-            "boxes": len(boxes),
-            "barcodes": len(barcodes)
-        }
-    }
+"""层过滤：去除误层、过滤背面box"""
 
 import numpy as np
+from typing import List, Dict
 
-def filter_rear_boxes_if_multilayer(layers, pile_roi):
+
+def filter_rear_boxes_if_multilayer(layers: List[Dict], pile_roi: Dict[str, float]) -> List[Dict]:
     """
     若层数>1，自动去除每层中的后排（y值较小的箱）
     若层数=1，不做任何过滤
+    
+    Args:
+        layers: 分层结果列表
+        pile_roi: 堆垛ROI区域
+        
+    Returns:
+        过滤后的分层结果列表
     """
     if len(layers) <= 1:
         return layers  # 单层直接返回
@@ -76,10 +41,18 @@ def filter_rear_boxes_if_multilayer(layers, pile_roi):
     
     return filtered_layers
 
-def remove_fake_top_layer(layers, width_ratio_thr=0.7):
+
+def remove_fake_top_layer(layers: List[Dict], width_ratio_thr: float = 0.7) -> List[Dict]:
     """
     通过ROI宽度变化判断伪层：
     若最高层宽度明显小于下一层，则删除。
+    
+    Args:
+        layers: 分层结果列表（已按avg_y排序）
+        width_ratio_thr: 宽度比例阈值
+        
+    Returns:
+        去除伪层后的分层结果列表
     """
     if len(layers) < 2:
         return layers

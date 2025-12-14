@@ -5,7 +5,7 @@
 
 import numpy as np
 from typing import Dict, List
-from core.detection.detection.stack_processor_factory import StackProcessorFactory
+from core.detection.processors.factory import StackProcessorFactory
 
 
 def calc_coverage(boxes, pile_roi):
@@ -47,17 +47,11 @@ def verify_full_stack(layers, template_layers, pile_roi):
     1️⃣ 只看最高层是否连续填满横向空间；
     2️⃣ 宽度差异不影响判定。
     
-    注意：此函数内部使用新的可扩展架构，但保持原有接口和返回格式
+    注意：此函数现在只返回总箱数（整数）
     """
-    # 使用新的工厂模式处理（保持向后兼容）
+    # 使用新的工厂模式处理
     factory = StackProcessorFactory(enable_debug=True)
-    result = factory.process(layers, template_layers, pile_roi)
+    total_count = factory.process(layers, template_layers, pile_roi)
     
-    # 转换为原有返回格式（向后兼容）
-    return {
-        "full": result["full"],
-        "total": result["total"],
-        "reason": result["reason"],
-        "top_layer": result["top_layer"]
-    }
-
+    # 返回总箱数
+    return total_count
