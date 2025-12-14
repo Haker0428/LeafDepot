@@ -3,6 +3,8 @@
 from typing import Dict, List, Optional, Union
 from pathlib import Path
 from ultralytics import YOLO
+import cv2
+import numpy as np
 
 from .full_layer_detector import (
     FullLayerDetector, 
@@ -12,7 +14,9 @@ from .stack_processor import (
     FullStackProcessor,
     TemplateBasedFullProcessor,
     PartialStackProcessor,
-    TemplateBasedPartialProcessor
+    TemplateBasedPartialProcessor,
+    SingleLayerProcessor,
+    TemplateBasedSingleLayerProcessor
 )
 
 # 导入核心算法模块
@@ -38,8 +42,11 @@ class StackProcessorFactory:
     堆垛处理器工厂
     
     工作流程：
-    1. 使用满层判断模块判断是否满层
-    2. 根据判断结果选择对应的处理模块（满层/非满层）
+    1. 使用满层判断模块判断堆垛状态（满层/非满层/单层）
+    2. 根据判断结果选择对应的处理模块
+       - 满层：使用满层处理器
+       - 非满层：使用非满层处理器
+       - 单层：使用单层处理器
     3. 执行处理并返回结果
     """
     
@@ -47,6 +54,7 @@ class StackProcessorFactory:
                  detector: Optional[FullLayerDetector] = None,
                  full_processor: Optional[FullStackProcessor] = None,
                  partial_processor: Optional[PartialStackProcessor] = None,
+                 single_layer_processor: Optional[SingleLayerProcessor] = None,
                  enable_debug: bool = True,
                  enable_visualization: bool = False,
                  model_path: Optional[Union[str, Path]] = None,
@@ -57,6 +65,7 @@ class StackProcessorFactory:
         :param detector: 满层判断器（可选，默认使用 CoverageBasedDetector）
         :param full_processor: 满层处理器（可选，默认使用 TemplateBasedFullProcessor）
         :param partial_processor: 非满层处理器（可选，默认使用 TemplateBasedPartialProcessor）
+        :param single_layer_processor: 单层处理器（可选，默认使用 TemplateBasedSingleLayerProcessor）
         :param enable_debug: 是否启用调试输出（打印日志）
         :param enable_visualization: 是否启用可视化（保存效果图到output目录）
         :param model_path: YOLO模型路径（可选，用于count方法）
@@ -67,6 +76,7 @@ class StackProcessorFactory:
         self.detector = detector or CoverageBasedDetector(enable_debug=enable_debug)
         self.full_processor = full_processor or TemplateBasedFullProcessor(enable_debug=enable_debug)
         self.partial_processor = partial_processor or TemplateBasedPartialProcessor(enable_debug=enable_debug)
+        self.single_layer_processor = single_layer_processor or TemplateBasedSingleLayerProcessor(enable_debug=enable_debug)
         self.enable_debug = enable_debug
         self.enable_visualization = enable_visualization
         self.confidence_threshold = confidence_threshold
@@ -75,6 +85,9 @@ class StackProcessorFactory:
         # 初始化YOLO模型和pile数据库（如果提供了路径）
         self.model = None
         self.pile_db = None
+        
+        # 深度图数据（numpy数组）
+        self.depth_image = None
         
         if model_path is not None:
             self._init_model(model_path)
@@ -157,16 +170,36 @@ class StackProcessorFactory:
         if not image_path.exists():
             raise FileNotFoundError(f"图片文件不存在: {image_path}")
         
-        # 处理深度图（预留功能）
+        # 处理深度图
         if depth_image_path is not None:
             depth_image_path = Path(depth_image_path)
             if not depth_image_path.exists():
                 if self.enable_debug:
                     print(f"⚠️  深度图文件不存在: {depth_image_path}，忽略深度图")
+                self.depth_image = None
             else:
                 if self.enable_debug:
                     print(f"📊 加载深度图: {depth_image_path}")
-                # TODO: 后续可以在这里处理深度图数据
+                try:
+                    # 尝试使用cv2加载深度图（支持常见图像格式）
+                    depth_img = cv2.imread(str(depth_image_path), cv2.IMREAD_UNCHANGED)
+                    if depth_img is None:
+                        if self.enable_debug:
+                            print(f"⚠️  无法读取深度图: {depth_image_path}，忽略深度图")
+                        self.depth_image = None
+                    else:
+                        # 如果是彩色图像，转换为灰度图
+                        if len(depth_img.shape) == 3:
+                            depth_img = cv2.cvtColor(depth_img, cv2.COLOR_BGR2GRAY)
+                        self.depth_image = depth_img
+                        if self.enable_debug:
+                            print(f"✅ 深度图加载成功，尺寸: {self.depth_image.shape}")
+                except Exception as e:
+                    if self.enable_debug:
+                        print(f"⚠️  加载深度图时出错: {e}，忽略深度图")
+                    self.depth_image = None
+        else:
+            self.depth_image = None
         
         # 初始化模型和数据库（如果未初始化）
         if self.model is None:
@@ -353,28 +386,39 @@ class StackProcessorFactory:
         :return: 总箱数（烟箱数）
         """
         # Step 1: 满层判断
-        detection_result = self.detector.detect(layers, template_layers, pile_roi)
-        is_full = detection_result["full"]
+        detection_result = self.detector.detect(layers, template_layers, pile_roi, depth_image=self.depth_image)
+        # 将pile_roi添加到detection_result中，供后续处理使用
+        detection_result["pile_roi"] = pile_roi
+        status = detection_result.get("status", "partial")  # 获取状态：'full', 'partial', 'single_layer'
+        is_full = detection_result.get("full", False)  # 向后兼容
 
         # Step 2: 根据判断结果选择处理模块
-        if is_full:
+        if status == "single_layer":
+            if self.enable_debug:
+                print("🔵 进入单层处理模块")
+            processing_result = self.single_layer_processor.process(
+                layers, template_layers, detection_result, depth_image=self.depth_image
+            )
+        elif status == "full" or is_full:
             if self.enable_debug:
                 print("🟢 进入满层处理模块")
             processing_result = self.full_processor.process(
-                layers, template_layers, detection_result
+                layers, template_layers, detection_result, depth_image=self.depth_image
             )
-        else:
+        else:  # status == "partial"
             if self.enable_debug:
                 print("🟡 进入非满层处理模块")
             processing_result = self.partial_processor.process(
-                layers, template_layers, detection_result
+                layers, template_layers, detection_result, depth_image=self.depth_image
             )
         
         # Step 3: 返回总箱数
         total_count = processing_result["total"]
         
         if self.enable_debug:
-            print(f"🎯 处理完成: 总箱数={total_count}, 是否满层={'✅' if is_full else '❌'}")
+            status_emoji = {"full": "✅", "partial": "❌", "single_layer": "🔵"}
+            status_text = status_emoji.get(status, "❓")
+            print(f"🎯 处理完成: 总箱数={total_count}, 状态={status} {status_text}")
         
         return total_count
 
