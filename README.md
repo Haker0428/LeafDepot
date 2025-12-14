@@ -1,3 +1,13 @@
+<!--
+ * @Author: big box big box@qq.com
+ * @Date: 2025-12-14 15:55:40
+ * @LastEditors: big box big box@qq.com
+ * @LastEditTime: 2025-12-14 16:15:05
+ * @FilePath: /gateway/home/ubuntu/Projects/LeafDepot/README.md
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by lizh, All Rights Reserved. 
+-->
 # LeafDepot
 
 本项目致力于开发一套自动识别烟箱数量的视觉算法，用于烟草仓储场景，替代人工统计方式，从而提升仓储效率并减少差错率。
@@ -77,5 +87,6 @@ cd web && pnpm install && pnpm run dev
 
 后续如果有更新python库，在根目录使用如下命令:
 ```bash
-conda env export --from-history > environment.yml
+conda env export --from-history > environment.yml(只更新conda包)
+conda env export > environment.yml(更新conda包和pip包)
 ```
