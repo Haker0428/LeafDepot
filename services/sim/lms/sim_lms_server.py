@@ -5,15 +5,16 @@ import zlib
 import base64
 import os
 import sys
+import pandas as pd
+from pathlib import Path
+import math
 
 import random
 from datetime import datetime
 from typing import List, Dict, Any
 from fastapi.middleware.cors import CORSMiddleware
 
-
-from services.utils.compression import compress_and_encode, decompress_and_decode
-
+import custom_utils
 
 # LMS模拟服务配置
 USER_CODE = "admin"
@@ -36,74 +37,131 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# @app.get("/login") #登陆接口
-# @app.get("/auth/token") #获取用户信息接口
-# @app.get("/third/api/v1/lmsToRcsService/getLmsBin") #获取储位信息接口
-# @app.get("/third/api/v1/lmsToRcsService/getCountTasks") #获取盘点任务接口
-# @app.post("/third/api/v1/RcsToLmsService/setTaskResults") # 盘点任务反馈接口
+# 定义Excel文件路径
+EXCEL_FILE_PATH = Path("bins_data.xlsx")
 
 
-# 模拟数据
-# 储位信息数据
-bins_data = [
-    {"whCode": "WH001", "areaCode": "A01", "areaName": "A区", "binCode": "A-01-02",
-        "binDesc": "A区-01排-02层", "binQty": 10000.0, "binStatus": "1"},
-    {"whCode": "WH001", "areaCode": "A01", "areaName": "A区", "binCode": "A-02-03",
-        "binDesc": "A区-02排-03层", "binQty": 15000.0, "binStatus": "1"},
-    {"whCode": "WH001", "areaCode": "B01", "areaName": "B区", "binCode": "B-01-01",
-        "binDesc": "B区-01排-01层", "binQty": 20000.0, "binStatus": "2"},
-    {"whCode": "WH002", "areaCode": "C01", "areaName": "C区", "binCode": "C-01-02",
-        "binDesc": "C区-01排-02层", "binQty": 8000.0, "binStatus": "1"},
-    {"whCode": "WH002", "areaCode": "D01", "areaName": "D区", "binCode": "D-02-03",
-        "binDesc": "D区-02排-03层", "binQty": 12000.0, "binStatus": "3"},
-    {"whCode": "WH003", "areaCode": "E01", "areaName": "E区", "binCode": "E-01-01",
-        "binDesc": "E区-01排-01层", "binQty": 18000.0, "binStatus": "4"}
-]
+def load_bins_from_excel():
+    """
+    从Excel文件加载储位信息数据
+    按照新的列顺序：
+    1. whCode
+    2. areaCode
+    3. areaName
+    4. binCode
+    5. binDesc
+    6. maxQty
+    7. binStatus
+    8. tobaccoQty
+    9. tobaccoCode
+    10. tobaccoName
+    """
+    bins_data = []
 
-# 盘点任务数据
+    if not EXCEL_FILE_PATH.exists():
+        print(f"警告：Excel文件 '{EXCEL_FILE_PATH}' 不存在，使用默认数据")
+        # 返回默认的示例数据
+        return [
+            {
+                "whCode": "110004",
+                "areaCode": "100301",
+                "areaName": "零烟区",
+                "binCode": "100301020403",
+                "binDesc": "LY-02-04-03",
+                "maxQty": 50,
+                "binStatus": "1",
+                "tobaccoQty": 1,
+                "tobaccoCode": "130669",
+                "tobaccoName": "钻石(细支心世界)2"
+            }
+        ]
+
+    try:
+        # 读取Excel文件
+        df = pd.read_excel(EXCEL_FILE_PATH)
+
+        # 检查列数是否足够
+        if df.shape[1] < 10:
+            print(f"警告：Excel文件列数不足10列，实际有{df.shape[1]}列")
+            return []
+
+        # 将每行数据转换为字典
+        for _, row in df.iterrows():
+            # 确保行数据长度足够，不足的列用空值填充
+            row_values = row.tolist()
+
+            # 如果行数据不足10个值，用空值或默认值填充
+            while len(row_values) < 10:
+                row_values.append("")
+
+            # 处理tobaccoQty，向上取整
+            tobacco_qty = row_values[7]  # 第8列是tobaccoQty
+            if pd.isna(tobacco_qty):
+                tobacco_qty = 0
+            else:
+                try:
+                    # 尝试转换为浮点数再向上取整
+                    tobacco_qty = math.ceil(float(tobacco_qty))
+                except (ValueError, TypeError):
+                    tobacco_qty = 0
+
+            # 创建字典对象，按照新的顺序
+            bin_info = {
+                "whCode": str(row_values[0]) if not pd.isna(row_values[0]) else "",
+                "areaCode": str(row_values[1]) if not pd.isna(row_values[1]) else "",
+                "areaName": str(row_values[2]) if not pd.isna(row_values[2]) else "",
+                "binCode": str(row_values[3]) if not pd.isna(row_values[3]) else "",
+                "binDesc": str(row_values[4]) if not pd.isna(row_values[4]) else "",
+                "maxQty": int(row_values[5]) if not pd.isna(row_values[5]) else 0,
+                "binStatus": str(row_values[6]) if not pd.isna(row_values[6]) else "",
+                "tobaccoQty": tobacco_qty,  # 已向上取整
+                "tobaccoCode": str(row_values[8]) if not pd.isna(row_values[8]) else "",
+                "tobaccoName": str(row_values[9]) if not pd.isna(row_values[9]) else ""
+            }
+
+            # 只添加有效的数据行（binCode不为空）
+            if bin_info["binCode"]:
+                bins_data.append(bin_info)
+
+        print(f"成功从Excel加载 {len(bins_data)} 条储位信息")
+        return bins_data
+
+    except Exception as e:
+        print(f"读取Excel文件出错: {e}")
+        return []
+
+
+# 程序启动时加载Excel数据
+bins_data = load_bins_from_excel()
+
+# 盘点任务数据（保持不变）
 tasks_data = [
     {
-        "taskNo": "T20251021001",
-        "taskDetailId": "DT20251021001",
-        "binId": "BIN-001",
-        "binDesc": "A区-01排-02层",
-        "binCode": "A-01-02",
-        "itemId": "ITEM001",
-        "itemCode": "YC-ZHONGHUA",
-        "itemDesc": "中华(硬盒)",
-        "invQty": 150.0,
-        "qtyUnit": "条",
-        "countQty": 0.0,
-        "status": "未盘点"
+        "taskID": "T001",
+        "whCode": "110004",
+        "areaCode": "100301",
+        "areaName": "零烟区",
+        "binCode": "100301020403",
+        "binDesc": "LY-02-04-03",
+        "maxQty": 50,
+        "binStatus": "1",
+        "tobaccoQty": 1,
+        "tobaccoCode": "130669",
+        "tobaccoName": "钻石(细支心世界)2"
     },
     {
-        "taskNo": "T20251021002",
-        "taskDetailId": "DT20251021002",
-        "binId": "BIN-002",
-        "binDesc": "A区-02排-03层",
-        "binCode": "A-02-03",
-        "itemId": "ITEM002",
-        "itemCode": "YC-HUANGHE",
-        "itemDesc": "黄鹤楼(软蓝)",
-        "invQty": 200.0,
-        "qtyUnit": "条",
-        "countQty": 0.0,
-        "status": "未盘点"
+        "taskID": "T001",
+        "whCode": "110004",
+        "areaCode": "100301",
+        "areaName": "零烟区",
+        "binCode": "100301010602",
+        "binDesc": "LY-01-06-02",
+        "maxQty": 50,
+        "binStatus": "1",
+        "tobaccoQty": 1,
+        "tobaccoCode": "130684",
+        "tobaccoName": "钻石(细支荷花)"
     },
-    {
-        "taskNo": "T20251021003",
-        "taskDetailId": "DT20251021003",
-        "binId": "BIN-003",
-        "binDesc": "B区-01排-01层",
-        "binCode": "B-01-01",
-        "itemId": "ITEM003",
-        "itemCode": "YC-CAOYUAN",
-        "itemDesc": "中华(软盒)",
-        "invQty": 300.0,
-        "qtyUnit": "条",
-        "countQty": 0.0,
-        "status": "未盘点"
-    }
 ]
 
 # 用于存储任务反馈结果
@@ -173,8 +231,8 @@ async def get_lms_bin(request: Request):
             detail="Unauthorized"
         )
 
-    # 返回储位信息
-    encoded_data = compress_and_encode(bins_data)
+    # 返回储位信息（从已加载的数据中获取）
+    encoded_data = custom_utils.compress_and_encode(bins_data)
     return Response(content=encoded_data, media_type="text/plain")
 
 
@@ -190,7 +248,7 @@ async def get_count_tasks(request: Request):
         )
 
     # 返回盘点任务
-    encoded_data = compress_and_encode(tasks_data)
+    encoded_data = custom_utils.compress_and_encode(tasks_data)
     return Response(content=encoded_data, media_type="text/plain")
 
 
@@ -215,59 +273,25 @@ async def set_task_results(request: Request):
         # 解码并解析请求体
         encoded_data = await request.body()
         encoded_data_str = encoded_data.decode('utf-8')
-        task_data = decompress_and_decode(encoded_data_str)
+        task_data = custom_utils.decompress_and_decode(encoded_data_str)
         return "update countQty success"
 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid data format"
+            detail=f"Invalid data format: {str(e)}"
         )
 
-    # # 模拟处理反馈结果
-    # task_detail_id = task_data.get('taskDetailId')
-    # count_qty = task_data.get('countQty')
-    # item_id = task_data.get('itemId')
-
-    # if task_detail_id and count_qty:
-    #     feedback_results[task_detail_id] = {
-    #         "itemId": item_id,
-    #         "countQty": count_qty,
-    #         "status": "已反馈",
-    #         # "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    #     }
-
-        # 更新任务状态
-        # for task in tasks_data:
-        #     if task["taskDetailId"] == task_detail_id:
-        #         task["countQty"] = float(count_qty)
-        #         task["status"] = "已反馈"
-        #         break
-
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing required parameters"
-        )
-
-
-# @app.get("/api/v1/tasks")
-# async def get_tasks():
-#     """模拟API接口，用于前端展示"""
-#     return tasks_data
 
 if __name__ == "__main__":
-    # # 确保数据目录存在
-    # os.makedirs('data', exist_ok=True)
-
-    # # 保存初始数据到文件
-    # with open('data/bins.json', 'w', encoding='utf-8') as f:
-    #     json.dump(bins_data, f, ensure_ascii=False, indent=2)
-
-    # with open('data/tasks.json', 'w', encoding='utf-8') as f:
-    #     json.dump(tasks_data, f, ensure_ascii=False, indent=2)
-
     print("LMS模拟服务已启动 (FastAPI)")
+    print(f"当前储位信息数量: {len(bins_data)} 条")
+
+    # 打印前几条数据示例
+    if bins_data:
+        print("示例数据:")
+        for i, bin_info in enumerate(bins_data[:3]):
+            print(f"  第{i+1}条: {bin_info}")
 
     # 使用uvicorn运行
     import uvicorn

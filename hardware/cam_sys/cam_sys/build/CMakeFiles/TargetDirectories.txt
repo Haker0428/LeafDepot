@@ -1,3 +1,0 @@
-/home/coder/LeafDepot/Intergration/app/cam_sys/build/CMakeFiles/cam_sys.dir
-/home/coder/LeafDepot/Intergration/app/cam_sys/build/CMakeFiles/edit_cache.dir
-/home/coder/LeafDepot/Intergration/app/cam_sys/build/CMakeFiles/rebuild_cache.dir

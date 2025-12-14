@@ -5,25 +5,9 @@
 ### 环境准备
 
 - 安装 [Node.js](https://nodejs.org/en)
-- 使用 npm（Node.js 自带）或 [pnpm](https://pnpm.io/installation)
+- 安装 [pnpm](https://pnpm.io/installation)
 
 ### 操作步骤
-
-#### 使用 npm（推荐）
-
-- 安装依赖
-
-```sh
-npm install
-```
-
-- 启动 Dev Server
-
-```sh
-npm run dev
-```
-
-#### 使用 pnpm
 
 - 安装依赖
 

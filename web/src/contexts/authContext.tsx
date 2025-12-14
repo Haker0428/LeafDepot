@@ -89,30 +89,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw new Error(data.message || '登录失败');
         }
       } else {
-        // 尝试获取错误详情
-        let errorMessage = '登录请求失败';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorData.message || errorMessage;
-        } catch {
-          // 如果无法解析错误响应，使用状态码
-          errorMessage = `登录失败 (状态码: ${response.status})`;
-        }
-        throw new Error(errorMessage);
+        throw new Error('登录请求失败');
       }
     } catch (error) {
       console.error('Login error:', error);
-      
-      // 处理网络错误
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        const errorMsg = `无法连接到服务器 (${GATEWAY_URL})。请确保网关服务正在运行。`;
-        toast.error(errorMsg);
-        throw new Error(errorMsg);
-      }
-      
-      // 处理其他错误
-      const errorMessage = error instanceof Error ? error.message : '登录失败，请检查用户名和密码';
-      toast.error(errorMessage);
+      toast.error(error instanceof Error ? error.message : '登录失败');
       throw error;
     }
   }, [setAuthToken, verifyToken]);

@@ -1,0 +1,4 @@
+/home/ubuntu/cam_sys_ok/build/CMakeFiles/cam_sys.dir
+/home/ubuntu/cam_sys_ok/build/CMakeFiles/camera_api.dir
+/home/ubuntu/cam_sys_ok/build/CMakeFiles/edit_cache.dir
+/home/ubuntu/cam_sys_ok/build/CMakeFiles/rebuild_cache.dir
