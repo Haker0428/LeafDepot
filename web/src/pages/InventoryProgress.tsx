@@ -2,7 +2,7 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-21 19:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-12-16 22:33:54
+ * @LastEditTime: 2025-12-16 23:14:12
  * @FilePath: /LeafDepot/web/src/pages/InventoryProgress.tsx
  * @Description:
  *
@@ -271,74 +271,89 @@ export default function InventoryProgress() {
 
   // 处理接收到的 CSV 数据
   // 修改 handleReceivedCSVData 函数
-  const handleReceivedCSVData = (data: any) => {
-    console.log("处理 CSV 数据:", data);
+const handleReceivedCSVData = (data: any) => {
+  console.log("处理 CSV 数据:", data);
+  console.log("处理 success 数据:", data.success);
+  console.log("处理 number 数据:", data.number);
+  console.log("处理 text 数据:", data.text);
 
-    console.log("处理 success 数据:", data.success);
-    console.log("处理 number 数据:", data.number);
-    console.log("处理 text 数据:", data.text);
-
-    if (data.success) {
-      // 1. 更新 receivedCSVData
-      setReceivedCSVData((prev) => {
-        const existingIndex = prev.findIndex(
-          (item) =>
-            item.taskNo === data.taskNo && item.binLocation === data.binLocation
-        );
-
-        if (existingIndex >= 0) {
-          const newData = [...prev];
-          newData[existingIndex] = data;
-          return newData;
-        } else {
-          return [...prev, data];
-        }
-      });
-
-      // 2. 同步更新 inventoryItems - 处理可能的未定义值
-      setInventoryItems((prevItems) => {
-        return prevItems.map((item) => {
-          // 根据任务号和库位代码匹配
-          if (
-            item.taskNo === data.taskNo &&
-            item.binCode === data.binLocation
-          ) {
-            // 解析 number 值，确保是数字或 null
-            let actualQuantity = null;
-            if (data.number !== undefined && data.number !== null) {
-              // 确保转换为数字
-              const num = Number(data.number);
-              actualQuantity = isNaN(num) ? null : num;
-            }
-
-            const updatedItem = {
-              ...item,
-              actualQuantity: actualQuantity,
-            };
-
-            // 如果有文本识别结果且不是空字符串，更新实际品规
-            if (
-              data.text !== undefined &&
-              data.text !== null &&
-              data.text.trim() !== ""
-            ) {
-              updatedItem.productName = data.text;
-            }
-
-            return updatedItem;
-          }
-          return item;
-        });
-      });
-
-      // 显示成功消息
-      toast.success(
-        `库位 ${data.binLocation} 数据更新成功: 数量=${data.number || 0}`
+  if (data.success) {
+    // 1. 更新 receivedCSVData
+    setReceivedCSVData((prev) => {
+      const existingIndex = prev.findIndex(
+        (item) => item.taskNo === data.taskNo && item.binLocation === data.binLocation
       );
-    } else {
-      toast.error(`库位 ${data.binLocation} 数据处理失败: ${data.message}`);
-    }
-  };
+
+      if (existingIndex >= 0) {
+        const newData = [...prev];
+        newData[existingIndex] = data;
+        return newData;
+      } else {
+        return [...prev, data];
+      }
+    });
+
+    // 2. 同步更新 inventoryItems - 修复参数名冲突
+    setInventoryItems((prevItems) => {
+      console.log("当前 inventoryItems:", prevItems);
+      console.log("匹配条件: taskNo=", data.taskNo, "binLocation=", data.binLocation);
+      
+      const updatedItems = prevItems.map((item) => {
+        // 根据任务号和库位代码匹配
+        console.log("检查项目:", item.taskNo, item.binDesc);
+        
+        if (item.taskNo === data.taskNo && item.binDesc === data.binLocation) {
+          console.log("找到匹配项，开始更新:", item);
+          
+          // 解析 number 值，确保是数字或 null
+          let actualQuantity = null;
+          if (data.number !== undefined && data.number !== null && data.number !== "") {
+            const num = Number(data.number);
+            actualQuantity = isNaN(num) ? null : num;
+            console.log("转换后的数量:", actualQuantity);
+          }
+
+          const updatedItem = {
+            ...item,
+            actualQuantity: actualQuantity,
+          };
+
+          // 如果有文本识别结果且不是空字符串，更新实际品规
+          if (data.text !== undefined && data.text !== null && data.text.trim() !== "") {
+            updatedItem.productName = data.text;
+            console.log("更新品规名称:", data.text);
+          }
+
+          console.log("更新后的项目:", updatedItem);
+          return updatedItem;
+        }
+        return item;
+      });
+      
+      console.log("更新后的 inventoryItems:", updatedItems);
+      return updatedItems;
+    });
+
+    // 显示成功消息
+    toast.success(
+      `库位 ${data.binLocation} 数据更新成功: 数量=${data.number || 0}`
+    );
+  } else {
+    toast.error(`库位 ${data.binLocation} 数据处理失败: ${data.message}`);
+  }
+};
+
+// 在组件中添加调试效果
+useEffect(() => {
+  console.log("🔍 inventoryItems 已更新:", inventoryItems);
+  console.log("📊 有实际数量的项目:", 
+    inventoryItems.filter(item => item.actualQuantity !== null).length
+  );
+}, [inventoryItems]);
+
+useEffect(() => {
+  console.log("📥 receivedCSVData 已更新:", receivedCSVData);
+}, [receivedCSVData]);
 
   // // 在组件挂载时连接 WebSocket
   // useEffect(() => {
@@ -391,7 +406,7 @@ export default function InventoryProgress() {
         },
         body: JSON.stringify({
           taskNo: selectedItem.taskNo,
-          binCode: selectedItem.binCode,
+          binDesc: selectedItem.binDesc,
           locationName: selectedItem.locationName,
         }),
       });
@@ -1181,125 +1196,118 @@ export default function InventoryProgress() {
                           </th> */}
                         </tr>
                       </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {inventoryItems.map((item, index) => {
-                          const actualQuantity = item.actualQuantity;
-                          const difference =
-                            actualQuantity !== null &&
-                            item.systemQuantity !== null
-                              ? actualQuantity - Number(item.systemQuantity)
-                              : null;
+<tbody className="bg-white divide-y divide-gray-200">
+  {inventoryItems.map((item, index) => {
+    // 安全地获取实际数量
+    const actualQuantity = 
+      item.actualQuantity !== undefined && item.actualQuantity !== null 
+        ? Number(item.actualQuantity) 
+        : null;
+    
+    const systemQuantity = 
+      item.systemQuantity !== undefined && item.systemQuantity !== null 
+        ? Number(item.systemQuantity) 
+        : null;
+    
+    // 计算差异
+    const difference = actualQuantity !== null && systemQuantity !== null
+      ? actualQuantity - systemQuantity
+      : null;
+    
+    const hasDifference = difference !== null && difference !== 0;
+    const isSelected = selectedRowIndex === index;
+    
+    // 检查是否有接收到的 CSV 数据
+    const csvData = receivedCSVData.find(
+      data => data.taskNo === item.taskNo && data.binLocation === item.binCode
+    );
+    
+    // 确定要显示的品规名称
+    const displayProductName = 
+      csvData?.text && csvData.text.trim() !== '' 
+        ? csvData.text 
+        : item.productName;
 
-                          const hasDifference =
-                            difference !== null && difference !== 0;
-                          const isSelected = selectedRowIndex === index;
-
-                          // 判断是否已识别实际品规 - 根据是否有实际数量或手动输入的值
-                          const hasActualQuantity = actualQuantity !== null;
-                          // 检查是否有接收到的 CSV 数据包含文本识别结果
-                          const csvData = receivedCSVData.find(
-                            (data) =>
-                              data.taskNo === item.taskNo &&
-                              data.binLocation === item.binCode
-                          );
-                          const recognizedProductName = csvData?.text;
-
-                          console.log("处理 CSV 数据中的actualQuantity:", item.actualQuantity);
-                                    console.log("处理 CSV 数据中的actualQuantity:", recognizedProductName);
-
-                          return (
-                            <tr
-                              key={item.id}
-                              className={`hover:bg-gray-50 transition-colors cursor-pointer ${
-                                isSelected
-                                  ? "bg-blue-50 border-l-4 border-blue-500"
-                                  : ""
-                              }`}
-                              onClick={() => handleRowClick(index)}
-                            >
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {index + 1}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="flex items-center">
-                                  <div className="text-sm font-medium text-gray-900">
-                                    {item.taskNo}
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {item.productName}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {item.locationName}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {hasActualQuantity ? (
-                                  <div className="flex items-center">
-                                    <span className="text-green-600 font-medium">
-                                      {/* 优先显示识别到的品规名称，否则显示原始品规名称 */}
-                                      {recognizedProductName || "未识别"}
-                                    </span>
-                                    <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
-                                  </div>
-                                ) : item.productName ? (
-                                  item.productName
-                                ) : (
-                                  <span className="text-gray-400">待识别</span>
-                                )}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {item.systemQuantity}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {actualQuantity !== null ? (
-                                  <div className="flex items-center">
-                                    <span className="text-green-600 font-medium">
-                                      {actualQuantity}
-                                    </span>
-                                    <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
-                                  </div>
-                                ) : item.actualQuantity ? (
-                                  <span className="text-gray-700">
-                                    {item.actualQuantity}
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-400">待计算</span>
-                                )}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                {difference !== null ? (
-                                  <span
-                                    className={`text-sm font-medium ${
-                                      hasDifference
-                                        ? "text-red-600"
-                                        : "text-green-600"
-                                    }`}
-                                  >
-                                    {hasDifference ? (
-                                      <>
-                                        <i className="fa-solid fa-exclamation-circle mr-1"></i>
-                                        {difference > 0
-                                          ? `+${difference}`
-                                          : difference}
-                                      </>
-                                    ) : (
-                                      <>
-                                        <i className="fa-solid fa-check-circle mr-1"></i>
-                                        一致
-                                      </>
-                                    )}
-                                  </span>
-                                ) : (
-                                  <span className="text-sm text-gray-400">
-                                    待计算
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
+    return (
+      <tr
+        key={item.id}
+        className={`hover:bg-gray-50 transition-colors cursor-pointer ${
+          isSelected ? "bg-blue-50 border-l-4 border-blue-500" : ""
+        }`}
+        onClick={() => handleRowClick(index)}
+      >
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          {index + 1}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap">
+          <div className="flex items-center">
+            <div className="text-sm font-medium text-gray-900">
+              {item.taskNo}
+            </div>
+          </div>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          {displayProductName || item.productName || "未知品规"}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          {item.locationName}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          {actualQuantity !== null ? (
+            <div className="flex items-center">
+              <span className="text-green-600 font-medium">
+                {displayProductName || "已识别"}
+              </span>
+              <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+            </div>
+          ) : (
+            <span className="text-gray-400">待识别</span>
+          )}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          {systemQuantity !== null ? systemQuantity : 0}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+          {actualQuantity !== null ? (
+            <div className="flex items-center">
+              <span className="text-green-600 font-medium">
+                {actualQuantity}
+              </span>
+              <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+            </div>
+          ) : (
+            <span className="text-gray-400">待计算</span>
+          )}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap">
+          {difference !== null ? (
+            <span
+              className={`text-sm font-medium ${
+                hasDifference ? "text-red-600" : "text-green-600"
+              }`}
+            >
+              {hasDifference ? (
+                <>
+                  <i className="fa-solid fa-exclamation-circle mr-1"></i>
+                  {difference > 0 ? `+${difference}` : difference}
+                </>
+              ) : (
+                <>
+                  <i className="fa-solid fa-check-circle mr-1"></i>
+                  一致
+                </>
+              )}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400">
+              待计算
+            </span>
+          )}
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
                     </table>
                   </div>
                 ) : (
