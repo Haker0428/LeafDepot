@@ -110,8 +110,7 @@ def main(task_no: str, bin_location: str):
             "task_no": task_no,
             "bin_location": bin_location,
             "capture_results": [
-                {"stream": "main", "result": capture_result},
-                {"stream": "fourth", "result": capture_result2}
+                {"stream": "main", "result": capture_result}
             ]
         }
         

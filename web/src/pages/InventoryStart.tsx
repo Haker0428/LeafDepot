@@ -15,8 +15,9 @@ interface BinItem {
   maxQty: number;
   binStatus: string;
   tobaccoQty: number;
-  tobaccoName: string;
   tobaccoCode: string;
+  tobaccoName: string;
+  rcsCode: string;
 }
 
 // 盘点任务结构体
@@ -30,8 +31,9 @@ interface InventoryTask {
   maxQty: number;
   binStatus: string;
   tobaccoQty: number;
-  tobaccoName: string;
   tobaccoCode: string;
+  tobaccoName: string;
+  rcsCode: string;
 }
 
 export default function InventoryStart() {
@@ -384,6 +386,7 @@ export default function InventoryStart() {
           tobaccoQty: bin.tobaccoQty,
           tobaccoName: bin.tobaccoName,
           tobaccoCode: bin.tobaccoCode,
+          rcsCode: bin.rcsCode
         };
       })
       .filter((task): task is InventoryTask => task !== null);

@@ -2,8 +2,8 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-21 19:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-12-14 10:44:02
- * @FilePath: /kylin_ui/src/pages/InventoryProgress.tsx
+ * @LastEditTime: 2025-12-16 22:33:54
+ * @FilePath: /LeafDepot/web/src/pages/InventoryProgress.tsx
  * @Description:
  *
  * Copyright (c) 2025 by lizh, All Rights Reserved.
@@ -58,6 +58,7 @@ import img14out from "@/public/postprocess/14out.jpg";
 import img15out from "@/public/postprocess/15out.jpg";
 import img16out from "@/public/postprocess/16out.jpg";
 import img17out from "@/public/postprocess/17out.jpg";
+import { int } from "zod/v4";
 
 // 定义接口类型 - 根据InventoryStart.tsx中的InventoryTask接口
 interface InventoryItem {
@@ -78,6 +79,7 @@ interface InventoryItem {
   binDesc?: string;
   binStatus?: string;
   tobaccoCode?: string;
+  rcsCode: string;
 }
 
 // 从InventoryStart.tsx复制的InventoryTask接口
@@ -91,8 +93,9 @@ interface InventoryTask {
   maxQty: number;
   binStatus: string;
   tobaccoQty: number;
-  tobaccoName: string;
   tobaccoCode: string;
+  tobaccoName: string;
+  rcsCode: string;
 }
 
 // 定义任务清单接口 - 根据InventoryStart.tsx中的任务清单结构
@@ -196,6 +199,256 @@ export default function InventoryProgress() {
   const [currentExecutingTaskIndex, setCurrentExecutingTaskIndex] = useState<
     number | null
   >(null);
+
+  // 在已有的状态后面添加 WebSocket 相关状态
+  const [webSocket, setWebSocket] = useState<WebSocket | null>(null);
+  const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
+  const [receivedCSVData, setReceivedCSVData] = useState<
+    Array<{
+      taskNo: string;
+      binLocation: string;
+      number: number | null;
+      text: string | null;
+      success: boolean;
+      message: string;
+      timestamp: string;
+    }>
+  >([]);
+
+  // 在组件中添加 WebSocket 连接函数
+  const connectWebSocket = () => {
+    if (!currentTaskNo) {
+      toast.error("没有当前任务，无法连接 WebSocket");
+      return;
+    }
+
+    // 构建 WebSocket URL，根据你的网关地址调整
+    const wsUrl = `ws://localhost:8000/ws/inventory/${currentTaskNo}`;
+    console.log("尝试连接 WebSocket:", wsUrl);
+
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log("WebSocket 连接成功");
+      setIsWebSocketConnected(true);
+      toast.success("已连接到盘点服务器");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("收到 WebSocket 消息:", data);
+
+        if (data.type === "csv_data") {
+          handleReceivedCSVData(data);
+        }
+      } catch (error) {
+        console.error("解析 WebSocket 消息失败:", error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket 连接错误:", error);
+      toast.error("WebSocket 连接错误");
+    };
+
+    ws.onclose = (event) => {
+      console.log("WebSocket 连接关闭:", event.code, event.reason);
+      setIsWebSocketConnected(false);
+
+      // 如果不是正常关闭，尝试重新连接
+      if (event.code !== 1000) {
+        toast.warning("WebSocket 连接断开，正在重新连接...");
+        setTimeout(() => {
+          connectWebSocket();
+        }, 3000);
+      }
+    };
+    0;
+
+    setWebSocket(ws);
+  };
+
+  // 处理接收到的 CSV 数据
+  // 修改 handleReceivedCSVData 函数
+  const handleReceivedCSVData = (data: any) => {
+    console.log("处理 CSV 数据:", data);
+
+    console.log("处理 success 数据:", data.success);
+    console.log("处理 number 数据:", data.number);
+    console.log("处理 text 数据:", data.text);
+
+    if (data.success) {
+      // 1. 更新 receivedCSVData
+      setReceivedCSVData((prev) => {
+        const existingIndex = prev.findIndex(
+          (item) =>
+            item.taskNo === data.taskNo && item.binLocation === data.binLocation
+        );
+
+        if (existingIndex >= 0) {
+          const newData = [...prev];
+          newData[existingIndex] = data;
+          return newData;
+        } else {
+          return [...prev, data];
+        }
+      });
+
+      // 2. 同步更新 inventoryItems - 处理可能的未定义值
+      setInventoryItems((prevItems) => {
+        return prevItems.map((item) => {
+          // 根据任务号和库位代码匹配
+          if (
+            item.taskNo === data.taskNo &&
+            item.binCode === data.binLocation
+          ) {
+            // 解析 number 值，确保是数字或 null
+            let actualQuantity = null;
+            if (data.number !== undefined && data.number !== null) {
+              // 确保转换为数字
+              const num = Number(data.number);
+              actualQuantity = isNaN(num) ? null : num;
+            }
+
+            const updatedItem = {
+              ...item,
+              actualQuantity: actualQuantity,
+            };
+
+            // 如果有文本识别结果且不是空字符串，更新实际品规
+            if (
+              data.text !== undefined &&
+              data.text !== null &&
+              data.text.trim() !== ""
+            ) {
+              updatedItem.productName = data.text;
+            }
+
+            return updatedItem;
+          }
+          return item;
+        });
+      });
+
+      // 显示成功消息
+      toast.success(
+        `库位 ${data.binLocation} 数据更新成功: 数量=${data.number || 0}`
+      );
+    } else {
+      toast.error(`库位 ${data.binLocation} 数据处理失败: ${data.message}`);
+    }
+  };
+
+  // // 在组件挂载时连接 WebSocket
+  // useEffect(() => {
+  //   if (currentTaskNo) {
+  //     console.log("连接 WebSocket");
+  //     connectWebSocket();
+  //   }
+
+  //   // 清理函数：组件卸载时关闭 WebSocket
+  //   return () => {
+  //     if (webSocket) {
+  //       webSocket.close();
+  //     }
+  //   };
+  // }, [currentTaskNo]);
+
+  // 添加一个手动重连按钮的函数
+  const handleReconnectWebSocket = () => {
+    if (webSocket) {
+      webSocket.close();
+    }
+    connectWebSocket();
+  };
+
+  // 在已有状态后添加
+  const [isFetchingImage, setIsFetchingImage] = useState(false);
+
+  // 获取图片的处理函数
+  const handleFetchImage = async () => {
+    if (selectedRowIndex === null) {
+      toast.error("请先选择表格中的任务");
+      return;
+    }
+
+    const selectedItem = inventoryItems[selectedRowIndex];
+    if (!selectedItem) {
+      toast.error("未找到选中的任务");
+      return;
+    }
+
+    setIsFetchingImage(true);
+    setImageLoading(true);
+
+    try {
+      // 调用网关API获取图片
+      const response = await fetch(`${GATEWAY_URL}/api/inventory/get-image`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          taskNo: selectedItem.taskNo,
+          binCode: selectedItem.binCode,
+          locationName: selectedItem.locationName,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`获取图片失败，状态码: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.code === 200 && result.data) {
+        // 更新图片数组
+        const updatedOriginalImages = [...originalImagesFromGateway];
+        const updatedProcessedImages = [...processedImagesFromGateway];
+
+        // 使用任务索引作为数组索引
+        updatedOriginalImages[selectedRowIndex] = result.data.originalImage;
+        updatedProcessedImages[selectedRowIndex] = result.data.processedImage;
+
+        setOriginalImagesFromGateway(updatedOriginalImages);
+        setProcessedImagesFromGateway(updatedProcessedImages);
+
+        // 设置当前显示的图片索引
+        setCurrentImageIndex(selectedRowIndex);
+        setCaptureCurrentImageIndex(selectedRowIndex);
+
+        toast.success("图片获取成功");
+      } else {
+        throw new Error(result.message || "获取图片失败");
+      }
+    } catch (error) {
+      console.error("获取图片失败:", error);
+      toast.error("获取图片失败");
+      setImageError(true);
+    } finally {
+      setIsFetchingImage(false);
+      setImageLoading(false);
+    }
+  };
+
+  // 修改handleRowClick函数，添加获取图片的逻辑
+  const handleRowClick = (index: number) => {
+    if (!isTaskStarted) {
+      toast.info("请先启动盘点任务");
+      return;
+    }
+
+    setSelectedRowIndex(index);
+    setCurrentExecutingTaskIndex(index);
+
+    // 如果已经有该索引的图片，直接显示
+    if (originalImagesFromGateway[index]) {
+      setCurrentImageIndex(index);
+      setCaptureCurrentImageIndex(index);
+      toast.info(`已切换到任务 ${index + 1} 的图片`);
+    }
+  };
 
   const [statisticsData, setStatisticsData] = useState({
     totalTime: 0,
@@ -314,6 +567,7 @@ export default function InventoryProgress() {
               binDesc: task.binDesc,
               binStatus: task.binStatus,
               tobaccoCode: task.tobaccoCode,
+              rcsCode: task.rcsCode,
             })
           );
 
@@ -405,7 +659,12 @@ export default function InventoryProgress() {
       }
 
       // 获取所有储位名称
+      //使用RCS站点
       const binLocations = inventoryItems.map((item) => item.locationName);
+
+      const tobaccoCode = inventoryItems.map((item) => item.tobaccoCode);
+
+      const rcsCode = inventoryItems.map((item) => item.rcsCode);
 
       toast.info("发送任务到网关...");
 
@@ -420,6 +679,8 @@ export default function InventoryProgress() {
           body: JSON.stringify({
             taskNo: currentTaskNo,
             binLocations: binLocations,
+            tobaccoCode: tobaccoCode,
+            rcsCode: rcsCode,
           }),
         }
       );
@@ -569,9 +830,31 @@ export default function InventoryProgress() {
   // };
 
   // 处理实际数量输入变化
+  // 处理实际数量输入变化
   const handleActualQuantityChange = (id: string, value: string) => {
     const numericValue = value ? parseInt(value, 10) : null;
 
+    // 检查是否已有接收的 CSV 数据
+    const item = inventoryItems.find((item) => item.id === id);
+    if (item) {
+      const csvData = receivedCSVData.find(
+        (data) =>
+          data.taskNo === item.taskNo && data.binLocation === item.binCode
+      );
+
+      // 如果有接收的数据，提示用户
+      if (csvData && csvData.number !== null) {
+        const confirmed = window.confirm(
+          `此库位已有自动识别的数量 ${csvData.number}，确定要手动修改为 ${numericValue} 吗？`
+        );
+
+        if (!confirmed) {
+          return;
+        }
+      }
+    }
+
+    // 更新数量
     setInventoryItems((prevItems) =>
       prevItems.map((item) =>
         item.id === id ? { ...item, actualQuantity: numericValue } : item
@@ -579,26 +862,22 @@ export default function InventoryProgress() {
     );
 
     // 更新进度
-    const completedCount =
-      inventoryItems.filter(
-        (item) =>
-          item.actualQuantity !== null &&
-          (item.id !== id || numericValue !== null)
-      ).length + (numericValue !== null ? 1 : 0);
-
+    const completedCount = inventoryItems.filter(
+      (item) => item.actualQuantity !== null
+    ).length;
     const newProgress = (completedCount / inventoryItems.length) * 100;
     setProgress(Math.min(Math.round(newProgress), 100));
   };
 
   // 处理行点击事件
-  const handleRowClick = (index: number) => {
-    if (!isTaskStarted) {
-      toast.info("请先启动盘点任务");
-      return;
-    }
-    setSelectedRowIndex(index);
-    setCurrentExecutingTaskIndex(index);
-  };
+  // const handleRowClick = (index: number) => {
+  //   if (!isTaskStarted) {
+  //     toast.info("请先启动盘点任务");
+  //     return;
+  //   }
+  //   setSelectedRowIndex(index);
+  //   setCurrentExecutingTaskIndex(index);
+  // };
 
   // 保存盘点结果
   const handleSaveInventory = () => {
@@ -731,6 +1010,7 @@ export default function InventoryProgress() {
       ></div>
 
       {/* 顶部导航栏 */}
+
       <header className="relative bg-white shadow-md z-10">
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center space-x-2">
@@ -774,6 +1054,31 @@ export default function InventoryProgress() {
                     <i className="fa-solid fa-chart-line mr-2 text-green-600"></i>
                     盘点进度
                   </h3>
+                </div>
+
+                {/* 在顶部导航栏或进度区域添加 WebSocket 状态指示器 */}
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center">
+                    <div
+                      className={`w-3 h-3 rounded-full mr-2 ${
+                        isWebSocketConnected
+                          ? "bg-green-500 animate-pulse"
+                          : "bg-red-500"
+                      }`}
+                    ></div>
+                    <span className="text-sm">
+                      {isWebSocketConnected ? "服务器已连接" : "服务器未连接"}
+                    </span>
+                  </div>
+
+                  {!isWebSocketConnected && (
+                    <button
+                      onClick={handleReconnectWebSocket}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+                    >
+                      重新连接
+                    </button>
+                  )}
                 </div>
                 <span className="text-2xl font-bold text-green-700 flex items-center">
                   {progress}%
@@ -878,13 +1183,29 @@ export default function InventoryProgress() {
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {inventoryItems.map((item, index) => {
+                          const actualQuantity = item.actualQuantity;
                           const difference =
-                            item.actualQuantity !== null
-                              ? item.actualQuantity - item.systemQuantity
+                            actualQuantity !== null &&
+                            item.systemQuantity !== null
+                              ? actualQuantity - Number(item.systemQuantity)
                               : null;
+
                           const hasDifference =
                             difference !== null && difference !== 0;
                           const isSelected = selectedRowIndex === index;
+
+                          // 判断是否已识别实际品规 - 根据是否有实际数量或手动输入的值
+                          const hasActualQuantity = actualQuantity !== null;
+                          // 检查是否有接收到的 CSV 数据包含文本识别结果
+                          const csvData = receivedCSVData.find(
+                            (data) =>
+                              data.taskNo === item.taskNo &&
+                              data.binLocation === item.binCode
+                          );
+                          const recognizedProductName = csvData?.text;
+
+                          console.log("处理 CSV 数据中的actualQuantity:", item.actualQuantity);
+                                    console.log("处理 CSV 数据中的actualQuantity:", recognizedProductName);
 
                           return (
                             <tr
@@ -913,28 +1234,38 @@ export default function InventoryProgress() {
                                 {item.locationName}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                <span className="text-sm text-gray-400">
-                                  待识别
-                                </span>
+                                {hasActualQuantity ? (
+                                  <div className="flex items-center">
+                                    <span className="text-green-600 font-medium">
+                                      {/* 优先显示识别到的品规名称，否则显示原始品规名称 */}
+                                      {recognizedProductName || "未识别"}
+                                    </span>
+                                    <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+                                  </div>
+                                ) : item.productName ? (
+                                  item.productName
+                                ) : (
+                                  <span className="text-gray-400">待识别</span>
+                                )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {item.systemQuantity}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={item.actualQuantity || ""}
-                                  onChange={(e) =>
-                                    handleActualQuantityChange(
-                                      item.id,
-                                      e.target.value
-                                    )
-                                  }
-                                  className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
-                                  placeholder="输入数量"
-                                  disabled={!isTaskStarted}
-                                />
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                {actualQuantity !== null ? (
+                                  <div className="flex items-center">
+                                    <span className="text-green-600 font-medium">
+                                      {actualQuantity}
+                                    </span>
+                                    <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+                                  </div>
+                                ) : item.actualQuantity ? (
+                                  <span className="text-gray-700">
+                                    {item.actualQuantity}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">待计算</span>
+                                )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 {difference !== null ? (
@@ -965,44 +1296,6 @@ export default function InventoryProgress() {
                                   </span>
                                 )}
                               </td>
-
-                              {/* 手动抓图按钮 */}
-                              {/* <td className="px-4 py-3 whitespace-nowrap">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleManualCapture(
-                                      item.taskNo,
-                                      item.locationName,
-                                      index
-                                    );
-                                  }}
-                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center justify-center w-full"
-                                  title="手动抓取当前货位图像"
-                                >
-                                  <i className="fa-solid fa-camera mr-1 text-sm"></i>
-                                  <span className="text-xs">抓图</span>
-                                </button>
-                              </td> */}
-
-                              {/* 计算按钮 */}
-                              {/* <td className="px-4 py-3 whitespace-nowrap">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleCalculate(
-                                      item.taskNo,
-                                      item.locationName,
-                                      index
-                                    );
-                                  }}
-                                  className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center justify-center w-full"
-                                  title="使用AI计算当前货位库存"
-                                >
-                                  <i className="fa-solid fa-calculator mr-1 text-sm"></i>
-                                  <span className="text-xs">计算</span>
-                                </button>
-                              </td> */}
                             </tr>
                           );
                         })}
@@ -1127,7 +1420,7 @@ export default function InventoryProgress() {
                         )}
                         <div className="absolute bottom-2 right-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center">
                           <i className="fa-solid fa-circle text-green-400 mr-1 animate-pulse"></i>
-                          <span>实时画面 1</span>
+                          <span>原始图像 1</span>
                         </div>
                       </>
                     ) : (
@@ -1169,7 +1462,7 @@ export default function InventoryProgress() {
                         )}
                         <div className="absolute bottom-2 right-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center">
                           <i className="fa-solid fa-circle text-green-400 mr-1 animate-pulse"></i>
-                          <span>实时画面 2</span>
+                          <span>计算后图像 2</span>
                         </div>
                       </>
                     ) : (
@@ -1182,31 +1475,6 @@ export default function InventoryProgress() {
                     )}
                   </div>
                 </div>
-              </div>
-
-              {/* 底部控制区域 */}
-              <div className="p-4 border-t border-gray-100 flex justify-center space-x-3 bg-gray-50">
-                {isTaskStarted && (
-                  <>
-                    <button
-                      className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors flex items-center justify-center"
-                      onClick={() =>
-                        setCurrentImageIndex((prev) => Math.max(0, prev - 1))
-                      }
-                      disabled={currentImageIndex === 0}
-                      aria-label="上一张"
-                    >
-                      <i className="fa-solid fa-arrow-up text-gray-700 text-lg"></i>
-                    </button>
-                    <button
-                      className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors flex items-center justify-center"
-                      onClick={() => setCurrentImageIndex((prev) => prev + 1)}
-                      aria-label="下一张"
-                    >
-                      <i className="fa-solid fa-arrow-down text-gray-700 text-lg"></i>
-                    </button>
-                  </>
-                )}
               </div>
             </div>
           </motion.div>

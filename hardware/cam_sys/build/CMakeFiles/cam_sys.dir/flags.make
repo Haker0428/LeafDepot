@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = -Dcam_sys_EXPORTS
 
-CXX_INCLUDES = -I/home/ubuntu/cam_sys_ok/include
+CXX_INCLUDES = -I/home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include
 
 CXX_FLAGS = -fPIC -std=gnu++11
 

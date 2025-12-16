@@ -8,7 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/ubuntu/cam_sys_ok/src/CamController.cpp" "CMakeFiles/cam_sys.dir/src/CamController.cpp.o" "gcc" "CMakeFiles/cam_sys.dir/src/CamController.cpp.o.d"
+  "/home/ubuntu/Projects/LeafDepot/hardware/cam_sys/src/CamController.cpp" "CMakeFiles/cam_sys.dir/src/CamController.cpp.o" "gcc" "CMakeFiles/cam_sys.dir/src/CamController.cpp.o.d"
   )
 
 # Targets to which this target links.
