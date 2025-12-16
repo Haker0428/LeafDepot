@@ -614,21 +614,20 @@ class StackProcessorFactory:
             depth_cache_dir = output_dir / "depth_cache"
             depth_cache_dir.mkdir(parents=True, exist_ok=True)
             
-            # 计算深度矩阵（直接处理深度图，不旋转，不分割）
+            # 计算深度矩阵（只对深度图进行split和处理，不旋转）
             # 视差图可视化保存到主output目录
             debug_output_dir = str(output_dir) if (self.enable_debug and output_dir) else None
             if self.enable_debug:
                 print(f"📁 深度缓存目录: {depth_cache_dir}")
                 print(f"📁 视差图可视化目录: {debug_output_dir if debug_output_dir else '未设置'}")
-                print(f"   处理流程：分割深度图，旋转，然后处理左上深度图")
+                print(f"   处理流程：直接对原始深度图进行split，不旋转")
             
-            # 使用深度图进行处理（分割、旋转，然后处理左上）
-            depth_array, csv_path = self.depth_calculator.process_depth_image(
-                str(depth_image_path),  # 深度图（立体图像格式，需要分割）
+            # 使用原始深度图进行处理（不旋转，直接split）
+            depth_array, csv_path = self.depth_calculator.process_stereo_image(
+                str(depth_image_path),  # 使用原始深度图，不旋转
                 str(depth_cache_dir),
                 debug_output_dir=debug_output_dir,
-                skip_rotation=False,  # 需要旋转
-                split_image=True  # 需要分割（深度图是立体图像格式）
+                skip_rotation=True  # 跳过旋转
             )
             
             # 保存深度矩阵CSV路径

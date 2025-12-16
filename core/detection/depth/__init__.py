@@ -1,9 +1,6 @@
-"""深度处理模块：深度计算和深度数据提取"""
+"""深度处理模块：从立体图像计算深度图并处理深度数据"""
 
-from .calculator import DepthCalculator
-from .processor import DepthProcessor
+from .depth_calculator import DepthCalculator
+from .depth_processor import DepthProcessor
 
-__all__ = [
-    "DepthCalculator",
-    "DepthProcessor",
-]
+__all__ = ['DepthCalculator', 'DepthProcessor']
