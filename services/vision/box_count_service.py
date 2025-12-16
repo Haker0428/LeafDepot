@@ -14,9 +14,10 @@ from ultralytics import YOLO
 import logging
 
 from core.detection.utils.yolo_utils import extract_yolo_detections
-from core.detection.detection.scene_prepare import prepare_logic, remove_fake_top_layer
-from core.detection.detection.layer_clustering import cluster_layers_with_box_roi
-from core.detection.detection.stack_processor_factory import StackProcessorFactory
+from core.detection.core.scene_prepare import prepare_logic
+from core.detection.core.layer_filter import remove_fake_top_layer
+from core.detection.core.layer_clustering import cluster_layers_with_box_roi
+from core.detection.processors.factory import StackProcessorFactory
 from core.detection.utils.pile_db import PileTypeDatabase
 
 logger = logging.getLogger(__name__)
@@ -212,12 +213,9 @@ class BoxCountService:
                 logger.warning(f"未找到pile_id={pile_id}的配置，使用检测结果作为模板")
             
             # Step 8: 处理堆垛（满层判断和计数）
-            result = self.processor_factory.process(layers, template_layers, pile_roi)
+            total_count = self.processor_factory.process(layers, template_layers, pile_roi)
             
-            total_count = result.get("total", 0)
-            is_full = result.get("full", False)
-            
-            logger.info(f"检测完成: 总箱数={total_count}, 是否满层={is_full}")
+            logger.info(f"检测完成: 总箱数={total_count}")
             
             return {
                 "success": True,

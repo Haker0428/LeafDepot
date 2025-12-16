@@ -1,84 +1,42 @@
-# gateway.py
-from fastapi.security import APIKeyHeader
-from pathlib import Path
-from fastapi.responses import StreamingResponse
-from fastapi import FastAPI, Query, HTTPException, Depends
-from fastapi import FastAPI, Request, HTTPException, status, Header, BackgroundTasks
-from fastapi.responses import JSONResponse, Response
-import requests
-import json
-import logging
-import uvicorn
-from fastapi.middleware.cors import CORSMiddleware
-import custom_utils
-import uuid
-import time
-import asyncio
-from typing import Dict, List, Optional, Any, Union
-import base64
-from datetime import datetime
-from pydantic import BaseModel, Field
-import os
+"""
+Gateway服务 - 向后兼容入口
+为了保持向后兼容，这个文件现在作为main.py的别名
+建议新代码使用 services.api.main 作为入口
+"""
+import warnings
 
-# 配置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# 模拟服务的地址
-LMS_BASE_URL = "http://localhost:6000"
-RCS_BASE_URL = "http://localhost:4001"
-CAMERA_BASE_URL = "http://localhost:5000"
-RCS_PREFIX = "/rcs/rtas"
-REAL_RCS_BASE_URL = "http://10.4.180.190:80/rcs/rtas"
-
-app = FastAPI(title="Gateway", version="1.0.0")
-
-# 定义允许的源列表
-origins = [
-    "http://localhost",
-    "http://localhost:3000",  # UI
-    "http://localhost:4001",  # RCS
-    "http://localhost:5000",  # CamSys
-    "http://localhost:6000"  # LMS
-]
-
-# 将 CORS 中间件添加到应用
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+warnings.warn(
+    "gateway.py已重构，请使用 services.api.main 作为应用入口",
+    DeprecationWarning,
+    stacklevel=2
 )
 
-robot_status_store = {}
-status_events = {}
-task_timeouts = {}
+# 导入新的main模块
+from services.api.main import app
 
-
-STATUS_KEY = "ldui_2025"  # 固定状态键
-status_event = asyncio.Event()  # 单个事件对象
-robot_status_store: Dict[str, Any] = {}  # 状态存储
-TASK_TIMEOUT = 300  # 超时时间（秒）
-
-
-# 抓图脚本路径配置
-CAPTURE_SCRIPTS = [
-    "../cam_sys_ok/build/3d_capture.py",  # 第一个抓图脚本
-    "../cam_sys_ok/build/scan_1_capture.py",  # 第二个抓图脚本
-    "../cam_sys_ok/build/scan_2_capture.py"   # 第三个抓图脚本
-]
-
-
-class TaskStatus(BaseModel):
-    task_no: str
-    status: str  # init, running, completed, failed
-    current_step: int
-    total_steps: int
-
-
-# 全局任务状态存储（生产环境建议使用数据库或Redis）
-inventory_tasks: Dict[str, TaskStatus] = {}
+# 为了向后兼容，保留一些全局变量引用（通过延迟导入避免循环）
+def __getattr__(name):
+    """延迟导入以支持向后兼容"""
+    if name == "inventory_tasks":
+        from services.api.state.task_state import get_task_state_manager
+        return get_task_state_manager()._inventory_tasks
+    elif name == "inventory_task_bins":
+        from services.api.state.task_state import get_task_state_manager
+        return get_task_state_manager()._inventory_task_bins
+    elif name == "inventory_task_details":
+        from services.api.state.task_state import get_task_state_manager
+        return get_task_state_manager()._inventory_task_details
+    elif name in ["STATUS_KEY", "status_event", "robot_status_store"]:
+        from services.api.state.robot_state import get_robot_state_manager
+        manager = get_robot_state_manager()
+        if name == "STATUS_KEY":
+            from services.api.config import ROBOT_STATUS_KEY
+            return ROBOT_STATUS_KEY
+        elif name == "status_event":
+            return manager._status_event
+        elif name == "robot_status_store":
+            return manager._robot_status_store
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 ######################################### 盘点任务接口 #########################################
 
@@ -100,22 +58,20 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"启动盘点任务: {task_no}, 包含 {len(bin_locations)} 个储位")
 
         # 检查任务是否已存在
-        target_route = []
-        for index, location in enumerate(bin_locations):
-            if location in inventory_tasks:
-                existing_task = inventory_tasks[location]
-                if existing_task.status in ["running"]:
-                    return JSONResponse(
-                        status_code=status.HTTP_200_OK,
-                        content={
-                            "code": 200,
-                            "message": "任务已在执行中",
-                            "data": {
-                                "taskNo": existing_task.task_no,
-                                "status": existing_task.status,
-                            }
+        if task_no in inventory_tasks:
+            existing_task = inventory_tasks[task_no]
+            if existing_task.status in ["running", "init"]:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "code": 200,
+                        "message": "任务已在执行中",
+                        "data": {
+                            "taskNo": existing_task.task_no,
+                            "status": existing_task.status,
                         }
-                    )
+                    }
+                )
 
         # 在后台异步执行盘点任务
         background_tasks.add_task(
@@ -164,12 +120,28 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str]):
     task_status = TaskStatus(
         task_no=task_no,
         status="init",
-        current_step=1,
-        total_steps=len(bin_locations)
+        current_step=0,
+        total_steps=len(bin_locations),
+        start_time=datetime.now().isoformat()
     )
+    
+    # 按任务编号存储任务状态
+    inventory_tasks[task_no] = task_status
+    
+    # 初始化每个储位的状态
+    bin_statuses = [
+        BinLocationStatus(
+            bin_location=location,
+            status="pending",
+            sequence=index + 1
+        )
+        for index, location in enumerate(bin_locations)
+    ]
+    inventory_task_bins[task_no] = bin_statuses
 
-    for index, location in enumerate(bin_locations):
-        inventory_tasks[location] = task_status
+    # 更新任务状态为运行中
+    inventory_tasks[task_no].status = "running"
+    inventory_tasks[task_no].current_step = 0
 
     # 整体下发盘点任务
     method = "start"
@@ -182,6 +154,16 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str]):
         for i, bin_location in enumerate(bin_locations):
             logger.info(f"开始处理储位 {i+1}/{len(bin_locations)}: {bin_location}")
 
+            # 更新当前步骤
+            inventory_tasks[task_no].current_step = i + 1
+            
+            # 更新储位状态为运行中
+            if task_no in inventory_task_bins:
+                for bin_status in inventory_task_bins[task_no]:
+                    if bin_status.bin_location == bin_location:
+                        bin_status.status = "running"
+                        break
+
             # 处理单个储位
             result = await process_single_bin_location(
                 task_no=task_no,
@@ -191,12 +173,24 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str]):
             )
 
             # 保存结果
-            if (result["status"] == "success"):
-                inventory_tasks[bin_location].status = "completed"
-            else:
-                inventory_tasks[bin_location].status = "failed"
+            if task_no in inventory_task_bins:
+                for bin_status in inventory_task_bins[task_no]:
+                    if bin_status.bin_location == bin_location:
+                        if result["status"] == "success":
+                            bin_status.status = "completed"
+                        else:
+                            bin_status.status = "failed"
+                        break
+            
+            if result["status"] != "success":
+                inventory_tasks[task_no].status = "failed"
                 raise Exception("储位处理失败，终止任务")
 
+        # 更新任务状态为完成
+        inventory_tasks[task_no].status = "completed"
+        inventory_tasks[task_no].current_step = len(bin_locations)
+        inventory_tasks[task_no].end_time = datetime.now().isoformat()
+        
         logger.info(f"盘点任务完成: {task_no}, 成功处理 {len(bin_locations)} 个储位")
 
         # 发送任务完成通知
@@ -219,6 +213,9 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str]):
 
     except Exception as e:
         # 任务执行过程中出现异常
+        if task_no in inventory_tasks:
+            inventory_tasks[task_no].status = "failed"
+            inventory_tasks[task_no].end_time = datetime.now().isoformat()
         logger.error(f"盘点任务失败: {task_no}, 错误: {str(e)}")
 
         # 发送任务失败通知
@@ -249,10 +246,7 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
     }
 
     try:
-        # 更新任务状态
-        if bin_location in inventory_tasks:
-            inventory_tasks[bin_location].status = "running"
-            inventory_tasks[bin_location].current_step = index + 1
+            # 更新任务状态（已在execute_inventory_workflow中处理）
 
             # 等待机器人就位
             logger.info(f"============等待机器人就位信息: {bin_location}")
@@ -292,18 +286,39 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
                 result["error"] = "等待机器人结束状态超时"
                 raise
 
-            # # 2. 机器人就位后调用抓图接口
-            # image_data = await capture_image(task_no, bin_location)
-            # result["imageData"] = image_data
-            # result["captureTime"] = image_data.get("captureTime")
-
-            # # 3. 抓图成功后调用计算接口
-            # compute_result = await compute_inventory(task_no, bin_location, image_data)
-            # result["computeResult"] = compute_result
-            # result["computeTime"] = datetime.now().isoformat()
-
-            # # 4. 向前端发送图片和计算结果
-            # await send_to_frontend(task_no, bin_location, image_data, compute_result)
+            # 2-4. 执行完整的盘点任务流程：抓图 -> 计算 -> 发送
+            inventory_service = get_inventory_service()
+            inventory_result = await inventory_service.process_inventory_task(
+                task_no=task_no,
+                bin_location=bin_location
+            )
+            
+            result["imageData"] = inventory_result.get("imageData")
+            result["captureTime"] = inventory_result.get("captureTime")
+            result["computeResult"] = inventory_result.get("computeResult")
+            result["computeTime"] = inventory_result.get("computeTime")
+            
+            # 更新任务状态中的图片和计算结果（供前端获取）
+            if task_no in inventory_task_bins:
+                for bin_status in inventory_task_bins[task_no]:
+                    if bin_status.bin_location == bin_location:
+                        bin_status.image_data = inventory_result.get("imageData")
+                        bin_status.compute_result = inventory_result.get("computeResult")
+                        bin_status.capture_time = inventory_result.get("captureTime")
+                        bin_status.compute_time = inventory_result.get("computeTime")
+                        break
+            
+            # 存储详细结果
+            if task_no not in inventory_task_details:
+                inventory_task_details[task_no] = {}
+            
+            inventory_task_details[task_no][bin_location] = {
+                "image_data": inventory_result.get("imageData"),
+                "compute_result": inventory_result.get("computeResult"),
+                "capture_time": inventory_result.get("captureTime"),
+                "compute_time": inventory_result.get("computeTime"),
+                "updated_at": datetime.now().isoformat()
+            }
 
             result["status"] = "success"
             result["endTime"] = datetime.now().isoformat()
@@ -329,6 +344,142 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
         #     pass
 
     return result
+
+
+@app.get("/api/inventory/progress")
+async def get_inventory_progress(taskNo: str):
+    """获取盘点任务进度"""
+    try:
+        if taskNo not in inventory_tasks:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "code": 404,
+                    "message": "任务不存在",
+                    "data": None
+                }
+            )
+        
+        task_status = inventory_tasks[taskNo]
+        bin_statuses = inventory_task_bins.get(taskNo, [])
+        
+        # 计算进度百分比
+        completed_count = sum(1 for bin in bin_statuses if bin.status == "completed")
+        progress_percentage = (completed_count / task_status.total_steps * 100) if task_status.total_steps > 0 else 0
+        
+        progress_data = InventoryTaskProgress(
+            task_no=task_status.task_no,
+            status=task_status.status,
+            current_step=task_status.current_step,
+            total_steps=task_status.total_steps,
+            progress_percentage=round(progress_percentage, 2),
+            bin_locations=bin_statuses,
+            start_time=task_status.start_time,
+            end_time=task_status.end_time
+        )
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "code": 200,
+                "message": "获取进度成功",
+                "data": progress_data.dict()
+            }
+        )
+    except Exception as e:
+        logger.error(f"获取任务进度失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取任务进度失败: {str(e)}"
+        )
+
+
+@app.get("/api/inventory/image")
+async def get_inventory_image(
+    taskNo: str,
+    binLocation: str,
+    cameraType: str,
+    filename: str
+):
+    """
+    获取盘点任务中的图片
+    
+    Args:
+        taskNo: 任务编号
+        binLocation: 储位名称
+        cameraType: 相机类型
+        filename: 文件名
+    """
+    try:
+        # 构建图片路径
+        image_path = Path("output") / taskNo / binLocation / cameraType / filename
+        
+        if not image_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"图片不存在: {filename}"
+            )
+        
+        # 读取图片文件
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+        
+        # 根据文件扩展名确定媒体类型
+        media_type = "image/jpeg"
+        if filename.endswith(".png"):
+            media_type = "image/png"
+        
+        return Response(content=image_data, media_type=media_type)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取图片失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取图片失败: {str(e)}"
+        )
+
+
+@app.get("/api/inventory/task-detail")
+async def get_task_detail(taskNo: str, binLocation: str):
+    """
+    获取任务的详细信息，包括图片和计算结果
+    
+    Args:
+        taskNo: 任务编号
+        binLocation: 储位名称
+    """
+    try:
+        # 从任务详情中获取
+        if taskNo in inventory_task_details and binLocation in inventory_task_details[taskNo]:
+            detail = inventory_task_details[taskNo][binLocation]
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "code": 200,
+                    "message": "获取任务详情成功",
+                    "data": detail
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "code": 404,
+                    "message": "任务详情不存在",
+                    "data": None
+                }
+            )
+        
+    except Exception as e:
+        logger.error(f"获取任务详情失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取任务详情失败: {str(e)}"
+        )
+
+
 ######################################### 盘点任务接口 #########################################
 
 
