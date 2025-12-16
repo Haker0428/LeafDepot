@@ -26,7 +26,7 @@ def test_count_boxes_basic():
     print("="*60)
     
     # 使用测试图片
-    test_img = _project_root / "tests" / "test_images" / "partial" / "2-5-1.jpeg"
+    test_img = _project_root / "tests" / "test_images" / "partial" / "1-0-3.jpeg"
     debug_flag = True
     if not test_img.exists():
         print(f"❌ 测试图片不存在: {test_img}")
