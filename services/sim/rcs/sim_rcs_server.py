@@ -2,8 +2,8 @@
 Author: big box big box@qq.com
 Date: 2025-10-20 23:13:24
 LastEditors: big box big box@qq.com
-LastEditTime: 2025-12-14 12:51:25
-FilePath: /rcs/sim_rcs_server.py
+LastEditTime: 2025-12-16 21:53:28
+FilePath: /LeafDepot/services/sim/rcs/sim_rcs_server.py
 Description: 
 
 Copyright (c) 2025 by lizh, All Rights Reserved. 
@@ -133,7 +133,7 @@ class RobotTaskSimulator:
         })
 
         # 等待一段时间（模拟移动到目标）
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
 
         # 任务进行中 - 反馈状态
         await cls.send_callback(robot_task_code, "outbin", {
@@ -141,8 +141,8 @@ class RobotTaskSimulator:
             "progress": "moving_to_location"
         })
 
-        # 模拟执行任务（总共5秒）
-        await asyncio.sleep(3)
+        # 模拟执行任务
+        await asyncio.sleep(0.1)
 
         # 任务完成 - 反馈状态
         await cls.send_callback(robot_task_code, "end", {

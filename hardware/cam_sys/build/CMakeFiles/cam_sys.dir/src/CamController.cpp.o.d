@@ -1,7 +1,9 @@
 CMakeFiles/cam_sys.dir/src/CamController.cpp.o: \
- /home/ubuntu/cam_sys_ok/src/CamController.cpp /usr/include/stdc-predef.h \
- /home/ubuntu/cam_sys_ok/src/CamController.h /usr/include/memory.h \
- /usr/include/features.h /usr/include/features-time64.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/src/CamController.cpp \
+ /usr/include/stdc-predef.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/src/CamController.h \
+ /usr/include/memory.h /usr/include/features.h \
+ /usr/include/features-time64.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
  /usr/include/x86_64-linux-gnu/bits/timesize.h \
  /usr/include/x86_64-linux-gnu/sys/cdefs.h \
@@ -161,6 +163,6 @@ CMakeFiles/cam_sys.dir/src/CamController.cpp.o: \
  /usr/include/c++/11/bits/this_thread_sleep.h /usr/include/c++/11/chrono \
  /usr/include/c++/11/ratio /usr/include/c++/11/limits \
  /usr/include/c++/11/ctime /usr/include/c++/11/bits/parse_numbers.h \
- /home/ubuntu/cam_sys_ok/include/HCNetSDK/HCNetSDK.h \
- /home/ubuntu/cam_sys_ok/include/HCNetSDK/PlayM4.h \
- /home/ubuntu/cam_sys_ok/include/HCNetSDK/LinuxPlayM4.h
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/HCNetSDK/HCNetSDK.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/HCNetSDK/PlayM4.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/HCNetSDK/LinuxPlayM4.h

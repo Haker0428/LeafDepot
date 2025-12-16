@@ -55,6 +55,7 @@ def load_bins_from_excel():
     8. tobaccoQty
     9. tobaccoCode
     10. tobaccoName
+    11. rcsCode
     """
     bins_data = []
 
@@ -72,7 +73,8 @@ def load_bins_from_excel():
                 "binStatus": "1",
                 "tobaccoQty": 1,
                 "tobaccoCode": "130669",
-                "tobaccoName": "钻石(细支心世界)2"
+                "tobaccoName": "钻石(细支心世界)2",
+                "rcsCode": "0200000XY0201220"
             }
         ]
 
@@ -90,8 +92,8 @@ def load_bins_from_excel():
             # 确保行数据长度足够，不足的列用空值填充
             row_values = row.tolist()
 
-            # 如果行数据不足10个值，用空值或默认值填充
-            while len(row_values) < 10:
+            # 如果行数据不足11个值，用空值或默认值填充
+            while len(row_values) < 11:
                 row_values.append("")
 
             # 处理tobaccoQty，向上取整
@@ -116,7 +118,8 @@ def load_bins_from_excel():
                 "binStatus": str(row_values[6]) if not pd.isna(row_values[6]) else "",
                 "tobaccoQty": tobacco_qty,  # 已向上取整
                 "tobaccoCode": str(row_values[8]) if not pd.isna(row_values[8]) else "",
-                "tobaccoName": str(row_values[9]) if not pd.isna(row_values[9]) else ""
+                "tobaccoName": str(row_values[9]) if not pd.isna(row_values[9]) else "",
+                "rcsCode": str(row_values[10]) if not pd.isna(row_values[9]) else ""
             }
 
             # 只添加有效的数据行（binCode不为空）
@@ -147,7 +150,8 @@ tasks_data = [
         "binStatus": "1",
         "tobaccoQty": 1,
         "tobaccoCode": "130669",
-        "tobaccoName": "钻石(细支心世界)2"
+        "tobaccoName": "钻石(细支心世界)2",
+        "rcsCode": "0200000XY0201220"
     },
     {
         "taskID": "T001",
@@ -160,7 +164,8 @@ tasks_data = [
         "binStatus": "1",
         "tobaccoQty": 1,
         "tobaccoCode": "130684",
-        "tobaccoName": "钻石(细支荷花)"
+        "tobaccoName": "钻石(细支荷花)",
+        "rcsCode": "0200000XY0202440"
     },
 ]
 
