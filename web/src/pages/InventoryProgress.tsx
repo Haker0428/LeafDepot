@@ -2,7 +2,7 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-21 19:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-12-16 23:14:12
+ * @LastEditTime: 2025-12-16 23:38:49
  * @FilePath: /LeafDepot/web/src/pages/InventoryProgress.tsx
  * @Description:
  *
@@ -334,6 +334,10 @@ const handleReceivedCSVData = (data: any) => {
       return updatedItems;
     });
 
+
+
+
+
     // 显示成功消息
     toast.success(
       `库位 ${data.binLocation} 数据更新成功: 数量=${data.number || 0}`
@@ -342,6 +346,17 @@ const handleReceivedCSVData = (data: any) => {
     toast.error(`库位 ${data.binLocation} 数据处理失败: ${data.message}`);
   }
 };
+
+// 添加一个 useEffect 来监听 inventoryItems 的变化并更新进度
+useEffect(() => {
+  const completedCount = inventoryItems.filter(
+    (item) => item.actualQuantity !== null
+  ).length;
+  const newProgress = (completedCount / inventoryItems.length) * 100;
+  setProgress(Math.min(Math.round(newProgress), 100));
+  
+  console.log("进度已更新:", completedCount, "/", inventoryItems.length, "=", newProgress, "%");
+}, [inventoryItems]); // 当 inventoryItems 变化时更新进度
 
 // 在组件中添加调试效果
 useEffect(() => {
