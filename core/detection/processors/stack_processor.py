@@ -455,12 +455,8 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
             }
         }
         """
-        # Step 0: 处理深度图（如果提供了深度计算器和图像路径）
-        if self.depth_calculator is not None and image_path is not None:
-            processed_csv_path = self._process_depth_image(image_path, output_dir)
-            if processed_csv_path:
-                # 更新depth_matrix_csv_path
-                depth_matrix_csv_path = processed_csv_path
+        # 注意：深度图处理已移到detect模块顶层（在满层判断之前）
+        # 这里不再重复处理深度图，直接使用从factory传递过来的depth_matrix_csv_path
         
         n_detected = len(layers)
         n_template = len(template_layers)

@@ -1,6 +1,6 @@
 """堆垛处理器工厂：根据满层判断结果自动选择对应的处理模块"""
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Tuple
 from pathlib import Path
 from ultralytics import YOLO
 import cv2
@@ -92,6 +92,9 @@ class StackProcessorFactory:
         self.depth_image_path_for_processing = None
         # 深度矩阵CSV路径（缓存文件）
         self.depth_matrix_csv_path = None
+        # 原始图路径和目录（用于保存raw.jpg和depth.jpg）
+        self.original_image_path = None
+        self.original_image_dir = None
         # 深度计算器和处理器
         self.depth_calculator = DepthCalculator(enable_debug=enable_debug)
         self.depth_processor = DepthProcessor(enable_debug=enable_debug)
@@ -184,8 +187,17 @@ class StackProcessorFactory:
         if self.enable_visualization:
             self._save_layer_visualization(processing_image_path, boxes, pile_roi, layers, vis_output_dir)
         
+        # Step 5.5: 处理深度图（在满层判断之前）
+        # 深度图处理移到顶层，在满层判断之前完成
+        if self.enable_debug:
+            print("\n" + "=" * 50)
+            print("📍 准备调用深度图处理（Step 5.5）...")
+        self._process_depth_image(processing_image_path, vis_output_dir)
+        if self.enable_debug:
+            print("📍 深度图处理调用完成（Step 5.5）")
+            print("=" * 50 + "\n")
+        
         # Step 6: 处理堆垛（满层判断和计数）
-        # 注意：深度图处理已移到非满层处理模块中
         # 传递原始YOLO检测结果，供单层处理器提取top类使用
         total_count = self.process(layers, template_layers, pile_roi, 
                                   yolo_detections=detections, 
@@ -198,28 +210,94 @@ class StackProcessorFactory:
         
         return total_count
     
+    def _find_image_files(self, input_path: Union[str, Path]) -> Tuple[Optional[Path], Optional[Path]]:
+        """
+        查找main.jpeg和fourth.jpeg文件
+        
+        :param input_path: 输入路径（可以是目录或文件路径）
+        :return: (main_image_path, depth_image_path) 元组
+        """
+        input_path = Path(input_path)
+        
+        # 确定搜索目录
+        if input_path.is_dir():
+            search_dir = input_path
+        elif input_path.is_file():
+            search_dir = input_path.parent
+        else:
+            raise FileNotFoundError(f"输入路径不存在: {input_path}")
+        
+        # 查找main.jpeg和fourth.jpeg
+        main_image_path = search_dir / "main.jpeg"
+        depth_image_path = search_dir / "fourth.jpeg"
+        
+        # 如果main.jpeg不存在，尝试其他可能的扩展名
+        if not main_image_path.exists():
+            for ext in [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]:
+                alt_path = search_dir / f"main{ext}"
+                if alt_path.exists():
+                    main_image_path = alt_path
+                    break
+        
+        # 如果fourth.jpeg不存在，尝试其他可能的扩展名
+        if not depth_image_path.exists():
+            for ext in [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]:
+                alt_path = search_dir / f"fourth{ext}"
+                if alt_path.exists():
+                    depth_image_path = alt_path
+                    break
+        
+        return main_image_path if main_image_path.exists() else None, \
+               depth_image_path if depth_image_path.exists() else None
+    
     def _validate_inputs(self, image_path: Union[str, Path], 
                         depth_image_path: Optional[Union[str, Path]]) -> Path:
-        """验证输入并初始化资源"""
-        image_path = Path(image_path)
-        if not image_path.exists():
-            raise FileNotFoundError(f"图片文件不存在: {image_path}")
+        """
+        验证输入并初始化资源
+        新的逻辑：自动查找main.jpeg作为原始图，fourth.jpeg作为深度图
+        """
+        input_path = Path(image_path)
+        if not input_path.exists():
+            raise FileNotFoundError(f"输入路径不存在: {input_path}")
         
-        # 处理深度图：自动根据图像路径生成深度图路径（原始图名 + "d"）
-        if depth_image_path is None:
-            # 自动生成深度图路径：原始图名 + "d" + 扩展名
-            image_stem = image_path.stem
-            image_suffix = image_path.suffix
-            # 如果原始图名已经以"d"结尾，不再添加
-            if image_stem.endswith('d'):
-                depth_image_path = image_path
-            else:
-                depth_image_path = image_path.parent / f"{image_stem}d{image_suffix}"
+        # 查找main.jpeg和fourth.jpeg
+        main_image_path, found_depth_image_path = self._find_image_files(input_path)
         
-        depth_image_path = Path(depth_image_path)
-        if not depth_image_path.exists():
+        # 如果找到了main.jpeg，使用它作为原始图
+        if main_image_path is not None:
+            image_path = main_image_path
             if self.enable_debug:
-                print(f"⚠️  深度图文件不存在: {depth_image_path}，忽略深度图")
+                print(f"📸 找到原始图: {main_image_path}")
+        else:
+            # 如果没有找到main.jpeg，使用输入路径（向后兼容）
+            if input_path.is_file():
+                image_path = input_path
+                if self.enable_debug:
+                    print(f"⚠️  未找到main.jpeg，使用输入路径作为原始图: {image_path}")
+            else:
+                raise FileNotFoundError(f"未找到main.jpeg文件，且输入路径不是文件: {input_path}")
+        
+        # 验证原始图文件存在
+        if not image_path.exists():
+            raise FileNotFoundError(f"原始图文件不存在: {image_path}")
+        
+        # 保存原始图路径（用于后续保存raw.jpg和depth.jpg）
+        self.original_image_path = image_path
+        self.original_image_dir = str(image_path.parent)
+        
+        # 处理深度图：优先使用找到的fourth.jpeg，其次使用传入的depth_image_path参数
+        if depth_image_path is None:
+            depth_image_path = found_depth_image_path
+        else:
+            depth_image_path = Path(depth_image_path)
+        
+        # 加载深度图
+        if depth_image_path is None or not depth_image_path.exists():
+            if self.enable_debug:
+                if depth_image_path is None:
+                    print(f"⚠️  未找到fourth.jpeg文件，忽略深度图")
+                else:
+                    print(f"⚠️  深度图文件不存在: {depth_image_path}，忽略深度图")
             self.depth_image = None
             self.depth_image_path_for_processing = None
         else:
@@ -479,7 +557,7 @@ class StackProcessorFactory:
         status = detection_result.get("status", "partial")  # 获取状态：'full', 'partial', 'single_layer'
         is_full = detection_result.get("full", False)  # 向后兼容
 
-        # 深度矩阵缓存已经在满层判断之前生成（在count方法中）
+        # 深度矩阵缓存已经在满层判断之前生成（在count方法的Step 5.5中）
         # 这里只需要将深度数据传递给检测结果
         if self.depth_matrix_csv_path:
             detection_result["depth_matrix_csv_path"] = self.depth_matrix_csv_path
@@ -524,34 +602,63 @@ class StackProcessorFactory:
     def _rotate_and_save_image(self, image_path: Union[str, Path],
                                output_dir: Optional[Union[str, Path]]) -> Optional[str]:
         """
-        旋转原图并保存到output目录（debug模式下）
+        旋转原图并保存
+        - debug模式下：保存到output目录，命名为 {原图名}_rotated.{扩展名}
+        - 非debug模式下：保存到原图路径，命名为 raw.jpg 和 {原图名}_rotated.{扩展名}
         
         :param image_path: 输入图像路径
-        :param output_dir: 输出目录
+        :param output_dir: 输出目录（用于debug模式）
         :return: 旋转后的图像路径（如果成功），否则返回None
         """
-        if not self.enable_debug or output_dir is None:
-            return None
-        
         try:
             image_path = Path(image_path)
-            output_dir = Path(output_dir)
-            
-            # 生成旋转后的图像文件名
             image_stem = image_path.stem
             image_suffix = image_path.suffix
-            rotated_filename = f"{image_stem}_rotated{image_suffix}"
-            rotated_path = output_dir / rotated_filename
+            
+            # 确定原始图目录
+            if hasattr(self, 'original_image_dir') and self.original_image_dir:
+                original_dir = Path(self.original_image_dir)
+            else:
+                original_dir = image_path.parent
+            
+            # 确定旋转后的图像保存路径
+            if self.enable_debug and output_dir is not None:
+                # debug模式：保存到output目录
+                output_dir = Path(output_dir)
+                rotated_filename = f"{image_stem}_rotated{image_suffix}"
+                rotated_path = output_dir / rotated_filename
+            else:
+                # 非debug模式：保存到原图路径，命名为 raw.jpg
+                rotated_path = original_dir / "raw.jpg"
             
             # 使用深度计算器的旋转功能
             rotated_path_str = self.depth_calculator.rotate_image(
                 str(image_path),
                 rotation_angle=-90,
                 output_path=str(rotated_path),
-                overwrite=False
+                overwrite=True  # 允许覆盖
             )
             
+            # 无论debug模式与否，都要保存 {原图名}_rotated.{扩展名} 到原始路径
+            rotated_filename = f"{image_stem}_rotated{image_suffix}"
+            rotated_path_original = original_dir / rotated_filename
+            # 复制旋转后的图像到原始路径
+            import shutil
+            shutil.copy2(rotated_path_str, str(rotated_path_original))
             if self.enable_debug:
+                print(f"✅ 已保存旋转图到原始路径: {rotated_path_original}")
+            
+            # 非debug模式下，还要保存 raw.jpg 到原始路径
+            if not (self.enable_debug and output_dir is not None):
+                raw_path = original_dir / "raw.jpg"
+                if rotated_path != raw_path:  # 如果路径不同，才需要复制
+                    shutil.copy2(rotated_path_str, str(raw_path))
+                    if self.enable_debug:
+                        print(f"✅ 已保存raw.jpg到原始路径: {raw_path}")
+            
+            if self.enable_debug:
+                print(f"✅ 原图已旋转并保存至: {rotated_path_str}")
+            else:
                 print(f"✅ 原图已旋转并保存至: {rotated_path_str}")
             
             return rotated_path_str
@@ -573,11 +680,22 @@ class StackProcessorFactory:
             if self.enable_debug:
                 print("\n" + "=" * 50)
                 print("📊 开始处理深度图（在满层判断之前）...")
+                print(f"   图像路径: {image_path}")
+                print(f"   输出目录: {output_dir}")
+                print(f"   深度图路径: {self.depth_image_path_for_processing}")
+                print(f"   depth_calculator存在: {self.depth_calculator is not None}")
             
-            # 检查是否有深度图
+            # 检查是否有深度图路径
             if self.depth_image_path_for_processing is None:
                 if self.enable_debug:
-                    print("ℹ️  未找到深度图，跳过深度处理")
+                    print("ℹ️  未找到深度图路径（depth_image_path_for_processing为None），跳过深度处理")
+                    print("   提示：请确保深度图文件存在，或通过depth_image_path参数传入深度图路径")
+                return
+            
+            # 检查深度计算器是否存在
+            if self.depth_calculator is None:
+                if self.enable_debug:
+                    print("⚠️  depth_calculator未初始化，跳过深度处理")
                 return
             
             # 准备输出目录
@@ -623,11 +741,14 @@ class StackProcessorFactory:
                 print(f"   处理流程：直接对原始深度图进行split，不旋转")
             
             # 使用原始深度图进行处理（不旋转，直接split）
+            # 传递原图目录，用于在非debug模式下保存depth.jpg
+            original_image_dir = self.original_image_dir if hasattr(self, 'original_image_dir') else None
             depth_array, csv_path = self.depth_calculator.process_stereo_image(
                 str(depth_image_path),  # 使用原始深度图，不旋转
                 str(depth_cache_dir),
                 debug_output_dir=debug_output_dir,
-                skip_rotation=True  # 跳过旋转
+                skip_rotation=True,  # 跳过旋转
+                original_image_dir=original_image_dir  # 传递原图目录
             )
             
             # 保存深度矩阵CSV路径

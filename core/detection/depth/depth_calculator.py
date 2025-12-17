@@ -137,7 +137,8 @@ class DepthCalculator:
     
     def generate_disparity_map(self, left_path: str, right_path: str, 
                               output_dir: str = "disparity_results",
-                              debug_output_dir: Optional[str] = None) -> Tuple[str, np.ndarray, Optional[str]]:
+                              debug_output_dir: Optional[str] = None,
+                              original_image_dir: Optional[str] = None) -> Tuple[str, np.ndarray, Optional[str]]:
         """
         生成视差图及可视化，并旋转视差数据90度（顺时针）
         
@@ -145,6 +146,7 @@ class DepthCalculator:
         :param right_path: 右眼图像路径
         :param output_dir: 输出目录（用于保存旋转后的视差数据）
         :param debug_output_dir: 调试输出目录（可选，用于保存可视化图像）
+        :param original_image_dir: 原图目录（可选，用于在非debug模式下保存depth.jpg）
         :return: (视差图路径, 旋转后的视差数据, 彩色可视化路径)
         """
         # 读取图像
@@ -210,18 +212,20 @@ class DepthCalculator:
         disparity_path = os.path.join(output_dir, "disparity.tiff")
         cv2.imwrite(disparity_path, disparity_rotated)
         
-        # 在debug模式下生成可视化图像
+        # 生成可视化图像（无论debug模式与否）
+        # 创建归一化的可视化视差图 (8位灰度) - 使用旋转后的数据
+        disparity_visual = cv2.normalize(
+            disparity_rotated, None, alpha=0, beta=255, 
+            norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U
+        )
+        
+        # 创建彩色可视化视差图
+        disparity_color = cv2.applyColorMap(disparity_visual, cv2.COLORMAP_JET)
+        
         disparity_color_path = None
+        
+        # debug模式下：保存到debug_output_dir
         if self.enable_debug:
-            # 创建归一化的可视化视差图 (8位灰度) - 使用旋转后的数据
-            disparity_visual = cv2.normalize(
-                disparity_rotated, None, alpha=0, beta=255, 
-                norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U
-            )
-            
-            # 创建彩色可视化视差图
-            disparity_color = cv2.applyColorMap(disparity_visual, cv2.COLORMAP_JET)
-            
             # 确定可视化图像保存目录（优先使用debug_output_dir）
             if debug_output_dir is not None:
                 vis_output_dir = debug_output_dir
@@ -245,6 +249,18 @@ class DepthCalculator:
             else:
                 print(f"⚠️  视差图保存失败: gray={success_gray}, color={success_color}")
                 print(f"   保存路径: {vis_output_dir}")
+        
+        # 非debug模式下：保存到原图路径，命名为depth.jpg
+        if original_image_dir is not None:
+            os.makedirs(original_image_dir, exist_ok=True)
+            depth_path = os.path.join(original_image_dir, "depth.jpg")
+            success = cv2.imwrite(depth_path, disparity_color)
+            if success:
+                if self.enable_debug:
+                    print(f"✅ 深度图已保存至原图路径: {depth_path}")
+            else:
+                if self.enable_debug:
+                    print(f"⚠️  深度图保存失败: {depth_path}")
         
         # 返回旋转后的视差数据，用于后续深度计算
         return disparity_path, disparity_rotated, disparity_color_path
@@ -324,7 +340,8 @@ class DepthCalculator:
     def process_stereo_image(self, image_path: str, 
                             output_dir: Optional[str] = None,
                             debug_output_dir: Optional[str] = None,
-                            skip_rotation: bool = False) -> Tuple[np.ndarray, str]:
+                            skip_rotation: bool = False,
+                            original_image_dir: Optional[str] = None) -> Tuple[np.ndarray, str]:
         """
         处理立体图像，生成深度矩阵CSV
         
@@ -332,6 +349,7 @@ class DepthCalculator:
         :param output_dir: 输出目录（可选，默认在图像同目录下）
         :param debug_output_dir: 调试输出目录（可选，用于保存视差图可视化）
         :param skip_rotation: 是否跳过旋转（如果图像已经旋转过）
+        :param original_image_dir: 原图目录（可选，用于在非debug模式下保存depth.jpg）
         :return: (深度图数组, depth_matrix.csv路径)
         """
         if self.enable_debug:
@@ -387,7 +405,9 @@ class DepthCalculator:
             print("\n步骤2: 生成视差图...")
         disparity_results_dir = os.path.join(split_output_dir, "disparity_results")
         disparity_path, disparity_data, disparity_visual = self.generate_disparity_map(
-            left_path, right_path, disparity_results_dir, debug_output_dir=debug_output_dir)
+            left_path, right_path, disparity_results_dir, 
+            debug_output_dir=debug_output_dir,
+            original_image_dir=original_image_dir)
         
         # 4. 计算深度图
         if self.enable_debug:
