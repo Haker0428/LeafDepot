@@ -20,12 +20,29 @@ import uvicorn
 import sys
 
 # 配置日志
+# 创建 debug 日志目录（在文件开头就定义，供后续使用）
+_project_root = Path(__file__).parent.parent.parent
+_debug_log_dir = _project_root / "debug"
+_debug_log_dir.mkdir(parents=True, exist_ok=True)
+
+# 创建日志文件路径（按日期命名）
+_log_filename = _debug_log_dir / f"gateway_{datetime.now().strftime('%Y%m%d')}.log"
+
+# 配置根日志记录器
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),  # 控制台输出
+        logging.FileHandler(str(_log_filename), encoding='utf-8')  # 文件输出
+    ]
 )
 logger = logging.getLogger(__name__)
+logger.info(f"日志文件保存路径: {_log_filename}")
+
+# 导出供其他函数使用
+debug_log_dir = _debug_log_dir
 
 # 数据模型定义
 class TaskStatus(BaseModel):
@@ -100,36 +117,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 导入条形码路由（如果存在）
-try:
-    from services.api.routers.barcode import router as barcode_router
-    app.include_router(barcode_router)
-except ImportError:
-    logger.warning("条形码路由模块未找到，跳过注册")
+# Barcode功能开关（默认关闭）
+ENABLE_BARCODE = os.getenv("ENABLE_BARCODE", "false").lower() in ("true", "1", "yes")
+
+# 导入条形码路由（如果存在且开关开启）
+if ENABLE_BARCODE:
+    try:
+        from services.api.routers.barcode import router as barcode_router
+        app.include_router(barcode_router)
+        logger.info("条形码路由已启用")
+    except ImportError:
+        logger.warning("条形码路由模块未找到，跳过注册")
+else:
+    logger.info("条形码功能已禁用（ENABLE_BARCODE=false）")
 
 # 导入工具模块
 from services.api import custom_utils
 
-# 导入检测和条码识别模块
+# 导入检测模块
 try:
     from core.detection import count_boxes
-    from core.vision.barcode_recognizer import BarcodeRecognizer
     DETECT_MODULE_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"检测模块导入失败: {e}")
     DETECT_MODULE_AVAILABLE = False
 
-# 导入检测和条码识别模块
-try:
-    from core.detection import count_boxes
-    from core.vision.barcode_recognizer import BarcodeRecognizer
-    DETECT_MODULE_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"检测模块导入失败: {e}")
-    DETECT_MODULE_AVAILABLE = False
+# 导入条码识别模块（仅在开关开启时导入）
+BARCODE_MODULE_AVAILABLE = False
+if ENABLE_BARCODE:
+    try:
+        from core.vision.barcode_recognizer import BarcodeRecognizer
+        BARCODE_MODULE_AVAILABLE = True
+        logger.info("条形码识别模块已启用")
+    except ImportError as e:
+        logger.warning(f"条形码识别模块导入失败: {e}")
+        BARCODE_MODULE_AVAILABLE = False
+else:
+    logger.info("条形码识别模块已禁用（ENABLE_BARCODE=false）")
 
 # 配置常量（这些应该从配置文件或环境变量中读取）
-LMS_BASE_URL = os.getenv("LMS_BASE_URL", "http://localhost:8002")
+# 默认使用模拟服务端口（6000），如果环境变量设置了则使用环境变量的值
+LMS_BASE_URL = os.getenv("LMS_BASE_URL", "http://localhost:6000")
 RCS_BASE_URL = os.getenv("RCS_BASE_URL", "http://localhost:8003")
 RCS_PREFIX = os.getenv("RCS_PREFIX", "")
 
@@ -578,7 +606,8 @@ async def get_inventory_image(
     taskNo: str,
     binLocation: str,
     cameraType: str,
-    filename: str
+    filename: str,
+    source: str = "output"  # 新增参数：source可以是"output"或"capture_img"
 ):
     """
     获取盘点任务中的图片
@@ -588,15 +617,23 @@ async def get_inventory_image(
         binLocation: 储位名称
         cameraType: 相机类型
         filename: 文件名
+        source: 图片源目录，可以是"output"或"capture_img"，默认为"output"
     """
     try:
-        # 构建图片路径
-        image_path = Path("output") / taskNo / binLocation / cameraType / filename
+        project_root = Path(__file__).parent.parent.parent
+        
+        # 根据source参数选择不同的基础目录
+        if source == "capture_img":
+            # 从capture_img目录获取图片
+            image_path = project_root / "capture_img" / taskNo / binLocation / cameraType / filename
+        else:
+            # 从output目录获取图片（默认）
+            image_path = project_root / "output" / taskNo / binLocation / cameraType / filename
         
         if not image_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"图片不存在: {filename}"
+                detail=f"图片不存在: {filename} (路径: {image_path})"
             )
         
         # 读取图片文件
@@ -607,6 +644,8 @@ async def get_inventory_image(
         media_type = "image/jpeg"
         if filename.endswith(".png"):
             media_type = "image/png"
+        elif filename.endswith(".bmp"):
+            media_type = "image/bmp"
         
         return Response(content=image_data, media_type=media_type)
         
@@ -844,29 +883,36 @@ async def scan_and_recognize(request: ScanAndRecognizeRequest = Body(...)):
                 "error": str(e)
             }
         
-        # 2. 执行Barcode模块
-        try:
-            logger.info(f"开始执行Barcode模块识别: {request.taskNo}/{request.binLocation}")
-            
-            recognizer = BarcodeRecognizer(code_type=request.code_type)
-            barcode_results = recognizer.process_folder(input_dir=str(image_dir))
-            
+        # 2. 执行Barcode模块（仅在开关开启时执行）
+        if ENABLE_BARCODE and BARCODE_MODULE_AVAILABLE:
+            try:
+                logger.info(f"开始执行Barcode模块识别: {request.taskNo}/{request.binLocation}")
+                
+                recognizer = BarcodeRecognizer(code_type=request.code_type)
+                barcode_results = recognizer.process_folder(input_dir=str(image_dir))
+                
+                results["barcode_result"] = {
+                    "image_path": str(image_dir),
+                    "code_type": request.code_type,
+                    "results": barcode_results,
+                    "total_images": len(barcode_results),
+                    "successful": sum(1 for r in barcode_results if r.get("output")),
+                    "failed": sum(1 for r in barcode_results if r.get("error") and not r.get("output")),
+                    "status": "success"
+                }
+                logger.info(f"Barcode模块识别完成，成功: {results['barcode_result']['successful']}/{results['barcode_result']['total_images']}")
+                
+            except Exception as e:
+                logger.error(f"Barcode模块识别失败: {str(e)}")
+                results["barcode_result"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+        else:
+            logger.info("Barcode模块已禁用，跳过识别")
             results["barcode_result"] = {
-                "image_path": str(image_dir),
-                "code_type": request.code_type,
-                "results": barcode_results,
-                "total_images": len(barcode_results),
-                "successful": sum(1 for r in barcode_results if r.get("output")),
-                "failed": sum(1 for r in barcode_results if r.get("error") and not r.get("output")),
-                "status": "success"
-            }
-            logger.info(f"Barcode模块识别完成，成功: {results['barcode_result']['successful']}/{results['barcode_result']['total_images']}")
-            
-        except Exception as e:
-            logger.error(f"Barcode模块识别失败: {str(e)}")
-            results["barcode_result"] = {
-                "status": "failed",
-                "error": str(e)
+                "status": "disabled",
+                "message": "条形码功能已禁用（ENABLE_BARCODE=false）"
             }
         
         # 3. 更新任务状态中的识别结果
@@ -1013,7 +1059,21 @@ async def login(request: Request):
             "userCode": username,
             "password": password
         }
-        response = requests.get(lms_login_url, headers=headers)
+        logger.info(f"尝试连接LMS服务: {lms_login_url}")
+        try:
+            response = requests.get(lms_login_url, headers=headers, timeout=5)
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"无法连接到LMS服务 {lms_login_url}: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"无法连接到LMS服务，请确保LMS服务正在运行（{LMS_BASE_URL}）"
+            )
+        except requests.exceptions.Timeout:
+            logger.error(f"连接LMS服务超时: {lms_login_url}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="LMS服务响应超时"
+            )
 
         if response.status_code == 200:
             # 获取LMS返回的token
@@ -1041,11 +1101,14 @@ async def login(request: Request):
                 status_code=response.status_code,
                 detail=f"LMS登录失败: {response.text}"
             )
+    except HTTPException:
+        # 重新抛出 HTTPException，保持原有的错误信息
+        raise
     except Exception as e:
-        logger.error(f"登录请求失败: {str(e)}")
+        logger.error(f"登录请求失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="登录请求处理失败"
+            detail=f"登录请求处理失败: {str(e)}"
         )
 
 
@@ -1544,22 +1607,93 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> List[D
     return results
 
 
-if __name__ == "__main__":
-    # 确保日志配置正确
-    import sys
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+# 前端日志收集接口
+class FrontendLogRequest(BaseModel):
+    """前端日志请求模型"""
+    level: str  # log, info, warn, error
+    message: str
+    timestamp: Optional[str] = None
+    source: Optional[str] = None  # 前端来源标识
+    extra: Optional[Dict[str, Any]] = None  # 额外信息
+
+
+@app.post("/api/log/frontend")
+async def collect_frontend_log(request: FrontendLogRequest = Body(...)):
+    """
+    收集前端日志并保存到 debug 目录
     
+    Args:
+        request: 前端日志请求对象
+    """
+    try:
+        # 创建前端日志文件路径（按日期命名）
+        frontend_log_filename = _debug_log_dir / f"frontend_{datetime.now().strftime('%Y%m%d')}.log"
+        
+        # 创建前端日志记录器
+        frontend_logger = logging.getLogger("frontend")
+        frontend_logger.setLevel(logging.DEBUG)
+        
+        # 如果还没有文件处理器，添加一个
+        if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(frontend_log_filename) 
+                   for h in frontend_logger.handlers):
+            file_handler = logging.FileHandler(str(frontend_log_filename), encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter(
+                '%(asctime)s - [FRONTEND] - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(formatter)
+            frontend_logger.addHandler(file_handler)
+        
+        # 记录日志
+        timestamp = request.timestamp or datetime.now().isoformat()
+        source = request.source or "unknown"
+        extra_info = request.extra or {}
+        
+        log_message = f"[{source}] {request.message}"
+        if extra_info:
+            log_message += f" | Extra: {json.dumps(extra_info, ensure_ascii=False)}"
+        
+        # 根据日志级别记录
+        log_level = request.level.lower()
+        if log_level == "error":
+            frontend_logger.error(log_message)
+        elif log_level == "warn":
+            frontend_logger.warning(log_message)
+        elif log_level == "info":
+            frontend_logger.info(log_message)
+        else:
+            frontend_logger.debug(log_message)
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "code": 200,
+                "message": "日志已保存",
+                "data": {
+                    "log_file": str(frontend_log_filename)
+                }
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"保存前端日志失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"保存前端日志失败: {str(e)}"
+        )
+
+
+if __name__ == "__main__":
+    # 确保日志配置正确（已经在文件开头配置，这里不再重复配置）
     logger.info("=" * 60)
     logger.info("🚀 Gateway服务启动")
     logger.info("=" * 60)
     logger.info("📡 API地址: http://0.0.0.0:8000")
     logger.info("📚 API文档: http://localhost:8000/docs")
     logger.info("🔍 测试页面: http://localhost:8080/test_detect.html")
+    logger.info(f"📝 日志文件: {_log_filename}")
+    logger.info(f"📝 前端日志文件: {_debug_log_dir / f'frontend_{datetime.now().strftime('%Y%m%d')}.log'}")
     logger.info("=" * 60)
     logger.info("\n按 Ctrl+C 停止服务\n")
     
