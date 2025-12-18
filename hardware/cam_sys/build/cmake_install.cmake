@@ -1,4 +1,4 @@
-# Install script for directory: /home/ubuntu/cam_sys_ok
+# Install script for directory: /home/ubuntu/Projects/LeafDepot/hardware/cam_sys
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -50,5 +50,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/home/ubuntu/cam_sys_ok/build/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

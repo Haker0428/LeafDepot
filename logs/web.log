@@ -7,8 +7,7 @@
 > vite --host --port 3000
 
 
-  VITE v6.4.1  ready in 413 ms
+  VITE v6.4.1  ready in 247 ms
 
   ➜  Local:   http://localhost:3000/
-  ➜  Network: http://192.168.2.118:3000/
- ELIFECYCLE  Command failed with exit code 143.
+  ➜  Network: http://192.168.3.5:3000/

@@ -849,8 +849,8 @@ async def scan_and_recognize(request: ScanAndRecognizeRequest = Body(...)):
                         image_path=image_path_for_detect,
                         pile_id=request.pile_id,
                         depth_image_path=depth_image_path_for_detect,
-                        enable_debug=True,
-                        enable_visualization=True,
+                        enable_debug=False,
+                        enable_visualization=False,
                         output_dir=str(debug_output_dir)
                     )
                 
@@ -936,6 +936,67 @@ async def scan_and_recognize(request: ScanAndRecognizeRequest = Body(...)):
             inventory_task_details[request.taskNo][request.binLocation] = {}
         
         inventory_task_details[request.taskNo][request.binLocation]["recognition"] = results
+        
+        # 5. 将识别结果保存为ini格式文件到原始图路径
+        try:
+            import configparser
+            
+            # 创建ConfigParser对象
+            config = configparser.ConfigParser()
+            
+            # 添加基本信息节
+            config.add_section('BasicInfo')
+            config.set('BasicInfo', 'taskNo', request.taskNo)
+            config.set('BasicInfo', 'binLocation', request.binLocation)
+            config.set('BasicInfo', 'recognition_time', recognition_time)
+            
+            # 添加原始图路径
+            config.add_section('ImagePaths')
+            config.set('ImagePaths', 'original_image_dir', str(image_dir))
+            if results.get("detect_result") and results["detect_result"].get("image_path"):
+                config.set('ImagePaths', 'detect_image_path', results["detect_result"]["image_path"])
+            
+            # 添加Detect模块结果
+            if results.get("detect_result"):
+                config.add_section('DetectResult')
+                detect_result = results["detect_result"]
+                if detect_result.get("status"):
+                    config.set('DetectResult', 'status', detect_result["status"])
+                if detect_result.get("total_count") is not None:
+                    config.set('DetectResult', 'total_count', str(detect_result["total_count"]))
+                if detect_result.get("pile_id") is not None:
+                    config.set('DetectResult', 'pile_id', str(detect_result["pile_id"]))
+                if detect_result.get("error"):
+                    config.set('DetectResult', 'error', detect_result["error"])
+            
+            # 添加Barcode模块结果
+            if results.get("barcode_result"):
+                config.add_section('BarcodeResult')
+                barcode_result = results["barcode_result"]
+                if barcode_result.get("status"):
+                    config.set('BarcodeResult', 'status', barcode_result["status"])
+                if barcode_result.get("code_type"):
+                    config.set('BarcodeResult', 'code_type', barcode_result["code_type"])
+                if barcode_result.get("total_images") is not None:
+                    config.set('BarcodeResult', 'total_images', str(barcode_result["total_images"]))
+                if barcode_result.get("successful") is not None:
+                    config.set('BarcodeResult', 'successful', str(barcode_result["successful"]))
+                if barcode_result.get("failed") is not None:
+                    config.set('BarcodeResult', 'failed', str(barcode_result["failed"]))
+                if barcode_result.get("error"):
+                    config.set('BarcodeResult', 'error', barcode_result["error"])
+                if barcode_result.get("message"):
+                    config.set('BarcodeResult', 'message', barcode_result["message"])
+            
+            # 保存ini文件到原始图路径
+            ini_file_path = image_dir / "recognition_result.ini"
+            with open(ini_file_path, 'w', encoding='utf-8') as configfile:
+                config.write(configfile)
+            
+            logger.info(f"识别结果已保存到ini文件: {ini_file_path}")
+        except Exception as e:
+            logger.error(f"保存识别结果到ini文件失败: {str(e)}", exc_info=True)
+            # 不中断流程，继续返回结果
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,

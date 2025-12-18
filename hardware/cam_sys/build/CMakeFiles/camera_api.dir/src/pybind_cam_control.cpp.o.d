@@ -1,6 +1,7 @@
 CMakeFiles/camera_api.dir/src/pybind_cam_control.cpp.o: \
- /home/ubuntu/cam_sys_ok/src/pybind_cam_control.cpp \
- /usr/include/stdc-predef.h /home/ubuntu/cam_sys_ok/src/CamController.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/src/pybind_cam_control.cpp \
+ /usr/include/stdc-predef.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/src/CamController.h \
  /usr/include/memory.h /usr/include/features.h \
  /usr/include/features-time64.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -162,14 +163,14 @@ CMakeFiles/camera_api.dir/src/pybind_cam_control.cpp.o: \
  /usr/include/c++/11/bits/this_thread_sleep.h /usr/include/c++/11/chrono \
  /usr/include/c++/11/ratio /usr/include/c++/11/limits \
  /usr/include/c++/11/ctime /usr/include/c++/11/bits/parse_numbers.h \
- /home/ubuntu/cam_sys_ok/include/HCNetSDK/HCNetSDK.h \
- /home/ubuntu/cam_sys_ok/include/HCNetSDK/PlayM4.h \
- /home/ubuntu/cam_sys_ok/include/HCNetSDK/LinuxPlayM4.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/pybind11.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/class.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/attr.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/common.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/conduit/wrap_include_python_h.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/HCNetSDK/HCNetSDK.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/HCNetSDK/PlayM4.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/HCNetSDK/LinuxPlayM4.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/pybind11.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/class.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/attr.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/common.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/conduit/wrap_include_python_h.h \
  /home/ubuntu/anaconda3/envs/tobacco_env/include/python3.10/Python.h \
  /home/ubuntu/anaconda3/envs/tobacco_env/include/python3.10/patchlevel.h \
  /home/ubuntu/anaconda3/envs/tobacco_env/include/python3.10/pyconfig.h \
@@ -307,7 +308,7 @@ CMakeFiles/camera_api.dir/src/pybind_cam_control.cpp.o: \
  /home/ubuntu/anaconda3/envs/tobacco_env/include/python3.10/frameobject.h \
  /home/ubuntu/anaconda3/envs/tobacco_env/include/python3.10/cpython/frameobject.h \
  /home/ubuntu/anaconda3/envs/tobacco_env/include/python3.10/pythread.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/pybind11_namespace_macros.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/pybind11_namespace_macros.h \
  /usr/include/c++/11/cstddef /usr/include/c++/11/cstring \
  /usr/include/c++/11/forward_list /usr/include/c++/11/bits/forward_list.h \
  /usr/include/c++/11/ext/aligned_buffer.h \
@@ -333,51 +334,51 @@ CMakeFiles/camera_api.dir/src/pybind_cam_control.cpp.o: \
  /usr/include/c++/11/bits/stl_vector.h \
  /usr/include/c++/11/bits/stl_bvector.h \
  /usr/include/c++/11/bits/vector.tcc /usr/include/c++/11/version \
- /home/ubuntu/cam_sys_ok/include/pybind11/cast.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/argument_vector.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/pytypes.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/buffer_info.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/cast.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/argument_vector.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/pytypes.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/buffer_info.h \
  /usr/include/c++/11/iterator /usr/include/c++/11/bits/stream_iterator.h \
  /usr/include/c++/11/algorithm /usr/include/c++/11/bits/stl_algo.h \
  /usr/include/c++/11/bits/algorithmfwd.h \
  /usr/include/c++/11/bits/stl_heap.h \
  /usr/include/c++/11/bits/uniform_int_dist.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/descr.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/holder_caster_foreign_helpers.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/gil.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/internals.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/conduit/pybind11_platform_abi_id.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/gil_simple.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/descr.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/holder_caster_foreign_helpers.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/gil.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/internals.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/conduit/pybind11_platform_abi_id.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/gil_simple.h \
  /usr/include/c++/11/cassert \
- /home/ubuntu/cam_sys_ok/include/pybind11/trampoline_self_life_support.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/using_smart_holder.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/struct_smart_holder.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/trampoline_self_life_support.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/using_smart_holder.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/struct_smart_holder.h \
  /usr/include/c++/11/functional /usr/include/c++/11/bits/std_function.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/value_and_holder.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/value_and_holder.h \
  /usr/include/c++/11/atomic /usr/include/c++/11/mutex \
  /usr/include/c++/11/bits/std_mutex.h \
  /usr/include/c++/11/bits/unique_lock.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/native_enum_data.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/native_enum_data.h \
  /usr/include/c++/11/sstream /usr/include/c++/11/bits/sstream.tcc \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/type_caster_base.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/cpp_conduit.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/dynamic_raw_ptr_cast_if_possible.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/typeid.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/type_caster_base.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/cpp_conduit.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/dynamic_raw_ptr_cast_if_possible.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/typeid.h \
  /usr/include/c++/11/cxxabi.h \
  /usr/include/x86_64-linux-gnu/c++/11/bits/cxxabi_tweaks.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/options.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/exception_translation.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/function_record_pyobject.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/detail/init.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/gil_safe_call_once.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/typing.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/options.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/exception_translation.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/function_record_pyobject.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/detail/init.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/gil_safe_call_once.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/typing.h \
  /usr/include/c++/11/stack /usr/include/c++/11/deque \
  /usr/include/c++/11/bits/stl_deque.h /usr/include/c++/11/bits/deque.tcc \
  /usr/include/c++/11/bits/stl_stack.h \
- /home/ubuntu/cam_sys_ok/include/pybind11/stl.h /usr/include/c++/11/list \
- /usr/include/c++/11/bits/stl_list.h /usr/include/c++/11/bits/list.tcc \
- /usr/include/c++/11/map /usr/include/c++/11/bits/stl_tree.h \
- /usr/include/c++/11/bits/stl_map.h \
+ /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include/pybind11/stl.h \
+ /usr/include/c++/11/list /usr/include/c++/11/bits/stl_list.h \
+ /usr/include/c++/11/bits/list.tcc /usr/include/c++/11/map \
+ /usr/include/c++/11/bits/stl_tree.h /usr/include/c++/11/bits/stl_map.h \
  /usr/include/c++/11/bits/stl_multimap.h /usr/include/c++/11/set \
  /usr/include/c++/11/bits/stl_set.h \
  /usr/include/c++/11/bits/stl_multiset.h /usr/include/c++/11/valarray \

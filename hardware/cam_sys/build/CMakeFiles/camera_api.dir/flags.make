@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = -Dcamera_api_EXPORTS
 
-CXX_INCLUDES = -I/home/ubuntu/cam_sys_ok/include -isystem /home/ubuntu/anaconda3/envs/tobacco_env/include/python3.10 -isystem /home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/pybind11/include
+CXX_INCLUDES = -I/home/ubuntu/Projects/LeafDepot/hardware/cam_sys/include -isystem /home/ubuntu/anaconda3/envs/tobacco_env/include/python3.10 -isystem /home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/pybind11/include
 
 CXX_FLAGS = -fPIC -fvisibility=hidden -flto=auto -fno-fat-lto-objects -std=gnu++11
 

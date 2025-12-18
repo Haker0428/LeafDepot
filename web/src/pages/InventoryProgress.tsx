@@ -2,8 +2,8 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-21 19:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-12-14 10:44:02
- * @FilePath: /kylin_ui/src/pages/InventoryProgress.tsx
+ * @LastEditTime: 2025-12-19 00:04:59
+ * @FilePath: /LeafDepot/web/src/pages/InventoryProgress.tsx
  * @Description:
  *
  * Copyright (c) 2025 by lizh, All Rights Reserved.
@@ -58,6 +58,7 @@ import img14out from "@/public/postprocess/14out.jpg";
 import img15out from "@/public/postprocess/15out.jpg";
 import img16out from "@/public/postprocess/16out.jpg";
 import img17out from "@/public/postprocess/17out.jpg";
+import { int } from "zod/v4";
 
 // 定义接口类型 - 根据InventoryStart.tsx中的InventoryTask接口
 interface InventoryItem {
@@ -78,6 +79,7 @@ interface InventoryItem {
   binDesc?: string;
   binStatus?: string;
   tobaccoCode?: string;
+  rcsCode: string;
 }
 
 // 从InventoryStart.tsx复制的InventoryTask接口
@@ -91,8 +93,9 @@ interface InventoryTask {
   maxQty: number;
   binStatus: string;
   tobaccoQty: number;
-  tobaccoName: string;
   tobaccoCode: string;
+  tobaccoName: string;
+  rcsCode: string;
 }
 
 // 定义任务清单接口 - 根据InventoryStart.tsx中的任务清单结构
@@ -180,6 +183,10 @@ export default function InventoryProgress() {
     useState<TaskManifest | null>(null);
   const [response, setResponse] = useState<ApiResponse | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  const [currentImage, setCurrentImage] = useState<string | null>(null);
+  const [postImage, setPostImage] = useState<string | null>(null);
+
   const [currentCaptureImageIndex, setCaptureCurrentImageIndex] = useState(0);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [selectedCaptureRowIndex, setSelectedCaptureRowIndex] = useState<
@@ -196,6 +203,492 @@ export default function InventoryProgress() {
   const [currentExecutingTaskIndex, setCurrentExecutingTaskIndex] = useState<
     number | null
   >(null);
+
+  // 在已有的状态后面添加 WebSocket 相关状态
+  const [webSocket, setWebSocket] = useState<WebSocket | null>(null);
+  const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
+  const [receivedCSVData, setReceivedCSVData] = useState<
+    Array<{
+      taskNo: string;
+      binLocation: string;
+      number: number | null;
+      text: string | null;
+      success: boolean;
+      message: string;
+      timestamp: string;
+    }>
+  >([]);
+
+  // 在组件中添加 WebSocket 连接函数
+  const connectWebSocket = () => {
+    if (!currentTaskNo) {
+      toast.error("没有当前任务，无法连接 WebSocket");
+      return;
+    }
+
+    // 构建 WebSocket URL，根据你的网关地址调整
+    const wsUrl = `ws://localhost:8000/ws/inventory/${currentTaskNo}`;
+    console.log("尝试连接 WebSocket:", wsUrl);
+
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log("WebSocket 连接成功");
+      setIsWebSocketConnected(true);
+      toast.success("已连接到盘点服务器");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("收到 WebSocket 消息:", data);
+
+        if (data.type === "csv_data") {
+          handleReceivedCSVData(data);
+        }
+      } catch (error) {
+        console.error("解析 WebSocket 消息失败:", error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket 连接错误:", error);
+      toast.error("WebSocket 连接错误");
+    };
+
+    ws.onclose = (event) => {
+      console.log("WebSocket 连接关闭:", event.code, event.reason);
+      setIsWebSocketConnected(false);
+
+      // 如果不是正常关闭，尝试重新连接
+      if (event.code !== 1000) {
+        toast.warning("WebSocket 连接断开，正在重新连接...");
+        setTimeout(() => {
+          connectWebSocket();
+        }, 3000);
+      }
+    };
+
+    0;
+
+    setWebSocket(ws);
+  };
+
+  // 处理接收到的 CSV 数据
+  // 修改 handleReceivedCSVData 函数
+  const handleReceivedCSVData = (data: any) => {
+    console.log("处理 CSV 数据:", data);
+    console.log("处理 success 数据:", data.success);
+    console.log("处理 number 数据:", data.number);
+    console.log("处理 text 数据:", data.text);
+
+    if (data.success) {
+      // 1. 更新 receivedCSVData
+      setReceivedCSVData((prev) => {
+        const existingIndex = prev.findIndex(
+          (item) =>
+            item.taskNo === data.taskNo && item.binLocation === data.binLocation
+        );
+
+        if (existingIndex >= 0) {
+          const newData = [...prev];
+          newData[existingIndex] = data;
+          return newData;
+        } else {
+          return [...prev, data];
+        }
+      });
+
+      // 2. 同步更新 inventoryItems - 修复参数名冲突
+      setInventoryItems((prevItems) => {
+        console.log("当前 inventoryItems:", prevItems);
+        console.log(
+          "匹配条件: taskNo=",
+          data.taskNo,
+          "binLocation=",
+          data.binLocation
+        );
+
+        const updatedItems = prevItems.map((item) => {
+          // 根据任务号和库位代码匹配
+          console.log("检查项目:", item.taskNo, item.binDesc);
+
+          if (
+            item.taskNo === data.taskNo &&
+            item.binDesc === data.binLocation
+          ) {
+            console.log("找到匹配项，开始更新:", item);
+
+            // 解析 number 值，确保是数字或 null
+            let actualQuantity = null;
+            if (
+              data.number !== undefined &&
+              data.number !== null &&
+              data.number !== ""
+            ) {
+              const num = Number(data.number);
+              actualQuantity = isNaN(num) ? null : num;
+              console.log("转换后的数量:", actualQuantity);
+            }
+
+            const updatedItem = {
+              ...item,
+              actualQuantity: actualQuantity,
+            };
+
+            // 如果有文本识别结果且不是空字符串，更新实际品规
+            if (
+              data.text !== undefined &&
+              data.text !== null &&
+              data.text.trim() !== ""
+            ) {
+              updatedItem.productName = data.text;
+              console.log("更新品规名称:", data.text);
+            }
+
+            console.log("更新后的项目:", updatedItem);
+            return updatedItem;
+          }
+          return item;
+        });
+
+        console.log("更新后的 inventoryItems:", updatedItems);
+        return updatedItems;
+      });
+
+      // 显示成功消息
+      toast.success(
+        `库位 ${data.binLocation} 数据更新成功: 数量=${data.number || 0}`
+      );
+    } else {
+      toast.error(`库位 ${data.binLocation} 数据处理失败: ${data.message}`);
+    }
+  };
+
+  useEffect(() => {
+    const completedCount = inventoryItems.filter(
+      (item) => item.actualQuantity !== null
+    ).length;
+    const newProgress = (completedCount / inventoryItems.length) * 100;
+    setProgress(Math.min(Math.round(newProgress), 100));
+
+    // 检查是否所有任务都已完成
+    const allTasksCompleted = completedCount === inventoryItems.length;
+
+    // 如果全部完成且当前状态不是已完成，则设置为已完成
+    if (allTasksCompleted && !isTaskCompleted) {
+      setIsTaskCompleted(true);
+      toast.success("所有盘点任务已完成！");
+
+      // 计算总耗时（从开始到现在的差值）
+      if (taskStartTime) {
+        const totalTime = Date.now() - taskStartTime;
+
+        // 计算异常任务
+        const abnormalTasks = inventoryItems
+          .filter(
+            (item) =>
+              item.actualQuantity !== null &&
+              item.actualQuantity !== item.systemQuantity
+          )
+          .map((item) => ({
+            taskNo: item.taskNo,
+            location: item.locationName,
+            expected: item.systemQuantity,
+            actual: item.actualQuantity,
+          }));
+
+        // 计算准确率
+        const accurateItems = inventoryItems.length - abnormalTasks.length;
+        const accuracyRate =
+          inventoryItems.length > 0
+            ? (accurateItems / inventoryItems.length) * 100
+            : 0;
+
+        // 更新统计数据
+        setStatisticsData({
+          totalTime,
+          accuracyRate,
+          abnormalTasks,
+        });
+      }
+    }
+    // 如果有未完成任务但状态是已完成，重置状态
+    else if (!allTasksCompleted && isTaskCompleted) {
+      setIsTaskCompleted(false);
+    }
+
+    console.log(
+      "进度已更新:",
+      completedCount,
+      "/",
+      inventoryItems.length,
+      "=",
+      newProgress,
+      "%"
+    );
+    console.log("任务完成状态:", allTasksCompleted ? "已完成" : "进行中");
+  }, [inventoryItems, isTaskCompleted, taskStartTime]);
+
+  // 在组件中添加调试效果
+  useEffect(() => {
+    console.log("🔍 inventoryItems 已更新:", inventoryItems);
+    console.log(
+      "📊 有实际数量的项目:",
+      inventoryItems.filter((item) => item.actualQuantity !== null).length
+    );
+  }, [inventoryItems]);
+
+  useEffect(() => {
+    console.log("📥 receivedCSVData 已更新:", receivedCSVData);
+  }, [receivedCSVData]);
+
+  // // 在组件挂载时连接 WebSocket
+  // useEffect(() => {
+  //   if (currentTaskNo) {
+  //     console.log("连接 WebSocket");
+  //     connectWebSocket();
+  //   }
+
+  //   // 清理函数：组件卸载时关闭 WebSocket
+  //   return () => {
+  //     if (webSocket) {
+  //       webSocket.close();
+  //     }
+  //   };
+  // }, [currentTaskNo]);
+
+  // 添加一个手动重连按钮的函数
+  const handleReconnectWebSocket = () => {
+    if (webSocket) {
+      webSocket.close();
+    }
+    connectWebSocket();
+  };
+
+  const handleDisconnectWebSocket = () => {
+    if (webSocket) {
+      setIsWebSocketConnected(false);
+      webSocket.close();
+    }
+  };
+
+  const handleRowClick = async (taskNo: string, binDesc: string) => {
+  if (!isTaskStarted) {
+    toast.info("请先启动盘点任务");
+    return;
+  }
+  
+  const rowIndex = inventoryItems.findIndex(
+    (item) => item.taskNo === taskNo && item.binDesc === binDesc
+  );
+  
+  if (rowIndex === -1) {
+    toast.error("未找到对应的任务和储位");
+    return;
+  }
+  
+  setSelectedRowIndex(rowIndex);
+  setCurrentExecutingTaskIndex(rowIndex);
+  setIsCapture(true);
+  
+  // 确保每次点击前重置状态
+  setImageLoading(true);
+  setImageError(false);
+  
+  // 清除之前的图片URL（如果存在）
+  if (currentImage) {
+    URL.revokeObjectURL(currentImage);
+    setCurrentImage(null);
+  }
+  
+  try {
+    const response = await fetch(`${GATEWAY_URL}/api/get-image-original`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ taskNo, binDesc }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    
+    const blob = await response.blob();
+    const imageUrl = URL.createObjectURL(blob);
+    
+    setCurrentImage(imageUrl);
+        setPostImage(null);
+
+
+    toast.success(
+      `成功加载 ${taskNo} - ${binDesc} 的原始图片`
+    );
+  } catch (error) {
+    console.error("加载图片失败:", error);
+    setImageError(true);
+    toast.error(`未找到 ${taskNo} - ${binDesc} 的图片文件`);
+    setCurrentImage(null);
+  } finally {
+    setImageLoading(false);
+  }
+};
+
+  useEffect(() => {
+    return () => {
+      if (currentImage) {
+        URL.revokeObjectURL(currentImage);
+      }
+    };
+  }, [currentImage]);
+
+  const handleRowClickPost = async (
+    taskNo: string,
+    binDesc: string
+  ) => {
+    if (!isTaskStarted) {
+      toast.info("请先启动盘点任务");
+
+      return;
+    }
+
+    const rowIndex = inventoryItems.findIndex(
+      (item) => item.taskNo === taskNo && item.binDesc === binDesc
+    );
+
+    if (rowIndex === -1) {
+      toast.error("未找到对应的任务和储位");
+
+      return;
+    }
+
+    // setSelectedRowIndex(rowIndex);
+
+    // setCurrentExecutingTaskIndex(rowIndex);
+
+    // setImageLoading(true);
+
+    // setImageError(false);
+
+    try {
+      const response = await fetch(`${GATEWAY_URL}/api/get-image-postprocess`, {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({ taskNo, binDesc }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+
+      const imageUrl = URL.createObjectURL(blob);
+
+      console.info("imageUrl:", { imageUrl });
+
+      setIsCapture(true);
+
+      setPostImage(imageUrl); // 设置当前图片
+
+      toast.success(
+        `成功加载 ${taskNo} - ${binDesc} 的计算后图片`
+      );
+    } catch (error) {
+      console.error("加载图片失败:", error);
+
+      setImageError(true);
+
+      toast.error(`未找到 ${taskNo} - ${binDesc} 的图片文件`);
+
+      setPostImage(null);
+    } finally {
+      setImageLoading(false);
+    }
+  };
+  useEffect(() => {
+    return () => {
+      if (postImage) {
+        URL.revokeObjectURL(postImage);
+      }
+    };
+  }, [postImage]);
+
+  // 获取计算后的图片 - 调用gateway接口获取main_rotated.jpg和depth_color.jpg
+  const fetchCalculateImages = async (taskNo: string, binDesc: string) => {
+    if (!isTaskStarted) {
+      toast.info("请先启动盘点任务");
+      return;
+    }
+
+    setImageLoading(true);
+    setImageError(false);
+    setIsCapture(true);
+    setIsCalculate(true);
+
+    // 清除之前的图片URL（如果存在）
+    if (currentImage) {
+      URL.revokeObjectURL(currentImage);
+      setCurrentImage(null);
+    }
+    if (postImage) {
+      URL.revokeObjectURL(postImage);
+      setPostImage(null);
+    }
+
+    try {
+      // 获取 main_rotated.jpg - 用于上半部分显示
+      const mainRotatedResponse = await fetch(
+        `${GATEWAY_URL}/api/inventory/image?taskNo=${encodeURIComponent(
+          taskNo
+        )}&binLocation=${encodeURIComponent(
+          binDesc
+        )}&cameraType=3d_camera&filename=main_rotated.jpg&source=capture_img`
+      );
+
+      if (mainRotatedResponse.ok) {
+        const mainRotatedBlob = await mainRotatedResponse.blob();
+        const mainRotatedUrl = URL.createObjectURL(mainRotatedBlob);
+        setCurrentImage(mainRotatedUrl);
+      } else {
+        console.warn("获取 main_rotated.jpg 失败:", mainRotatedResponse.status);
+      }
+
+      // 获取 depth_color.jpg - 用于下半部分显示
+      const depthColorResponse = await fetch(
+        `${GATEWAY_URL}/api/inventory/image?taskNo=${encodeURIComponent(
+          taskNo
+        )}&binLocation=${encodeURIComponent(
+          binDesc
+        )}&cameraType=3d_camera&filename=depth_color.jpg&source=capture_img`
+      );
+
+      if (depthColorResponse.ok) {
+        const depthColorBlob = await depthColorResponse.blob();
+        const depthColorUrl = URL.createObjectURL(depthColorBlob);
+        setPostImage(depthColorUrl);
+        toast.success(
+          `成功加载 ${taskNo} - ${binDesc} 的计算后图片`
+        );
+      } else {
+        console.warn("获取 depth_color.jpg 失败:", depthColorResponse.status);
+        toast.warning(
+          `部分图片加载失败: ${taskNo} - ${binDesc}`
+        );
+      }
+    } catch (error) {
+      console.error("加载图片失败:", error);
+      setImageError(true);
+      toast.error(`未找到 ${taskNo} - ${binDesc} 的图片文件`);
+    } finally {
+      setImageLoading(false);
+    }
+  };
 
   const [statisticsData, setStatisticsData] = useState({
     totalTime: 0,
@@ -314,6 +807,7 @@ export default function InventoryProgress() {
               binDesc: task.binDesc,
               binStatus: task.binStatus,
               tobaccoCode: task.tobaccoCode,
+              rcsCode: task.rcsCode,
             })
           );
 
@@ -372,28 +866,91 @@ export default function InventoryProgress() {
     setIsCapture(true);
   };
 
-  // 计算功能
-  const handleCalculate = (
+  // 计算功能 - 调用扫码+识别接口 + 保留模拟API调用
+  const handleCalculate = async (
     taskNo: string,
-    locationName: string,
+    binDesc: string,
     rowIndex: number
   ) => {
-    console.log("计算 - 任务号:", taskNo, "货位名称:", locationName);
-    toast.info(`开始计算: 任务 ${taskNo} - 货位 ${locationName}`);
+    console.log(
+      `计算 - 任务号: ${taskNo}, 储位编号: ${binDesc}, 行号: ${rowIndex + 1}`
+    );
 
-    if (rowIndex >= 0 && rowIndex < postprocessImages.length) {
-      setCaptureCurrentImageIndex(rowIndex);
-      setSelectedCaptureRowIndex(rowIndex);
-      toast.success(`计算完成`);
-    } else {
-      toast.error(`计算异常`);
+    if (!isTaskStarted) {
+      toast.error("请先启动盘点任务");
+      return;
     }
 
+    toast.info(`开始计算: 任务 ${taskNo} - 储位 ${binDesc}`);
+
+    // 调用扫码+识别接口（真实接口）
+    try {
+      const response = await fetch(
+        `${GATEWAY_URL}/api/inventory/scan-and-recognize`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            taskNo: taskNo,
+            binLocation: binDesc,
+            pile_id: 1, // 默认堆垛ID为1
+            code_type: "ucc128", // 默认条码类型
+          }),
+        }
+      );
+
+      // 检查响应状态
+      if (!response.ok) {
+        // 尝试解析错误信息
+        try {
+          const errorData = await response.json();
+          console.error("扫码+识别接口调用失败:", errorData);
+          // 即使真实接口失败，也继续执行模拟逻辑
+        } catch {
+          console.error(`计算请求发送失败，状态码: ${response.status}`);
+        }
+      } else {
+        // 接口调用成功，记录日志但不处理返回结果
+        const result = await response.json();
+        console.log("扫码+识别接口调用成功，结果:", result);
+      }
+    } catch (error) {
+      console.error("调用扫码+识别接口失败:", error);
+      // 即使真实接口失败，也继续执行模拟逻辑
+    }
+
+    // 保留原有的模拟API调用逻辑
     setIsCalculate(true);
+
+    // 模拟API调用
+    setTimeout(() => {
+      // 更新该行的实际数量（示例数据 - 无误差，实际数量等于系统数量）
+      setInventoryItems((prevItems) => {
+        const newItems = [...prevItems];
+
+        // 模拟数据无误差：实际数量等于系统数量
+        const calculatedQuantity = newItems[rowIndex].systemQuantity;
+
+        newItems[rowIndex] = {
+          ...newItems[rowIndex],
+          actualQuantity: calculatedQuantity,
+        };
+
+        return newItems;
+      });
+
+      toast.success(`计算完成: 任务 ${taskNo} - 储位 ${binDesc}`);
+    }, 1500);
+
+    // 调用gateway接口获取两个图片：main_rotated.jpg 和 depth_color.jpg
+    await fetchCalculateImages(taskNo, String(binDesc));
   };
 
   // 启动盘点任务 - 与内部网关程序交互
   const handleStartCountingTask = async () => {
+    setTaskStartTime(Date.now());
     setIsStartingTask(true);
     setIsTaskStarted(true);
 
@@ -405,7 +962,12 @@ export default function InventoryProgress() {
       }
 
       // 获取所有储位名称
+      //使用RCS站点
       const binLocations = inventoryItems.map((item) => item.locationName);
+
+      const tobaccoCode = inventoryItems.map((item) => item.tobaccoCode);
+
+      const rcsCode = inventoryItems.map((item) => item.rcsCode);
 
       toast.info("发送任务到网关...");
 
@@ -420,6 +982,8 @@ export default function InventoryProgress() {
           body: JSON.stringify({
             taskNo: currentTaskNo,
             binLocations: binLocations,
+            tobaccoCode: tobaccoCode,
+            rcsCode: rcsCode,
           }),
         }
       );
@@ -569,9 +1133,31 @@ export default function InventoryProgress() {
   // };
 
   // 处理实际数量输入变化
+  // 处理实际数量输入变化
   const handleActualQuantityChange = (id: string, value: string) => {
     const numericValue = value ? parseInt(value, 10) : null;
 
+    // 检查是否已有接收的 CSV 数据
+    const item = inventoryItems.find((item) => item.id === id);
+    if (item) {
+      const csvData = receivedCSVData.find(
+        (data) =>
+          data.taskNo === item.taskNo && data.binLocation === item.binCode
+      );
+
+      // 如果有接收的数据，提示用户
+      if (csvData && csvData.number !== null) {
+        const confirmed = window.confirm(
+          `此库位已有自动识别的数量 ${csvData.number}，确定要手动修改为 ${numericValue} 吗？`
+        );
+
+        if (!confirmed) {
+          return;
+        }
+      }
+    }
+
+    // 更新数量
     setInventoryItems((prevItems) =>
       prevItems.map((item) =>
         item.id === id ? { ...item, actualQuantity: numericValue } : item
@@ -579,26 +1165,22 @@ export default function InventoryProgress() {
     );
 
     // 更新进度
-    const completedCount =
-      inventoryItems.filter(
-        (item) =>
-          item.actualQuantity !== null &&
-          (item.id !== id || numericValue !== null)
-      ).length + (numericValue !== null ? 1 : 0);
-
+    const completedCount = inventoryItems.filter(
+      (item) => item.actualQuantity !== null
+    ).length;
     const newProgress = (completedCount / inventoryItems.length) * 100;
     setProgress(Math.min(Math.round(newProgress), 100));
   };
 
   // 处理行点击事件
-  const handleRowClick = (index: number) => {
-    if (!isTaskStarted) {
-      toast.info("请先启动盘点任务");
-      return;
-    }
-    setSelectedRowIndex(index);
-    setCurrentExecutingTaskIndex(index);
-  };
+  // const handleRowClick = (index: number) => {
+  //   if (!isTaskStarted) {
+  //     toast.info("请先启动盘点任务");
+  //     return;
+  //   }
+  //   setSelectedRowIndex(index);
+  //   setCurrentExecutingTaskIndex(index);
+  // };
 
   // 保存盘点结果
   const handleSaveInventory = () => {
@@ -674,46 +1256,65 @@ export default function InventoryProgress() {
   const handleInventoryStatistics = () => {
     if (inventoryItems.length === 0) {
       toast.error("没有盘点数据可供统计");
+
       return;
     }
 
     const completedItems = inventoryItems.filter(
       (item) => item.actualQuantity !== null
     );
+
     const totalItems = completedItems.length;
 
     if (totalItems === 0) {
       toast.error("请先完成盘点任务");
+
       return;
     }
 
+    // 计算异常任务
+
     const abnormalTasks = inventoryItems
+
       .filter(
         (item) =>
           item.actualQuantity !== null &&
           item.actualQuantity !== item.systemQuantity
       )
+
       .map((item) => ({
         taskNo: item.taskNo,
+
         location: item.locationName,
+
         expected: item.systemQuantity,
+
         actual: item.actualQuantity,
       }));
 
     const accurateItems = totalItems - abnormalTasks.length;
+
     const accuracyRate =
       totalItems > 0 ? (accurateItems / totalItems) * 100 : 0;
-    const totalTime = taskStartTime ? Date.now() - taskStartTime : 0;
+
+    // 计算总耗时 - 如果任务已完成，使用已记录的时间；否则计算到当前
+
+    let totalTime = statisticsData.totalTime;
+
+    if (!isTaskCompleted && taskStartTime) {
+      totalTime = Date.now() - taskStartTime;
+    }
 
     setStatisticsData({
       totalTime,
+
       accuracyRate,
+
       abnormalTasks,
     });
 
     setIsStatisticsModalOpen(true);
   };
-
   // 处理返回
   const handleBack = () => {
     navigate("/inventory/start");
@@ -731,6 +1332,7 @@ export default function InventoryProgress() {
       ></div>
 
       {/* 顶部导航栏 */}
+
       <header className="relative bg-white shadow-md z-10">
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center space-x-2">
@@ -775,6 +1377,41 @@ export default function InventoryProgress() {
                     盘点进度
                   </h3>
                 </div>
+
+                {/* 在顶部导航栏或进度区域添加 WebSocket 状态指示器 */}
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center">
+                    <div
+                      className={`w-3 h-3 rounded-full mr-2 ${
+                        isWebSocketConnected
+                          ? "bg-green-500 animate-pulse"
+                          : "bg-red-500"
+                      }`}
+                    ></div>
+                    <span className="text-sm">
+                      {isWebSocketConnected ? "服务器已连接" : "服务器未连接"}
+                    </span>
+                  </div>
+
+                  {!isWebSocketConnected && (
+                    <button
+                      onClick={handleReconnectWebSocket}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+                    >
+                      重新连接
+                    </button>
+                  )}
+                </div>
+
+                {/* <div className="flex items-center space-x-4">
+                  <button
+                    onClick={handleDisconnectWebSocket}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+                  >
+                    取消连接
+                  </button>
+                </div> */}
+
                 <span className="text-2xl font-bold text-green-700 flex items-center">
                   {progress}%
                 </span>
@@ -814,7 +1451,7 @@ export default function InventoryProgress() {
                       </>
                     ) : (
                       <>
-                        <i className="fa-solid fa-play mr-2"></i>启动盘点任务
+                        <i className="fa-solid fa-play mr-2"></i>下发盘点任务
                       </>
                     )}
                   </button>
@@ -870,21 +1507,49 @@ export default function InventoryProgress() {
 
                           {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             手动抓图
-                          </th>
+                          </th>*/}
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             计算
-                          </th> */}
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {inventoryItems.map((item, index) => {
-                          const difference =
+                          // 安全地获取实际数量
+                          const actualQuantity =
+                            item.actualQuantity !== undefined &&
                             item.actualQuantity !== null
-                              ? item.actualQuantity - item.systemQuantity
+                              ? Number(item.actualQuantity)
                               : null;
+
+                          const systemQuantity =
+                            item.systemQuantity !== undefined &&
+                            item.systemQuantity !== null
+                              ? Number(item.systemQuantity)
+                              : null;
+
+                          // 计算差异
+                          const difference =
+                            actualQuantity !== null && systemQuantity !== null
+                              ? actualQuantity - systemQuantity
+                              : null;
+
                           const hasDifference =
                             difference !== null && difference !== 0;
                           const isSelected = selectedRowIndex === index;
+
+                          // 检查是否有接收到的 CSV 数据
+                          const csvData = receivedCSVData.find(
+                            (data) =>
+                              data.taskNo === item.taskNo &&
+                              data.binLocation === item.binCode
+                          );
+
+                          // 确定要显示的品规名称
+                          const displayProductName =
+                            csvData?.text && csvData.text.trim() !== ""
+                              ? csvData.text
+                              : item.productName;
 
                           return (
                             <tr
@@ -894,7 +1559,12 @@ export default function InventoryProgress() {
                                   ? "bg-blue-50 border-l-4 border-blue-500"
                                   : ""
                               }`}
-                              onClick={() => handleRowClick(index)}
+                              onClick={() =>
+                                handleRowClick(
+                                  item.taskNo,
+                                  String(item.binDesc),
+                                )
+                              }
                             >
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {index + 1}
@@ -907,34 +1577,39 @@ export default function InventoryProgress() {
                                 </div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {item.productName}
+                                {displayProductName ||
+                                  item.productName ||
+                                  "未知品规"}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {item.locationName}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                <span className="text-sm text-gray-400">
-                                  待识别
-                                </span>
+                                {actualQuantity !== null ? (
+                                  <div className="flex items-center">
+                                    <span className="text-green-600 font-medium">
+                                      {displayProductName || "已识别"}
+                                    </span>
+                                    <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400">待识别</span>
+                                )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {item.systemQuantity}
+                                {systemQuantity !== null ? systemQuantity : 0}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={item.actualQuantity || ""}
-                                  onChange={(e) =>
-                                    handleActualQuantityChange(
-                                      item.id,
-                                      e.target.value
-                                    )
-                                  }
-                                  className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
-                                  placeholder="输入数量"
-                                  disabled={!isTaskStarted}
-                                />
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                {actualQuantity !== null ? (
+                                  <div className="flex items-center">
+                                    <span className="text-green-600 font-medium">
+                                      {actualQuantity}
+                                    </span>
+                                    <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400">待计算</span>
+                                )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 {difference !== null ? (
@@ -965,44 +1640,32 @@ export default function InventoryProgress() {
                                   </span>
                                 )}
                               </td>
-
-                              {/* 手动抓图按钮 */}
-                              {/* <td className="px-4 py-3 whitespace-nowrap">
+                              <td className="px-6 py-4 whitespace-nowrap">
                                 <button
                                   onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleManualCapture(
-                                      item.taskNo,
-                                      item.locationName,
-                                      index
-                                    );
-                                  }}
-                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center justify-center w-full"
-                                  title="手动抓取当前货位图像"
-                                >
-                                  <i className="fa-solid fa-camera mr-1 text-sm"></i>
-                                  <span className="text-xs">抓图</span>
-                                </button>
-                              </td> */}
+                                    e.stopPropagation(); // 阻止事件冒泡，避免触发行点击事件
 
-                              {/* 计算按钮 */}
-                              {/* <td className="px-4 py-3 whitespace-nowrap">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
                                     handleCalculate(
                                       item.taskNo,
-                                      item.locationName,
+                                      String(item.binDesc),
                                       index
                                     );
                                   }}
-                                  className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition-colors flex items-center justify-center w-full"
-                                  title="使用AI计算当前货位库存"
+                                  disabled={!isTaskStarted}
+                                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors flex items-center justify-center ${
+                                    isTaskStarted
+                                      ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                      : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                                  }`}
                                 >
-                                  <i className="fa-solid fa-calculator mr-1 text-sm"></i>
-                                  <span className="text-xs">计算</span>
+                                  <i
+                                    className={`fa-solid ${
+                                      isTaskStarted ? "fa-calculator" : "fa-ban"
+                                    } mr-1`}
+                                  ></i>
+                                  计算
                                 </button>
-                              </td> */}
+                              </td>
                             </tr>
                           );
                         })}
@@ -1100,23 +1763,27 @@ export default function InventoryProgress() {
               </div>
 
               {/* 观察窗口内容 */}
+
               <div className="flex-1 p-4 flex flex-col gap-4">
                 {/* 上半部分 - 原始图片 */}
+
                 <div className="bg-gray-100 rounded-lg border border-gray-300 overflow-hidden flex-1 flex items-center justify-center">
                   <div className="relative w-full h-full max-w-md mx-auto">
-                    {isCapture ? (
-                      <>
+  {isCapture ? (
+    <>
+      {imageLoading ? (
+        // 加载状态
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
+        </div>
+      ) : currentImage ? (
+        // 成功加载图片
+        <>
+
                         <img
-                          src={
-                            originalImagesFromGateway[currentImageIndex] ||
-                            originalImages[
-                              currentImageIndex % originalImages.length
-                            ]
-                          }
-                          alt={`原始图像 - 任务 ${currentImageIndex + 1}`}
-                          className={`max-w-full max-h-full object-contain rounded-lg border-2 border-green-700 transition-opacity duration-300 ${
-                            imageLoading ? "opacity-0" : "opacity-100"
-                          }`}
+                          src={String(currentImage)}
+                          alt={``}
+                          className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700"
                           onLoad={handleImageLoad}
                           onError={handleImageError}
                         />
@@ -1125,20 +1792,31 @@ export default function InventoryProgress() {
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
                           </div>
                         )}
-                        <div className="absolute bottom-2 right-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center">
-                          <i className="fa-solid fa-circle text-green-400 mr-1 animate-pulse"></i>
-                          <span>实时画面 1</span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-full text-center p-4">
-                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-2">
-                          <i className="fa-solid fa-camera text-gray-500 text-2xl"></i>
-                        </div>
-                        <p className="text-gray-500 text-sm">画面1未连接</p>
-                      </div>
-                    )}
-                  </div>
+          <div className="absolute bottom-2 right-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center">
+            <i className="fa-solid fa-circle text-green-400 mr-1 animate-pulse"></i>
+            <span>原始图像</span>
+          </div>
+        </>
+      ) : (
+        // 无图片状态
+        <div className="flex flex-col items-center justify-center h-full text-center p-4">
+          <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-2">
+            <i className="fa-solid fa-camera text-gray-500 text-2xl"></i>
+          </div>
+          <p className="text-gray-500 text-sm">点击任务行加载图片</p>
+        </div>
+      )}
+    </>
+  ) : (
+    // 未连接状态
+    <div className="flex flex-col items-center justify-center h-full text-center p-4">
+      <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-2">
+        <i className="fa-solid fa-camera text-gray-500 text-2xl"></i>
+      </div>
+      <p className="text-gray-500 text-sm">画面1未连接</p>
+    </div>
+  )}
+</div>
                 </div>
 
                 {/* 下半部分 - 处理后的图片 */}
@@ -1147,18 +1825,9 @@ export default function InventoryProgress() {
                     {isCalculate ? (
                       <>
                         <img
-                          src={
-                            postprocessImages[
-                              currentCaptureImageIndex %
-                                postprocessImages.length
-                            ]
-                          }
-                          alt={`处理后的图像 - 任务 ${
-                            currentCaptureImageIndex + 1
-                          }`}
-                          className={`max-w-full max-h-full object-contain rounded-lg border-2 border-green-700 transition-opacity duration-300 ${
-                            imageLoading ? "opacity-0" : "opacity-100"
-                          }`}
+                          src={String(postImage)}
+                          alt={``}
+                          className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700"
                           onLoad={handleImageLoad}
                           onError={handleImageError}
                         />
@@ -1169,7 +1838,7 @@ export default function InventoryProgress() {
                         )}
                         <div className="absolute bottom-2 right-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center">
                           <i className="fa-solid fa-circle text-green-400 mr-1 animate-pulse"></i>
-                          <span>实时画面 2</span>
+                          <span>计算后图像</span>
                         </div>
                       </>
                     ) : (
@@ -1182,31 +1851,6 @@ export default function InventoryProgress() {
                     )}
                   </div>
                 </div>
-              </div>
-
-              {/* 底部控制区域 */}
-              <div className="p-4 border-t border-gray-100 flex justify-center space-x-3 bg-gray-50">
-                {isTaskStarted && (
-                  <>
-                    <button
-                      className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors flex items-center justify-center"
-                      onClick={() =>
-                        setCurrentImageIndex((prev) => Math.max(0, prev - 1))
-                      }
-                      disabled={currentImageIndex === 0}
-                      aria-label="上一张"
-                    >
-                      <i className="fa-solid fa-arrow-up text-gray-700 text-lg"></i>
-                    </button>
-                    <button
-                      className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors flex items-center justify-center"
-                      onClick={() => setCurrentImageIndex((prev) => prev + 1)}
-                      aria-label="下一张"
-                    >
-                      <i className="fa-solid fa-arrow-down text-gray-700 text-lg"></i>
-                    </button>
-                  </>
-                )}
               </div>
             </div>
           </motion.div>

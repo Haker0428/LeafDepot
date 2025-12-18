@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/ubuntu/cam_sys_ok
+CMAKE_SOURCE_DIR = /home/ubuntu/Projects/LeafDepot/hardware/cam_sys
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ubuntu/cam_sys_ok/build
+CMAKE_BINARY_DIR = /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build
 
 # Include any dependencies generated for this target.
 include CMakeFiles/cam_sys.dir/depend.make
@@ -72,16 +72,16 @@ include CMakeFiles/cam_sys.dir/flags.make
 CMakeFiles/cam_sys.dir/src/CamController.cpp.o: CMakeFiles/cam_sys.dir/flags.make
 CMakeFiles/cam_sys.dir/src/CamController.cpp.o: ../src/CamController.cpp
 CMakeFiles/cam_sys.dir/src/CamController.cpp.o: CMakeFiles/cam_sys.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/ubuntu/cam_sys_ok/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/cam_sys.dir/src/CamController.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cam_sys.dir/src/CamController.cpp.o -MF CMakeFiles/cam_sys.dir/src/CamController.cpp.o.d -o CMakeFiles/cam_sys.dir/src/CamController.cpp.o -c /home/ubuntu/cam_sys_ok/src/CamController.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/cam_sys.dir/src/CamController.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cam_sys.dir/src/CamController.cpp.o -MF CMakeFiles/cam_sys.dir/src/CamController.cpp.o.d -o CMakeFiles/cam_sys.dir/src/CamController.cpp.o -c /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/src/CamController.cpp
 
 CMakeFiles/cam_sys.dir/src/CamController.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/cam_sys.dir/src/CamController.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/ubuntu/cam_sys_ok/src/CamController.cpp > CMakeFiles/cam_sys.dir/src/CamController.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/src/CamController.cpp > CMakeFiles/cam_sys.dir/src/CamController.cpp.i
 
 CMakeFiles/cam_sys.dir/src/CamController.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/cam_sys.dir/src/CamController.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/ubuntu/cam_sys_ok/src/CamController.cpp -o CMakeFiles/cam_sys.dir/src/CamController.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/src/CamController.cpp -o CMakeFiles/cam_sys.dir/src/CamController.cpp.s
 
 # Object files for target cam_sys
 cam_sys_OBJECTS = \
@@ -96,15 +96,15 @@ libcam_sys.so: ../lib/libssl.so.1.1
 libcam_sys.so: ../lib/libopenal.so.1
 libcam_sys.so: ../lib/libcrypto.so.1.1
 libcam_sys.so: CMakeFiles/cam_sys.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/ubuntu/cam_sys_ok/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX shared library libcam_sys.so"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX shared library libcam_sys.so"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/cam_sys.dir/link.txt --verbose=$(VERBOSE)
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "Copying python files to build directory"
-	/usr/bin/cmake -E make_directory /home/ubuntu/cam_sys_ok/build
-	/usr/bin/cmake -E copy_if_different /home/ubuntu/cam_sys_ok/lib/libAudioRender.so /home/ubuntu/cam_sys_ok/build
-	/usr/bin/cmake -E copy_if_different /home/ubuntu/cam_sys_ok/lib/*.so /home/ubuntu/cam_sys_ok/build
-	/usr/bin/cmake -E make_directory /home/ubuntu/cam_sys_ok/build
-	/usr/bin/cmake -E copy_if_different /home/ubuntu/cam_sys_ok/lib/HCNetSDKCom/*.so /home/ubuntu/cam_sys_ok/build
-	/usr/bin/cmake -E copy_if_different /home/ubuntu/cam_sys_ok/*.py /home/ubuntu/cam_sys_ok/build
+	/usr/bin/cmake -E make_directory /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build
+	/usr/bin/cmake -E copy_if_different /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/lib/libAudioRender.so /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build
+	/usr/bin/cmake -E copy_if_different /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/lib/*.so /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build
+	/usr/bin/cmake -E make_directory /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build
+	/usr/bin/cmake -E copy_if_different /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/lib/HCNetSDKCom/*.so /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build
+	/usr/bin/cmake -E copy_if_different /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/*.py /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build
 
 # Rule to build all files generated by this target.
 CMakeFiles/cam_sys.dir/build: libcam_sys.so
@@ -115,6 +115,6 @@ CMakeFiles/cam_sys.dir/clean:
 .PHONY : CMakeFiles/cam_sys.dir/clean
 
 CMakeFiles/cam_sys.dir/depend:
-	cd /home/ubuntu/cam_sys_ok/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ubuntu/cam_sys_ok /home/ubuntu/cam_sys_ok /home/ubuntu/cam_sys_ok/build /home/ubuntu/cam_sys_ok/build /home/ubuntu/cam_sys_ok/build/CMakeFiles/cam_sys.dir/DependInfo.cmake --color=$(COLOR)
+	cd /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ubuntu/Projects/LeafDepot/hardware/cam_sys /home/ubuntu/Projects/LeafDepot/hardware/cam_sys /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build /home/ubuntu/Projects/LeafDepot/hardware/cam_sys/build/CMakeFiles/cam_sys.dir/DependInfo.cmake --color=$(COLOR)
 .PHONY : CMakeFiles/cam_sys.dir/depend
 

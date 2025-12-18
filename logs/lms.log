@@ -1,11 +1,16 @@
 INFO:     Will watch for changes in these directories: ['/Users/hepeng/Project/lead_depot/LeafDepot/services/sim/lms']
 INFO:     Uvicorn running on http://0.0.0.0:6000 (Press CTRL+C to quit)
-INFO:     Started reloader process [33191] using StatReload
-INFO:     Started server process [33194]
+INFO:     Started reloader process [74779] using StatReload
+INFO:     Started server process [74782]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [33194]
-INFO:     Stopping reloader process [33191]
+成功从Excel加载 18 条储位信息
+INFO:     127.0.0.1:58229 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58233 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58239 - "GET /third/api/v1/lmsToRcsService/getLmsBin HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58509 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58513 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58519 - "GET /third/api/v1/lmsToRcsService/getLmsBin HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58688 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58692 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58698 - "GET /third/api/v1/lmsToRcsService/getLmsBin HTTP/1.1" 200 OK
