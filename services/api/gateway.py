@@ -1,42 +1,221 @@
 """
 Gateway服务 - 向后兼容入口
-为了保持向后兼容，这个文件现在作为main.py的别名
-建议新代码使用 services.api.main 作为入口
 """
 import warnings
+import asyncio
+import os
+import time
+import json
+import logging
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 
-warnings.warn(
-    "gateway.py已重构，请使用 services.api.main 作为应用入口",
-    DeprecationWarning,
-    stacklevel=2
+from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, status, Body
+from fastapi.responses import JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import requests
+import uvicorn
+import sys
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+# 数据模型定义
+class TaskStatus(BaseModel):
+    """任务状态模型"""
+    task_no: str
+    status: str  # init, running, completed, failed
+    current_step: int = 0
+    total_steps: int = 0
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+
+
+class BinLocationStatus(BaseModel):
+    """储位状态模型"""
+    bin_location: str
+    status: str  # pending, running, completed, failed
+    sequence: int = 0
+    image_data: Optional[Dict[str, Any]] = None
+    compute_result: Optional[Dict[str, Any]] = None
+    capture_time: Optional[str] = None
+    compute_time: Optional[str] = None
+    detect_result: Optional[Dict[str, Any]] = None  # Detect模块识别结果
+    barcode_result: Optional[Dict[str, Any]] = None  # Barcode模块识别结果
+    recognition_time: Optional[str] = None  # 识别时间
+
+
+class InventoryTaskProgress(BaseModel):
+    """盘点任务进度模型"""
+    task_no: str
+    status: str
+    current_step: int
+    total_steps: int
+    progress_percentage: float
+    bin_locations: List[BinLocationStatus]
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+
+# 创建 FastAPI 应用实例
+app = FastAPI(
+    title="LeafDepot API Gateway",
+    description="LeafDepot 系统 API 网关服务",
+    version="1.0.0"
 )
 
-# 导入新的main模块
-from services.api.main import app
+# 配置 CORS
+# 从环境变量读取允许的源，如果没有设置则使用默认列表
+cors_origins_env = os.getenv("CORS_ORIGINS", "")
+if cors_origins_env:
+    # 如果设置了环境变量，使用环境变量的值（逗号分隔）
+    origins = [origin.strip() for origin in cors_origins_env.split(",")]
+else:
+    # 默认允许的源列表
+    origins = [
+        "http://localhost",
+        "http://localhost:8000",
+        "http://localhost:8001",
+        "http://localhost:8080",  # 测试页面服务器端口
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8001",
+        "http://127.0.0.1:8080",  # 测试页面服务器端口
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5000",
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 导入条形码路由（如果存在）
+try:
+    from services.api.routers.barcode import router as barcode_router
+    app.include_router(barcode_router)
+except ImportError:
+    logger.warning("条形码路由模块未找到，跳过注册")
+
+# 导入工具模块
+from services.api import custom_utils
+
+# 导入检测和条码识别模块
+try:
+    from core.detection import count_boxes
+    from core.vision.barcode_recognizer import BarcodeRecognizer
+    DETECT_MODULE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"检测模块导入失败: {e}")
+    DETECT_MODULE_AVAILABLE = False
+
+# 导入检测和条码识别模块
+try:
+    from core.detection import count_boxes
+    from core.vision.barcode_recognizer import BarcodeRecognizer
+    DETECT_MODULE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"检测模块导入失败: {e}")
+    DETECT_MODULE_AVAILABLE = False
+
+# 配置常量（这些应该从配置文件或环境变量中读取）
+LMS_BASE_URL = os.getenv("LMS_BASE_URL", "http://localhost:8002")
+RCS_BASE_URL = os.getenv("RCS_BASE_URL", "http://localhost:8003")
+RCS_PREFIX = os.getenv("RCS_PREFIX", "")
+
+# 抓图脚本路径（应该从配置文件读取）
+CAPTURE_SCRIPTS = [
+    os.path.join(os.path.dirname(__file__), "..", "..", "hardware", "cam_sys", "scan_1_capture.py"),
+    os.path.join(os.path.dirname(__file__), "..", "..", "hardware", "cam_sys", "scan_2_capture.py"),
+]
+
+# 延迟导入服务（避免循环导入）
+def get_inventory_service():
+    """获取盘点服务实例"""
+    from services.vision.box_count_service import get_box_count_service
+    return get_box_count_service()
+
+# 任务状态存储（如果任务状态管理器不存在，使用简单的内存存储）
+_inventory_tasks: Dict[str, TaskStatus] = {}
+_inventory_task_bins: Dict[str, List[BinLocationStatus]] = {}
+_inventory_task_details: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+# 获取任务状态存储的辅助函数
+def get_task_state_storage():
+    """获取任务状态存储（优先使用任务状态管理器，否则使用简单内存存储）"""
+    try:
+        from services.api.state.task_state import get_task_state_manager
+        manager = get_task_state_manager()
+        return {
+            "tasks": manager._inventory_tasks,
+            "bins": manager._inventory_task_bins,
+            "details": manager._inventory_task_details
+        }
+    except ImportError:
+        # 如果任务状态管理器不存在，使用简单的内存存储
+        return {
+            "tasks": _inventory_tasks,
+            "bins": _inventory_task_bins,
+            "details": _inventory_task_details
+        }
+
+# 初始化模块级别的变量（供函数内部直接使用）
+# 这些变量指向实际存储（通过 get_task_state_storage() 获取）
+_storage = get_task_state_storage()
+inventory_tasks = _storage["tasks"]
+inventory_task_bins = _storage["bins"]
+inventory_task_details = _storage["details"]
 
 # 为了向后兼容，保留一些全局变量引用（通过延迟导入避免循环）
 def __getattr__(name):
     """延迟导入以支持向后兼容"""
     if name == "inventory_tasks":
-        from services.api.state.task_state import get_task_state_manager
-        return get_task_state_manager()._inventory_tasks
+        try:
+            from services.api.state.task_state import get_task_state_manager
+            return get_task_state_manager()._inventory_tasks
+        except ImportError:
+            logger.warning("任务状态管理器模块不存在，使用简单内存存储")
+            return _inventory_tasks
     elif name == "inventory_task_bins":
-        from services.api.state.task_state import get_task_state_manager
-        return get_task_state_manager()._inventory_task_bins
+        try:
+            from services.api.state.task_state import get_task_state_manager
+            return get_task_state_manager()._inventory_task_bins
+        except ImportError:
+            logger.warning("任务状态管理器模块不存在，使用简单内存存储")
+            return _inventory_task_bins
     elif name == "inventory_task_details":
-        from services.api.state.task_state import get_task_state_manager
-        return get_task_state_manager()._inventory_task_details
+        try:
+            from services.api.state.task_state import get_task_state_manager
+            return get_task_state_manager()._inventory_task_details
+        except ImportError:
+            logger.warning("任务状态管理器模块不存在，使用简单内存存储")
+            return _inventory_task_details
     elif name in ["STATUS_KEY", "status_event", "robot_status_store"]:
-        from services.api.state.robot_state import get_robot_state_manager
-        manager = get_robot_state_manager()
-        if name == "STATUS_KEY":
-            from services.api.config import ROBOT_STATUS_KEY
-            return ROBOT_STATUS_KEY
-        elif name == "status_event":
-            return manager._status_event
-        elif name == "robot_status_store":
-            return manager._robot_status_store
+        try:
+            from services.api.state.robot_state import get_robot_state_manager
+            manager = get_robot_state_manager()
+            if name == "STATUS_KEY":
+                from services.api.config import ROBOT_STATUS_KEY
+                return ROBOT_STATUS_KEY
+            elif name == "status_event":
+                return manager._status_event
+            elif name == "robot_status_store":
+                return manager._robot_status_store
+        except ImportError:
+            logger.warning(f"机器人状态管理器模块不存在，无法访问 {name}")
+            return None
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 ######################################### 盘点任务接口 #########################################
 
@@ -451,9 +630,12 @@ async def get_task_detail(taskNo: str, binLocation: str):
         binLocation: 储位名称
     """
     try:
-        # 从任务详情中获取
-        if taskNo in inventory_task_details and binLocation in inventory_task_details[taskNo]:
-            detail = inventory_task_details[taskNo][binLocation]
+        # 从任务详情中获取（使用存储函数）
+        storage = get_task_state_storage()
+        task_details = storage["details"]
+        
+        if taskNo in task_details and binLocation in task_details[taskNo]:
+            detail = task_details[taskNo][binLocation]
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={
@@ -477,6 +659,329 @@ async def get_task_detail(taskNo: str, binLocation: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取任务详情失败: {str(e)}"
+        )
+
+
+# 请求模型
+class ScanAndRecognizeRequest(BaseModel):
+    """扫码+识别请求模型"""
+    taskNo: str  # 任务编号
+    binLocation: str  # 库位号
+    pile_id: int = 1  # 堆垛ID，默认为1
+    code_type: str = "ucc128"  # 条码类型，默认ucc128
+
+
+@app.post("/api/inventory/scan-and-recognize")
+async def scan_and_recognize(request: ScanAndRecognizeRequest = Body(...)):
+    """
+    扫码+识别接口
+    同时执行Detect模块和Barcode模块的识别
+    
+    Args:
+        request: ScanAndRecognizeRequest对象，包含taskNo、binLocation、pile_id和code_type
+    """
+    if not DETECT_MODULE_AVAILABLE:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="检测模块未可用，请检查模块导入"
+        )
+    
+    try:
+        project_root = Path(__file__).parent.parent.parent
+        
+        # 构建图片路径: taskNo/binLocation/3d_camera/
+        image_path = f"{request.taskNo}/{request.binLocation}/3d_camera/"
+        image_dir = project_root / "capture_img" / image_path
+        
+        # 严格检查 capture_img 下的路径是否存在
+        if not image_dir.exists() or not image_dir.is_dir():
+            logger.error(f"图片目录不存在: {image_dir}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"图片目录不存在: capture_img/{image_path}。请确保该路径下存在图片文件。"
+            )
+        
+        recognition_time = datetime.now().isoformat()
+        results = {
+            "taskNo": request.taskNo,
+            "binLocation": request.binLocation,
+            "recognition_time": recognition_time,
+            "detect_result": None,
+            "barcode_result": None
+        }
+        
+        # 1. 执行Detect模块
+        try:
+            logger.info(f"开始执行Detect模块识别: {request.taskNo}/{request.binLocation}")
+            
+            # 查找目录中的图片文件
+            image_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+            image_files = []
+            
+            # 优先查找常见文件名
+            common_names = ['main', 'raw', 'image', 'img', 'photo']
+            for name in common_names:
+                for ext in image_extensions:
+                    common_file = image_dir / f"{name}{ext}"
+                    if common_file.exists():
+                        image_files.append(common_file)
+                        break
+                if image_files:
+                    break
+            
+            # 如果没找到，查找所有图片
+            if not image_files:
+                for ext in image_extensions:
+                    image_files.extend(list(image_dir.glob(f"*{ext}")))
+                    if image_files:
+                        break
+            
+            if not image_files:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"在路径 {image_dir} 中未找到图片文件"
+                )
+            
+            image_path_for_detect = str(image_files[0])
+            
+            # 从输入路径加载深度图 depth.jpg
+            depth_image_path = image_dir / "depth.jpg"
+            depth_image_path_for_detect = None
+            if depth_image_path.exists():
+                depth_image_path_for_detect = str(depth_image_path)
+                logger.info(f"找到深度图文件: {depth_image_path_for_detect}")
+            else:
+                logger.warning(f"深度图文件不存在: {depth_image_path}，将不使用深度图")
+            
+            # 构建debug输出目录: debug/{taskNo}/{binLocation}/
+            debug_output_dir = project_root / "debug" / request.taskNo / request.binLocation
+            debug_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 创建日志文件处理器，将算法日志保存到debug目录
+            log_file_path = debug_output_dir / f"debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            file_handler = logging.FileHandler(str(log_file_path), encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+            file_formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(file_formatter)
+            
+            # 添加文件处理器到logger（临时添加，执行完后移除）
+            logger.addHandler(file_handler)
+            
+            try:
+                logger.info(f"Debug输出目录: {debug_output_dir}")
+                logger.info(f"Debug日志文件: {log_file_path}")
+                logger.info(f"使用主图片: {image_path_for_detect}")
+                if depth_image_path_for_detect:
+                    logger.info(f"使用深度图: {depth_image_path_for_detect}")
+                
+                # 重定向stdout和stderr到日志文件，捕获count_boxes的print输出
+                import io
+                from contextlib import redirect_stdout, redirect_stderr
+                
+                # 创建一个类，将写入操作转换为日志记录
+                class LogWriter:
+                    def __init__(self, logger_instance, level=logging.INFO):
+                        self.logger = logger_instance
+                        self.level = level
+                        self.buffer = ""
+                    
+                    def write(self, message):
+                        if message.strip():  # 忽略空行
+                            self.buffer += message
+                            # 检查是否有完整的行
+                            while '\n' in self.buffer:
+                                line, self.buffer = self.buffer.split('\n', 1)
+                                if line.strip():
+                                    self.logger.log(self.level, line.strip())
+                    
+                    def flush(self):
+                        if self.buffer.strip():
+                            self.logger.log(self.level, self.buffer.strip())
+                            self.buffer = ""
+                
+                log_writer = LogWriter(logger, logging.INFO)
+                
+                # 执行count_boxes，同时捕获其print输出
+                with redirect_stdout(log_writer), redirect_stderr(log_writer):
+                    total_count = count_boxes(
+                        image_path=image_path_for_detect,
+                        pile_id=request.pile_id,
+                        depth_image_path=depth_image_path_for_detect,
+                        enable_debug=True,
+                        enable_visualization=True,
+                        output_dir=str(debug_output_dir)
+                    )
+                
+                logger.info(f"Detect模块识别完成，箱数: {total_count}")
+                
+                results["detect_result"] = {
+                    "image_path": image_path_for_detect,
+                    "pile_id": request.pile_id,
+                    "total_count": total_count,
+                    "status": "success"
+                }
+                
+            except Exception as e:
+                logger.error(f"Detect模块识别失败: {str(e)}", exc_info=True)
+                results["detect_result"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+            finally:
+                # 移除文件处理器，避免日志重复输出
+                logger.removeHandler(file_handler)
+                file_handler.close()
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Detect模块初始化失败: {str(e)}", exc_info=True)
+            results["detect_result"] = {
+                "status": "failed",
+                "error": str(e)
+            }
+        
+        # 2. 执行Barcode模块
+        try:
+            logger.info(f"开始执行Barcode模块识别: {request.taskNo}/{request.binLocation}")
+            
+            recognizer = BarcodeRecognizer(code_type=request.code_type)
+            barcode_results = recognizer.process_folder(input_dir=str(image_dir))
+            
+            results["barcode_result"] = {
+                "image_path": str(image_dir),
+                "code_type": request.code_type,
+                "results": barcode_results,
+                "total_images": len(barcode_results),
+                "successful": sum(1 for r in barcode_results if r.get("output")),
+                "failed": sum(1 for r in barcode_results if r.get("error") and not r.get("output")),
+                "status": "success"
+            }
+            logger.info(f"Barcode模块识别完成，成功: {results['barcode_result']['successful']}/{results['barcode_result']['total_images']}")
+            
+        except Exception as e:
+            logger.error(f"Barcode模块识别失败: {str(e)}")
+            results["barcode_result"] = {
+                "status": "failed",
+                "error": str(e)
+            }
+        
+        # 3. 更新任务状态中的识别结果
+        storage = get_task_state_storage()
+        inventory_task_bins = storage["bins"]
+        inventory_task_details = storage["details"]
+        
+        if request.taskNo in inventory_task_bins:
+            for bin_status in inventory_task_bins[request.taskNo]:
+                if bin_status.bin_location == request.binLocation:
+                    bin_status.detect_result = results["detect_result"]
+                    bin_status.barcode_result = results["barcode_result"]
+                    bin_status.recognition_time = recognition_time
+                    break
+        
+        # 4. 存储到任务详情中
+        if request.taskNo not in inventory_task_details:
+            inventory_task_details[request.taskNo] = {}
+        
+        if request.binLocation not in inventory_task_details[request.taskNo]:
+            inventory_task_details[request.taskNo][request.binLocation] = {}
+        
+        inventory_task_details[request.taskNo][request.binLocation]["recognition"] = results
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "code": 200,
+                "message": "扫码+识别执行完成",
+                "data": results
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"扫码+识别失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"扫码+识别失败: {str(e)}"
+        )
+
+
+@app.get("/api/inventory/recognition-result")
+async def get_recognition_result(taskNo: str, binLocation: str):
+    """
+    读取识别结果接口
+    获取指定任务和库位的Detect和Barcode识别结果
+    
+    Args:
+        taskNo: 任务编号
+        binLocation: 库位号
+    """
+    try:
+        # 获取任务状态存储
+        storage = get_task_state_storage()
+        inventory_task_bins = storage["bins"]
+        inventory_task_details = storage["details"]
+        
+        result_data = {
+            "taskNo": taskNo,
+            "binLocation": binLocation,
+            "detect_result": None,
+            "barcode_result": None,
+            "recognition_time": None
+        }
+        
+        # 从任务状态中获取（使用存储函数）
+        storage = get_task_state_storage()
+        task_bins = storage["bins"]
+        task_details = storage["details"]
+        
+        if taskNo in task_bins:
+            for bin_status in task_bins[taskNo]:
+                if bin_status.bin_location == binLocation:
+                    result_data["detect_result"] = bin_status.detect_result
+                    result_data["barcode_result"] = bin_status.barcode_result
+                    result_data["recognition_time"] = bin_status.recognition_time
+                    break
+        
+        # 如果状态中没有，尝试从任务详情中获取
+        if not result_data["detect_result"] and taskNo in task_details:
+            if binLocation in task_details[taskNo]:
+                recognition_data = task_details[taskNo][binLocation].get("recognition")
+                if recognition_data:
+                    result_data["detect_result"] = recognition_data.get("detect_result")
+                    result_data["barcode_result"] = recognition_data.get("barcode_result")
+                    result_data["recognition_time"] = recognition_data.get("recognition_time")
+        
+        # 检查是否有结果
+        if not result_data["detect_result"] and not result_data["barcode_result"]:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "code": 404,
+                    "message": "识别结果不存在",
+                    "data": None
+                }
+            )
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "code": 200,
+                "message": "获取识别结果成功",
+                "data": result_data
+            }
+        )
+        
+    except Exception as e:
+        error_msg = f"获取识别结果失败: {str(e)}"
+        logger.error(error_msg, exc_info=True)  # exc_info=True 会输出完整的堆栈信息
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_msg
         )
 
 
@@ -1038,5 +1543,24 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> List[D
 
     return results
 
+
 if __name__ == "__main__":
+    # 确保日志配置正确
+    import sys
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    
+    logger.info("=" * 60)
+    logger.info("🚀 Gateway服务启动")
+    logger.info("=" * 60)
+    logger.info("📡 API地址: http://0.0.0.0:8000")
+    logger.info("📚 API文档: http://localhost:8000/docs")
+    logger.info("🔍 测试页面: http://localhost:8080/test_detect.html")
+    logger.info("=" * 60)
+    logger.info("\n按 Ctrl+C 停止服务\n")
+    
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

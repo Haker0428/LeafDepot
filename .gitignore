@@ -10,3 +10,4 @@ tobacco-env/
 .vscode
 node_modules/
 output/
+debug/

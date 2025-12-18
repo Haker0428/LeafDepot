@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>检测模块测试页面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            background: #5568d3;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #28a745;
+        }
+
+        .btn-secondary:hover {
+            background: #218838;
+        }
+
+        .path-display {
+            background: #e9ecef;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 15px 0;
+            font-family: monospace;
+            font-size: 13px;
+            color: #495057;
+            word-break: break-all;
+        }
+
+        .result-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+
+        .result-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .result-content {
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+
+        .success {
+            background: #efe;
+            color: #3c3;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+
+        .info-box p {
+            margin: 5px 0;
+            color: #1976D2;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 检测模块测试页面</h1>
+        <p class="subtitle">测试Detect模块和Barcode模块的功能</p>
+
+        <!-- 参数设置 -->
+        <div class="section">
+            <h2 class="section-title">参数设置</h2>
+            <div class="info-box">
+                <p><strong>路径规则：</strong>任务号/库位号/3d_camera/</p>
+                <p>系统会自动拼接路径并传递给检测模块和条码识别模块</p>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>任务号 (taskNo) *</label>
+                    <input type="text" id="taskNo" value="demo" placeholder="请输入任务号" required>
+                </div>
+                <div class="form-group">
+                    <label>库位号 (binLocation) *</label>
+                    <input type="text" id="binLocation" value="test01" placeholder="请输入库位号" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>堆垛ID (pile_id) - 用于Detect模块</label>
+                    <input type="number" id="pileId" value="1" min="1" placeholder="默认: 1">
+                </div>
+                <div class="form-group">
+                    <label>条码类型 (code_type) - 用于Barcode模块</label>
+                    <select id="codeType">
+                        <option value="ucc128" selected>UCC128</option>
+                        <option value="code128">Code128</option>
+                        <option value="ean13">EAN13</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="path-display">
+                <strong>拼接后的路径：</strong>
+                <span id="pathDisplay">demo/test01/3d_camera/</span>
+                <br>
+                <small style="color: #999;">(实际路径: <span id="actualPath">capture_img/demo/test01/3d_camera/</span>)</small>
+            </div>
+
+            <button class="btn" onclick="runScanAndRecognize()">🚀 运行扫码+识别</button>
+            <button class="btn btn-secondary" onclick="readRecognitionResult()">📖 读取识别结果</button>
+        </div>
+
+        <!-- Detect模块结果 -->
+        <div class="section">
+            <h2 class="section-title">Detect模块结果</h2>
+            <div id="detectResult" class="loading">等待执行...</div>
+        </div>
+
+        <!-- Barcode模块结果 -->
+        <div class="section">
+            <h2 class="section-title">Barcode模块结果</h2>
+            <div id="barcodeResult" class="loading">等待执行...</div>
+        </div>
+    </div>
+
+    <script>
+        // 默认使用gateway服务地址，如果当前页面不在gateway上，则使用配置的地址
+        const GATEWAY_URL = window.location.origin.includes('8000') 
+            ? window.location.origin 
+            : (localStorage.getItem('gateway_url') || 'http://localhost:8000');
+        const API_BASE = GATEWAY_URL;
+        
+        // 如果API_BASE和当前页面不在同一域名，显示提示
+        if (API_BASE !== window.location.origin) {
+            console.log(`使用Gateway API地址: ${API_BASE}`);
+        }
+
+        // 更新路径显示
+        function updatePathDisplay() {
+            const taskNo = document.getElementById('taskNo').value || 'demo';
+            const binLocation = document.getElementById('binLocation').value || 'test01';
+            const path = `${taskNo}/${binLocation}/3d_camera/`;
+            const actualPath = `capture_img/${path}`;
+            
+            const pathDisplay = document.getElementById('pathDisplay');
+            const actualPathDisplay = document.getElementById('actualPath');
+            
+            if (pathDisplay) {
+                pathDisplay.innerHTML = path;
+            }
+            if (actualPathDisplay) {
+                actualPathDisplay.innerHTML = actualPath;
+            }
+        }
+
+        // 获取拼接后的路径
+        function getImagePath() {
+            const taskNo = document.getElementById('taskNo').value.trim();
+            const binLocation = document.getElementById('binLocation').value.trim();
+            
+            if (!taskNo || !binLocation) {
+                alert('请填写任务号和库位号');
+                return null;
+            }
+            
+            return `${taskNo}/${binLocation}/3d_camera/`;
+        }
+
+        // 运行扫码+识别（正式的gateway接口）
+        async function runScanAndRecognize() {
+            const taskNo = document.getElementById('taskNo').value.trim();
+            const binLocation = document.getElementById('binLocation').value.trim();
+            
+            if (!taskNo || !binLocation) {
+                alert('请填写任务号和库位号');
+                return;
+            }
+
+            const pileId = parseInt(document.getElementById('pileId').value) || 1;
+            const codeType = document.getElementById('codeType').value;
+            const detectResultDiv = document.getElementById('detectResult');
+            const barcodeResultDiv = document.getElementById('barcodeResult');
+            
+            detectResultDiv.innerHTML = '<div class="loading">正在运行扫码+识别...</div>';
+            barcodeResultDiv.innerHTML = '<div class="loading">等待结果...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/inventory/scan-and-recognize`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        taskNo: taskNo,
+                        binLocation: binLocation,
+                        pile_id: pileId,
+                        code_type: codeType
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.code === 200) {
+                    // 显示Detect结果
+                    if (result.data.detect_result) {
+                        if (result.data.detect_result.status === 'success') {
+                            detectResultDiv.innerHTML = `
+                                <div class="success">
+                                    <div class="result-title">✅ Detect模块执行成功</div>
+                                    <div class="result-content">${JSON.stringify(result.data.detect_result, null, 2)}</div>
+                                </div>
+                            `;
+                        } else {
+                            detectResultDiv.innerHTML = `
+                                <div class="error">
+                                    <div class="result-title">❌ Detect模块执行失败</div>
+                                    <div class="result-content">${JSON.stringify(result.data.detect_result, null, 2)}</div>
+                                </div>
+                            `;
+                        }
+                    }
+                    
+                    // 显示Barcode结果
+                    if (result.data.barcode_result) {
+                        if (result.data.barcode_result.status === 'success') {
+                            barcodeResultDiv.innerHTML = `
+                                <div class="success">
+                                    <div class="result-title">✅ Barcode模块执行成功</div>
+                                    <div class="result-content">${JSON.stringify(result.data.barcode_result, null, 2)}</div>
+                                </div>
+                            `;
+                        } else {
+                            barcodeResultDiv.innerHTML = `
+                                <div class="error">
+                                    <div class="result-title">❌ Barcode模块执行失败</div>
+                                    <div class="result-content">${JSON.stringify(result.data.barcode_result, null, 2)}</div>
+                                </div>
+                            `;
+                        }
+                    }
+                } else {
+                    detectResultDiv.innerHTML = `
+                        <div class="error">
+                            <div class="result-title">❌ 扫码+识别执行失败</div>
+                            <div class="result-content">${result.message || result.detail || '未知错误'}</div>
+                        </div>
+                    `;
+                    barcodeResultDiv.innerHTML = '<div class="loading">等待执行...</div>';
+                }
+            } catch (error) {
+                let errorMessage = error.message;
+                let errorDetails = '';
+                
+                // 如果是网络错误，提供更详细的诊断信息
+                if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
+                    errorDetails = `
+                        <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 4px; border-left: 4px solid #ffc107;">
+                            <strong>诊断信息：</strong><br>
+                            • API地址: ${API_BASE}/api/inventory/scan-and-recognize<br>
+                            • 当前页面: ${window.location.origin}<br>
+                            • 可能的原因：<br>
+                            &nbsp;&nbsp;1. Gateway服务未启动（请检查 http://localhost:8000 是否可访问）<br>
+                            &nbsp;&nbsp;2. CORS配置问题（如果页面端口不在允许列表中）<br>
+                            &nbsp;&nbsp;3. 网络连接问题<br>
+                            <br>
+                            <strong>解决方案：</strong><br>
+                            • 确保Gateway服务正在运行: <code>python services/api/gateway.py</code> 或运行启动脚本<br>
+                            • 如果使用file://打开此页面，请通过HTTP服务器访问（如 http://localhost:8000/static/test_detect.html）
+                        </div>
+                    `;
+                }
+                
+                detectResultDiv.innerHTML = `
+                    <div class="error">
+                        <div class="result-title">❌ 请求失败</div>
+                        <div class="result-content">${errorMessage}${errorDetails}</div>
+                    </div>
+                `;
+                barcodeResultDiv.innerHTML = '<div class="loading">等待执行...</div>';
+            }
+        }
+
+        // 读取识别结果（正式的gateway接口）
+        async function readRecognitionResult() {
+            const taskNo = document.getElementById('taskNo').value.trim();
+            const binLocation = document.getElementById('binLocation').value.trim();
+            
+            if (!taskNo || !binLocation) {
+                alert('请填写任务号和库位号');
+                return;
+            }
+
+            const detectResultDiv = document.getElementById('detectResult');
+            const barcodeResultDiv = document.getElementById('barcodeResult');
+            
+            detectResultDiv.innerHTML = '<div class="loading">正在读取识别结果...</div>';
+            barcodeResultDiv.innerHTML = '<div class="loading">等待结果...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/inventory/recognition-result?taskNo=${encodeURIComponent(taskNo)}&binLocation=${encodeURIComponent(binLocation)}`);
+
+                const result = await response.json();
+
+                if (response.ok && result.code === 200) {
+                    // 显示Detect结果
+                    if (result.data.detect_result) {
+                        detectResultDiv.innerHTML = `
+                            <div class="success">
+                                <div class="result-title">✅ Detect识别结果</div>
+                                <div class="result-content">${JSON.stringify(result.data.detect_result, null, 2)}</div>
+                            </div>
+                        `;
+                    } else {
+                        detectResultDiv.innerHTML = '<div class="loading">暂无Detect结果</div>';
+                    }
+                    
+                    // 显示Barcode结果
+                    if (result.data.barcode_result) {
+                        barcodeResultDiv.innerHTML = `
+                            <div class="success">
+                                <div class="result-title">✅ Barcode识别结果</div>
+                                <div class="result-content">${JSON.stringify(result.data.barcode_result, null, 2)}</div>
+                            </div>
+                        `;
+                    } else {
+                        barcodeResultDiv.innerHTML = '<div class="loading">暂无Barcode结果</div>';
+                    }
+                } else {
+                    detectResultDiv.innerHTML = `
+                        <div class="error">
+                            <div class="result-title">❌ 读取识别结果失败</div>
+                            <div class="result-content">${result.message || result.detail || '未知错误'}</div>
+                        </div>
+                    `;
+                    barcodeResultDiv.innerHTML = '<div class="loading">等待执行...</div>';
+                }
+            } catch (error) {
+                let errorMessage = error.message;
+                let errorDetails = '';
+                
+                // 如果是网络错误，提供更详细的诊断信息
+                if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
+                    errorDetails = `
+                        <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 4px; border-left: 4px solid #ffc107;">
+                            <strong>诊断信息：</strong><br>
+                            • API地址: ${API_BASE}/api/inventory/recognition-result<br>
+                            • 当前页面: ${window.location.origin}<br>
+                            • 可能的原因：<br>
+                            &nbsp;&nbsp;1. Gateway服务未启动（请检查 http://localhost:8000 是否可访问）<br>
+                            &nbsp;&nbsp;2. CORS配置问题（如果页面端口不在允许列表中）<br>
+                            &nbsp;&nbsp;3. 网络连接问题<br>
+                            <br>
+                            <strong>解决方案：</strong><br>
+                            • 确保Gateway服务正在运行: <code>python services/api/gateway.py</code> 或运行启动脚本<br>
+                            • 如果使用file://打开此页面，请通过HTTP服务器访问（如 http://localhost:8000/static/test_detect.html）
+                        </div>
+                    `;
+                }
+                
+                detectResultDiv.innerHTML = `
+                    <div class="error">
+                        <div class="result-title">❌ 请求失败</div>
+                        <div class="result-content">${errorMessage}${errorDetails}</div>
+                    </div>
+                `;
+                barcodeResultDiv.innerHTML = '<div class="loading">等待执行...</div>';
+            }
+        }
+
+        // 兼容旧接口名称
+        async function runDetect() {
+            await runScanAndRecognize();
+        }
+
+        async function runBarcode() {
+            await runScanAndRecognize();
+        }
+
+        async function runBoth() {
+            await runScanAndRecognize();
+        }
+
+        // 监听输入变化，更新路径显示
+        document.getElementById('taskNo').addEventListener('input', updatePathDisplay);
+        document.getElementById('binLocation').addEventListener('input', updatePathDisplay);
+
+        // 检查Gateway服务是否可用
+        async function checkGatewayConnection() {
+            try {
+                // 尝试访问docs端点（更可靠）
+                const response = await fetch(`${API_BASE}/docs`, { 
+                    method: 'HEAD',
+                    mode: 'cors',
+                    cache: 'no-cache'
+                });
+                if (response.ok || response.status === 405) {  // 405 Method Not Allowed也是正常的（表示服务存在）
+                    console.log('✅ Gateway服务连接正常');
+                    return true;
+                }
+            } catch (error) {
+                console.warn('⚠️ Gateway服务连接失败:', error.message);
+                // 在页面上显示警告（只在第一次加载时显示）
+                const container = document.querySelector('.container');
+                if (container && !document.getElementById('gateway-warning')) {
+                    const warning = document.createElement('div');
+                    warning.id = 'gateway-warning';
+                    warning.className = 'info-box';
+                    warning.style.background = '#fff3cd';
+                    warning.style.borderLeftColor = '#ffc107';
+                    warning.style.marginBottom = '20px';
+                    warning.innerHTML = `
+                        <p><strong>⚠️ 警告：无法连接到Gateway服务</strong></p>
+                        <p>API地址: <code>${API_BASE}</code></p>
+                        <p>请确保Gateway服务正在运行。如果服务在其他地址，请检查配置。</p>
+                        <p style="margin-top: 10px;">
+                            <strong>解决方法：</strong><br>
+                            1. 运行启动脚本: <code>cd demo && ./start_gateway_test.sh</code><br>
+                            2. 或手动启动: <code>python services/api/gateway.py</code><br>
+                            3. 如果Gateway在其他地址，可以在浏览器控制台设置: <code>localStorage.setItem('gateway_url', 'http://your-gateway-url:port')</code>
+                        </p>
+                        <button onclick="checkGatewayConnection()" style="margin-top: 10px; padding: 5px 10px; background: #ffc107; border: none; border-radius: 4px; cursor: pointer;">🔄 重新检查连接</button>
+                    `;
+                    container.insertBefore(warning, container.firstChild.nextSibling);
+                }
+                return false;
+            }
+            return false;
+        }
+
+        // 页面加载时初始化路径显示和检查连接
+        window.addEventListener('DOMContentLoaded', () => {
+            updatePathDisplay();
+            checkGatewayConnection();
+        });
+    </script>
+</body>
+</html>
+
+
+

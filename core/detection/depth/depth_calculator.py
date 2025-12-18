@@ -146,7 +146,7 @@ class DepthCalculator:
         :param right_path: 右眼图像路径
         :param output_dir: 输出目录（用于保存旋转后的视差数据）
         :param debug_output_dir: 调试输出目录（可选，用于保存可视化图像）
-        :param original_image_dir: 原图目录（可选，用于在非debug模式下保存depth.jpg）
+        :param original_image_dir: 原图目录（可选，用于在非debug模式下保存depth_color.jpg）
         :return: (视差图路径, 旋转后的视差数据, 彩色可视化路径)
         """
         # 读取图像
@@ -237,7 +237,7 @@ class DepthCalculator:
             
             # 保存可视化图像（已经是旋转后的）
             disparity_gray_path = os.path.join(vis_output_dir, "disparity_visual_gray.jpg")
-            disparity_color_path = os.path.join(vis_output_dir, "disparity_visual_color.jpg")
+            disparity_color_path = os.path.join(vis_output_dir, "depth_color.jpg")
             
             # 保存图像
             success_gray = cv2.imwrite(disparity_gray_path, disparity_visual)
@@ -250,10 +250,10 @@ class DepthCalculator:
                 print(f"⚠️  视差图保存失败: gray={success_gray}, color={success_color}")
                 print(f"   保存路径: {vis_output_dir}")
         
-        # 非debug模式下：保存到原图路径，命名为depth.jpg
+        # 非debug模式下：保存到原图路径，命名为depth_color.jpg
         if original_image_dir is not None:
             os.makedirs(original_image_dir, exist_ok=True)
-            depth_path = os.path.join(original_image_dir, "depth.jpg")
+            depth_path = os.path.join(original_image_dir, "depth_color.jpg")
             success = cv2.imwrite(depth_path, disparity_color)
             if success:
                 if self.enable_debug:
@@ -349,7 +349,7 @@ class DepthCalculator:
         :param output_dir: 输出目录（可选，默认在图像同目录下）
         :param debug_output_dir: 调试输出目录（可选，用于保存视差图可视化）
         :param skip_rotation: 是否跳过旋转（如果图像已经旋转过）
-        :param original_image_dir: 原图目录（可选，用于在非debug模式下保存depth.jpg）
+        :param original_image_dir: 原图目录（可选，用于在非debug模式下保存depth_color.jpg）
         :return: (深度图数组, depth_matrix.csv路径)
         """
         if self.enable_debug:

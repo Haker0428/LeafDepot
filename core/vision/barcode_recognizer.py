@@ -2,6 +2,7 @@ import os
 import subprocess
 import json
 import datetime
+import errno
 from typing import List, Dict, Any
 from pathlib import Path
 
@@ -29,6 +30,20 @@ class BarcodeRecognizer:
                 f"条形码识别工具未找到: {self.barcode_reader_path}\n"
                 f"请确保 BarcodeReaderCLI 已安装到 shared/tools/BarcodeReaderCLI/"
             )
+        
+        # 检查可执行文件格式（如果是Linux二进制文件在macOS上运行会报错）
+        import platform
+        if platform.system() == 'Darwin':  # macOS
+            # 检查文件类型，如果是Linux ELF文件，给出提示
+            try:
+                import subprocess
+                result = subprocess.run(['file', self.barcode_reader_path], 
+                                      capture_output=True, text=True, timeout=2)
+                if 'ELF' in result.stdout and 'Linux' in result.stdout:
+                    # 在macOS上尝试运行Linux二进制文件会失败
+                    pass  # 这里不立即报错，让执行时捕获OSError
+            except:
+                pass  # file命令不可用，忽略检查
         
         self.code_type = code_type
         self.results = []  # 存储识别结果
@@ -100,10 +115,29 @@ class BarcodeRecognizer:
                 universal_newlines=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                check=True
+                check=True,
+                timeout=30  # 添加超时，避免无限等待
             )
             output = cp.stdout.strip()
             error = cp.stderr.strip()
+        except subprocess.TimeoutExpired as e:
+            output = ""
+            error = f"识别超时: {e}"
+        except OSError as e:
+            # 处理Exec format error等系统错误
+            import platform
+            error_msg = f"执行错误: {e}"
+            if "Exec format error" in str(e) or (hasattr(e, 'errno') and e.errno == errno.EBADF):
+                if platform.system() == 'Darwin':
+                    error_msg = "可执行文件格式不兼容: BarcodeReaderCLI 是 Linux 二进制文件，当前系统是 macOS。\n" \
+                               "解决方案：\n" \
+                               "1. 使用 Docker 运行 Linux 环境\n" \
+                               "2. 或获取 macOS 版本的 BarcodeReaderCLI\n" \
+                               "3. 或在 Linux 服务器上运行此服务"
+                else:
+                    error_msg = f"可执行文件格式不兼容: {e}"
+            output = ""
+            error = error_msg
         except subprocess.CalledProcessError as e:
             output = ""
             error = f"识别失败: {e}"
