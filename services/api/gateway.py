@@ -6,6 +6,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from fastapi import FastAPI, Query, HTTPException, Depends
 from fastapi import FastAPI, Request, HTTPException, status, Header, BackgroundTasks
 from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse
 import requests
 import json
 import logging
@@ -34,6 +35,8 @@ RCS_BASE_URL = "http://localhost:4001"
 CAMERA_BASE_URL = "http://localhost:5000"
 RCS_PREFIX = "/rcs/rtas"
 REAL_RCS_BASE_URL = "http://10.4.180.190:80/rcs/rtas"
+
+BASE_PATH = "/home/ubuntu/Projects/LeafDepot/output"
 
 app = FastAPI(title="Gateway", version="1.0.0")
 
@@ -410,13 +413,13 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
                     )
 
         # 在后台异步执行盘点任务
-        background_tasks.add_task(
-            execute_inventory_workflow,
-            task_no=task_no,
-            bin_locations=bin_locations,
-            tobaccoCode=tobaccoCode,
-            rcs_code=rcs_code
-        )
+        # background_tasks.add_task(
+        #     execute_inventory_workflow,
+        #     task_no=task_no,
+        #     bin_locations=bin_locations,
+        #     tobaccoCode=tobaccoCode,
+        #     rcs_code=rcs_code
+        # )
 
         # 1.调用盘点任务下发接口
 
@@ -1320,6 +1323,51 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> List[D
             })
 
     return results
+
+#######################################################
+
+
+@app.post("/api/get-image-original")
+async def get_image_original(data: dict):
+
+    task_no = data.get('taskNo')
+
+    bin_desc = data.get('binDesc')
+
+    if not task_no or not bin_desc:
+
+        raise HTTPException(status_code=400, detail="Invalid parameters")
+
+    image_path = os.path.join(
+        BASE_PATH, task_no, bin_desc, "3d_camera", "main.jpg")
+
+    if not os.path.exists(image_path):
+
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(image_path, media_type='image/jpeg', filename=os.path.basename(image_path))
+
+
+@app.post("/api/get-image-postprocess")
+async def get_image_postprocess(data: dict):
+
+    task_no = data.get('taskNo')
+
+    bin_desc = data.get('binDesc')
+
+    if not task_no or not bin_desc:
+
+        raise HTTPException(status_code=400, detail="Invalid parameters")
+
+    image_path = os.path.join(
+        BASE_PATH, task_no, bin_desc, "3d_camera", "depth.jpg")
+
+    if not os.path.exists(image_path):
+
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(image_path, media_type='image/jpeg', filename=os.path.basename(image_path))
+#######################################################
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
