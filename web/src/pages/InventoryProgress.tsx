@@ -2,7 +2,7 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-21 19:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-12-19 00:04:59
+ * @LastEditTime: 2025-12-19 02:52:48
  * @FilePath: /LeafDepot/web/src/pages/InventoryProgress.tsx
  * @Description:
  *
@@ -220,59 +220,59 @@ export default function InventoryProgress() {
   >([]);
 
   // 在组件中添加 WebSocket 连接函数
-  const connectWebSocket = () => {
-    if (!currentTaskNo) {
-      toast.error("没有当前任务，无法连接 WebSocket");
-      return;
-    }
+  // const connectWebSocket = () => {
+  //   if (!currentTaskNo) {
+  //     toast.error("没有当前任务，无法连接 WebSocket");
+  //     return;
+  //   }
 
-    // 构建 WebSocket URL，根据你的网关地址调整
-    const wsUrl = `ws://localhost:8000/ws/inventory/${currentTaskNo}`;
-    console.log("尝试连接 WebSocket:", wsUrl);
+  //   // 构建 WebSocket URL，根据你的网关地址调整
+  //   const wsUrl = `ws://localhost:8000/ws/inventory/${currentTaskNo}`;
+  //   console.log("尝试连接 WebSocket:", wsUrl);
 
-    const ws = new WebSocket(wsUrl);
+  //   const ws = new WebSocket(wsUrl);
 
-    ws.onopen = () => {
-      console.log("WebSocket 连接成功");
-      setIsWebSocketConnected(true);
-      toast.success("已连接到盘点服务器");
-    };
+  //   ws.onopen = () => {
+  //     console.log("WebSocket 连接成功");
+  //     setIsWebSocketConnected(true);
+  //     toast.success("已连接到盘点服务器");
+  //   };
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("收到 WebSocket 消息:", data);
+  //   ws.onmessage = (event) => {
+  //     try {
+  //       const data = JSON.parse(event.data);
+  //       console.log("收到 WebSocket 消息:", data);
 
-        if (data.type === "csv_data") {
-          handleReceivedCSVData(data);
-        }
-      } catch (error) {
-        console.error("解析 WebSocket 消息失败:", error);
-      }
-    };
+  //       if (data.type === "csv_data") {
+  //         handleReceivedCSVData(data);
+  //       }
+  //     } catch (error) {
+  //       console.error("解析 WebSocket 消息失败:", error);
+  //     }
+  //   };
 
-    ws.onerror = (error) => {
-      console.error("WebSocket 连接错误:", error);
-      toast.error("WebSocket 连接错误");
-    };
+  //   ws.onerror = (error) => {
+  //     console.error("WebSocket 连接错误:", error);
+  //     toast.error("WebSocket 连接错误");
+  //   };
 
-    ws.onclose = (event) => {
-      console.log("WebSocket 连接关闭:", event.code, event.reason);
-      setIsWebSocketConnected(false);
+  //   ws.onclose = (event) => {
+  //     console.log("WebSocket 连接关闭:", event.code, event.reason);
+  //     setIsWebSocketConnected(false);
 
-      // 如果不是正常关闭，尝试重新连接
-      if (event.code !== 1000) {
-        toast.warning("WebSocket 连接断开，正在重新连接...");
-        setTimeout(() => {
-          connectWebSocket();
-        }, 3000);
-      }
-    };
+  //     // 如果不是正常关闭，尝试重新连接
+  //     if (event.code !== 1000) {
+  //       toast.warning("WebSocket 连接断开，正在重新连接...");
+  //       setTimeout(() => {
+  //         connectWebSocket();
+  //       }, 3000);
+  //     }
+  //   };
 
-    0;
+  //   0;
 
-    setWebSocket(ws);
-  };
+  //   setWebSocket(ws);
+  // };
 
   // 处理接收到的 CSV 数据
   // 修改 handleReceivedCSVData 函数
@@ -1381,7 +1381,7 @@ export default function InventoryProgress() {
                 {/* 在顶部导航栏或进度区域添加 WebSocket 状态指示器 */}
                 <div className="flex items-center space-x-4">
                   <div className="flex items-center">
-                    <div
+                    {/* <div
                       className={`w-3 h-3 rounded-full mr-2 ${
                         isWebSocketConnected
                           ? "bg-green-500 animate-pulse"
@@ -1390,17 +1390,18 @@ export default function InventoryProgress() {
                     ></div>
                     <span className="text-sm">
                       {isWebSocketConnected ? "服务器已连接" : "服务器未连接"}
-                    </span>
+                    </span> */}
                   </div>
 
-                  {!isWebSocketConnected && (
+                  {/*{!isWebSocketConnected && (
                     <button
                       onClick={handleReconnectWebSocket}
                       className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                     >
                       重新连接
                     </button>
-                  )}
+                  )}*/}
+
                 </div>
 
                 {/* <div className="flex items-center space-x-4">
@@ -1559,12 +1560,12 @@ export default function InventoryProgress() {
                                   ? "bg-blue-50 border-l-4 border-blue-500"
                                   : ""
                               }`}
-                              onClick={() =>
-                                handleRowClick(
-                                  item.taskNo,
-                                  String(item.binDesc),
-                                )
-                              }
+                              // onClick={() =>
+                              //   handleRowClick(
+                              //     item.taskNo,
+                              //     String(item.binDesc),
+                              //   )
+                              // }
                             >
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {index + 1}
