@@ -3,11 +3,12 @@
 > pnpm dev:client
 
 
-> project_template_react@0.0.1 dev:client /Users/hepeng/Project/lead_depot/LeafDepot/web
+> project_template_react@0.0.1 dev:client /home/ubuntu/Projects/LeafDepot/web
 > vite --host --port 3000
 
 
-  VITE v6.4.1  ready in 247 ms
+  VITE v6.4.1  ready in 313 ms
 
   ➜  Local:   http://localhost:3000/
-  ➜  Network: http://192.168.3.5:3000/
+  ➜  Network: http://192.168.1.61:3000/
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`

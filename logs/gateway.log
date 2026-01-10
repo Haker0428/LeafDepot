@@ -1,159 +1,29 @@
-INFO:     Will watch for changes in these directories: ['/Users/hepeng/Project/lead_depot/LeafDepot/services/api']
+INFO:     Will watch for changes in these directories: ['/home/ubuntu/Projects/LeafDepot/services/api']
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [74691] using StatReload
-2025-12-19 01:42:47 - gateway - INFO - 日志文件保存路径: /Users/hepeng/Project/lead_depot/LeafDepot/debug/gateway_20251219.log
-2025-12-19 01:42:47 - gateway - INFO - 条形码功能已禁用（ENABLE_BARCODE=false）
-2025-12-19 01:42:49 - gateway - INFO - 条形码识别模块已禁用（ENABLE_BARCODE=false）
-INFO:     Started server process [74694]
+INFO:     Started reloader process [30730] using StatReload
+2026-01-10 20:40:08 - gateway - INFO - 日志文件保存路径: /home/ubuntu/Projects/LeafDepot/debug/gateway_20260110.log
+2026-01-10 20:40:08 - gateway - INFO - 条形码功能已禁用（ENABLE_BARCODE=false）
+2026-01-10 20:40:11 - gateway - INFO - 条形码识别模块已禁用（ENABLE_BARCODE=false）
+INFO:     Started server process [30733]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     127.0.0.1:58227 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58227 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2025-12-19 01:43:04 - gateway - INFO - 成功解压缩并解析库位数据
-INFO:     127.0.0.1:58227 - "GET /lms/getLmsBin?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2025-12-19 01:43:15 - gateway - INFO - 启动盘点任务: T001, 包含 2 个储位
-INFO:     127.0.0.1:58231 - "POST /api/inventory/start-inventory HTTP/1.1" 200 OK
-2025-12-19 01:43:15 - gateway - INFO - 开始执行盘点工作流: T001, 共 2 个储位
-ERROR:    Exception in ASGI application
-Traceback (most recent call last):
-  File "/opt/anaconda3/lib/python3.12/site-packages/uvicorn/protocols/http/h11_impl.py", line 403, in run_asgi
-    result = await app(  # type: ignore[func-returns-value]
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/opt/anaconda3/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
-    return await self.app(scope, receive, send)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/opt/anaconda3/lib/python3.12/site-packages/fastapi/applications.py", line 1139, in __call__
-    await super().__call__(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/applications.py", line 107, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
-    raise exc
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
-    await self.app(scope, receive, _send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/middleware/cors.py", line 93, in __call__
-    await self.simple_response(scope, receive, send, request_headers=headers)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/middleware/cors.py", line 144, in simple_response
-    await self.app(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/opt/anaconda3/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
-    await self.app(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/routing.py", line 716, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/routing.py", line 736, in app
-    await route.handle(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/routing.py", line 290, in handle
-    await self.app(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/opt/anaconda3/lib/python3.12/site-packages/fastapi/routing.py", line 107, in app
-    await response(scope, receive, send)
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/responses.py", line 167, in __call__
-    await self.background()
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/background.py", line 36, in __call__
-    await task()
-  File "/opt/anaconda3/lib/python3.12/site-packages/starlette/background.py", line 21, in __call__
-    await self.func(*self.args, **self.kwargs)
-  File "/Users/hepeng/Project/lead_depot/LeafDepot/services/api/gateway.py", line 355, in execute_inventory_workflow
-    await update_robot_status(method)
-  File "/Users/hepeng/Project/lead_depot/LeafDepot/services/api/gateway.py", line 1480, in update_robot_status
-    robot_status_store[STATUS_KEY] = {
-    ^^^^^^^^^^^^^^^^^^
-NameError: name 'robot_status_store' is not defined
-INFO:     127.0.0.1:58263 - "OPTIONS /api/inventory/scan-and-recognize HTTP/1.1" 200 OK
-2025-12-19 01:43:17 - gateway - INFO - 开始执行Detect模块识别: T001/20-01-01
-2025-12-19 01:43:17 - gateway - INFO - 找到深度图文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/depth.jpg
-2025-12-19 01:43:17 - gateway - INFO - Debug输出目录: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-01-01
-2025-12-19 01:43:17 - gateway - INFO - Debug日志文件: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-01-01/debug_20251219_014317.log
-2025-12-19 01:43:17 - gateway - INFO - 使用主图片: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/main.jpg
-2025-12-19 01:43:17 - gateway - INFO - 使用深度图: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/depth.jpg
-
-image 1/1 /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/raw.jpg: 1088x928 10 boxs, 2 piles, 132.1ms
-Speed: 3.8ms preprocess, 132.1ms inference, 1.5ms postprocess per image at shape (1, 3, 1088, 928)
-2025-12-19 01:43:18 - gateway - INFO - Detect模块识别完成，箱数: 30
-2025-12-19 01:43:18 - gateway - INFO - Barcode模块已禁用，跳过识别
-2025-12-19 01:43:18 - gateway - INFO - 识别结果已保存到ini文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/recognition_result.ini
-INFO:     127.0.0.1:58263 - "POST /api/inventory/scan-and-recognize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58263 - "GET /api/inventory/image?taskNo=T001&binLocation=20-01-01&cameraType=3d_camera&filename=main_rotated.jpg&source=capture_img HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58263 - "GET /api/inventory/image?taskNo=T001&binLocation=20-01-01&cameraType=3d_camera&filename=depth_color.jpg&source=capture_img HTTP/1.1" 200 OK
-2025-12-19 01:43:25 - gateway - INFO - 开始执行Detect模块识别: T001/20-02-01
-2025-12-19 01:43:25 - gateway - INFO - 找到深度图文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-02-01/3d_camera/depth.jpg
-2025-12-19 01:43:25 - gateway - INFO - Debug输出目录: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-02-01
-2025-12-19 01:43:25 - gateway - INFO - Debug日志文件: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-02-01/debug_20251219_014325.log
-2025-12-19 01:43:25 - gateway - INFO - 使用主图片: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-02-01/3d_camera/main.jpg
-2025-12-19 01:43:25 - gateway - INFO - 使用深度图: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-02-01/3d_camera/depth.jpg
-
-image 1/1 /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-02-01/3d_camera/raw.jpg: 1088x928 15 boxs, 2 piles, 5 tops, 125.2ms
-Speed: 3.8ms preprocess, 125.2ms inference, 1.0ms postprocess per image at shape (1, 3, 1088, 928)
-2025-12-19 01:43:26 - gateway - INFO - Detect模块识别完成，箱数: 22
-2025-12-19 01:43:26 - gateway - INFO - Barcode模块已禁用，跳过识别
-2025-12-19 01:43:26 - gateway - INFO - 识别结果已保存到ini文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-02-01/3d_camera/recognition_result.ini
-INFO:     127.0.0.1:58268 - "POST /api/inventory/scan-and-recognize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/inventory/image?taskNo=T001&binLocation=20-02-01&cameraType=3d_camera&filename=main_rotated.jpg&source=capture_img HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/inventory/image?taskNo=T001&binLocation=20-02-01&cameraType=3d_camera&filename=depth_color.jpg&source=capture_img HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58507 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58507 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2025-12-19 01:45:42 - gateway - INFO - 成功解压缩并解析库位数据
-INFO:     127.0.0.1:58507 - "GET /lms/getLmsBin?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2025-12-19 01:46:03 - gateway - INFO - 启动盘点任务: T001, 包含 18 个储位
-INFO:     127.0.0.1:58511 - "POST /api/inventory/start-inventory HTTP/1.1" 200 OK
-2025-12-19 01:46:04 - gateway - INFO - 开始执行Detect模块识别: T001/20-01-01
-2025-12-19 01:46:04 - gateway - INFO - 找到深度图文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/depth.jpg
-2025-12-19 01:46:04 - gateway - INFO - Debug输出目录: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-01-01
-2025-12-19 01:46:04 - gateway - INFO - Debug日志文件: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-01-01/debug_20251219_014604.log
-2025-12-19 01:46:04 - gateway - INFO - 使用主图片: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/main.jpg
-2025-12-19 01:46:04 - gateway - INFO - 使用深度图: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/depth.jpg
-
-image 1/1 /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/raw.jpg: 1088x928 10 boxs, 2 piles, 118.6ms
-Speed: 3.8ms preprocess, 118.6ms inference, 0.7ms postprocess per image at shape (1, 3, 1088, 928)
-2025-12-19 01:46:05 - gateway - INFO - Detect模块识别完成，箱数: 30
-2025-12-19 01:46:05 - gateway - INFO - Barcode模块已禁用，跳过识别
-2025-12-19 01:46:05 - gateway - INFO - 识别结果已保存到ini文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/recognition_result.ini
-INFO:     127.0.0.1:58511 - "POST /api/inventory/scan-and-recognize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58511 - "GET /api/inventory/image?taskNo=T001&binLocation=20-01-01&cameraType=3d_camera&filename=main_rotated.jpg&source=capture_img HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58511 - "GET /api/inventory/image?taskNo=T001&binLocation=20-01-01&cameraType=3d_camera&filename=depth_color.jpg&source=capture_img HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58686 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58690 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2025-12-19 01:48:12 - gateway - INFO - 成功解压缩并解析库位数据
-INFO:     127.0.0.1:58696 - "GET /lms/getLmsBin?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58711 - "OPTIONS /api/inventory/start-inventory HTTP/1.1" 200 OK
-2025-12-19 01:48:18 - gateway - INFO - 启动盘点任务: T001, 包含 18 个储位
-INFO:     127.0.0.1:58711 - "POST /api/inventory/start-inventory HTTP/1.1" 200 OK
-2025-12-19 01:48:20 - gateway - INFO - 开始执行Detect模块识别: T001/20-01-01
-2025-12-19 01:48:20 - gateway - INFO - 找到深度图文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/depth.jpg
-2025-12-19 01:48:20 - gateway - INFO - Debug输出目录: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-01-01
-2025-12-19 01:48:20 - gateway - INFO - Debug日志文件: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-01-01/debug_20251219_014820.log
-2025-12-19 01:48:20 - gateway - INFO - 使用主图片: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/main.jpg
-2025-12-19 01:48:20 - gateway - INFO - 使用深度图: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/depth.jpg
-
-image 1/1 /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/raw.jpg: 1088x928 10 boxs, 2 piles, 118.2ms
-Speed: 3.7ms preprocess, 118.2ms inference, 0.9ms postprocess per image at shape (1, 3, 1088, 928)
-2025-12-19 01:48:21 - gateway - INFO - Detect模块识别完成，箱数: 30
-2025-12-19 01:48:21 - gateway - INFO - Barcode模块已禁用，跳过识别
-2025-12-19 01:48:21 - gateway - INFO - 识别结果已保存到ini文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-01-01/3d_camera/recognition_result.ini
-INFO:     127.0.0.1:58711 - "POST /api/inventory/scan-and-recognize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58711 - "GET /api/inventory/image?taskNo=T001&binLocation=20-01-01&cameraType=3d_camera&filename=main_rotated.jpg&source=capture_img HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58711 - "GET /api/inventory/image?taskNo=T001&binLocation=20-01-01&cameraType=3d_camera&filename=depth_color.jpg&source=capture_img HTTP/1.1" 200 OK
-2025-12-19 01:51:42 - gateway - INFO - 开始执行Detect模块识别: T001/20-08-01
-2025-12-19 01:51:42 - gateway - INFO - 找到深度图文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-08-01/3d_camera/depth.jpg
-2025-12-19 01:51:42 - gateway - INFO - Debug输出目录: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-08-01
-2025-12-19 01:51:42 - gateway - INFO - Debug日志文件: /Users/hepeng/Project/lead_depot/LeafDepot/debug/T001/20-08-01/debug_20251219_015142.log
-2025-12-19 01:51:42 - gateway - INFO - 使用主图片: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-08-01/3d_camera/main.jpg
-2025-12-19 01:51:42 - gateway - INFO - 使用深度图: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-08-01/3d_camera/depth.jpg
-
-image 1/1 /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-08-01/3d_camera/raw.jpg: 1088x928 12 boxs, 2 piles, 2 tops, 114.7ms
-Speed: 3.5ms preprocess, 114.7ms inference, 0.8ms postprocess per image at shape (1, 3, 1088, 928)
-2025-12-19 01:51:43 - gateway - INFO - Detect模块识别完成，箱数: 21
-2025-12-19 01:51:43 - gateway - INFO - Barcode模块已禁用，跳过识别
-2025-12-19 01:51:43 - gateway - INFO - 识别结果已保存到ini文件: /Users/hepeng/Project/lead_depot/LeafDepot/capture_img/T001/20-08-01/3d_camera/recognition_result.ini
-INFO:     127.0.0.1:58998 - "POST /api/inventory/scan-and-recognize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58998 - "GET /api/inventory/image?taskNo=T001&binLocation=20-08-01&cameraType=3d_camera&filename=main_rotated.jpg&source=capture_img HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58998 - "GET /api/inventory/image?taskNo=T001&binLocation=20-08-01&cameraType=3d_camera&filename=depth_color.jpg&source=capture_img HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60732 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60732 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-10 20:40:24 - gateway - INFO - 成功解压缩并解析库位数据
+INFO:     127.0.0.1:60732 - "GET /lms/getLmsBin?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60732 - "OPTIONS /lms/getCountTasks?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-10 20:40:25 - gateway - INFO - 收到获取盘点任务请求，authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-10 20:40:25 - gateway - INFO - 准备调用LMS接口: http://localhost:6000/third/api/v1/lmsToRcsService/getCountTasks
+2026-01-10 20:40:25 - gateway - INFO - 发送请求到LMS服务...
+2026-01-10 20:40:25 - gateway - INFO - LMS响应状态码: 200
+2026-01-10 20:40:25 - gateway - INFO - 成功解压缩并解析盘点任务数据
+INFO:     127.0.0.1:60732 - "GET /lms/getCountTasks?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57122 - "OPTIONS /login HTTP/1.1" 200 OK
+2026-01-10 20:42:24 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:57122 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57122 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-10 20:42:29 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:59530 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59530 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-10 20:55:56 - gateway - INFO - 成功解压缩并解析库位数据
+INFO:     127.0.0.1:33936 - "GET /lms/getLmsBin?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
