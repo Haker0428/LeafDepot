@@ -1197,7 +1197,8 @@ async def login(request: Request):
                     "userId": lms_response.get("userId"),
                     "userCode": lms_response.get("userCode"),
                     "userName": lms_response.get("userName"),
-                    "authToken": token
+                    "authToken": token,
+                    "userLevel": lms_response.get("userLevel"),
                 }
             }
         else:
@@ -1789,6 +1790,192 @@ async def collect_frontend_log(request: FrontendLogRequest = Body(...)):
             detail=f"保存前端日志失败: {str(e)}"
         )
 
+
+######################################### 用户管理接口 #########################################
+
+@app.get("/lms/getUsers")
+async def get_users(request: Request):
+    """获取所有用户信息，调用LMS的getUsers接口"""
+    try:
+        # 从查询参数或请求头获取authToken
+        auth_token = request.query_params.get(
+            'authToken') or request.headers.get('authToken')
+
+        if not auth_token:
+            logger.error("未提供认证令牌")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="未提供认证令牌"
+            )
+
+        logger.info(f"接收到的authToken: {auth_token[:20]}...")
+
+        # 调用LMS的getUsers接口
+        lms_users_url = f"{LMS_BASE_URL}/third/api/v1/userManagement/getUsers"
+        headers = {
+            "authToken": auth_token
+        }
+
+        logger.info(f"调用LMS用户接口: {lms_users_url}")
+
+        try:
+            response = requests.get(lms_users_url, headers=headers, timeout=10)
+            logger.info(f"LMS响应状态码: {response.status_code}")
+
+            # 检查响应状态
+            if response.status_code == 200:
+                # 尝试解析JSON响应
+                try:
+                    result = response.json()
+                    logger.info(f"成功获取 {len(result.get('data', []))} 条用户数据")
+                    return result
+                except json.JSONDecodeError as e:
+                    logger.error(f"LMS返回的不是有效JSON: {response.text[:200]}")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"LMS返回了无效的JSON数据: {str(e)}"
+                    )
+            else:
+                # 记录详细的错误信息
+                error_detail = response.text[:500]  # 只取前500字符避免日志过大
+                logger.error(f"LMS接口错误 {response.status_code}: {error_detail}")
+
+                if response.status_code == 401:
+                    return JSONResponse(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        content={
+                            "code": 401,
+                            "message": "认证失败，请重新登录",
+                            "data": None
+                        }
+                    )
+                elif response.status_code == 403:
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content={
+                            "code": 403,
+                            "message": "权限不足，只有管理员可以查看用户列表",
+                            "data": None
+                        }
+                    )
+                else:
+                    return JSONResponse(
+                        status_code=response.status_code,
+                        content={
+                            "code": response.status_code,
+                            "message": f"LMS获取用户信息失败: {response.text[:200]}",
+                            "data": None
+                        }
+                    )
+
+        except requests.exceptions.ConnectionError:
+            logger.error(f"无法连接到LMS服务: {LMS_BASE_URL}")
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "code": 503,
+                    "message": f"无法连接到LMS服务，请确保LMS服务正在运行（{LMS_BASE_URL}）",
+                    "data": None
+                }
+            )
+        except requests.exceptions.Timeout:
+            logger.error(f"连接LMS服务超时")
+            return JSONResponse(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                content={
+                    "code": 504,
+                    "message": "LMS服务响应超时",
+                    "data": None
+                }
+            )
+
+    except HTTPException as he:
+        # 重新抛出 HTTPException
+        raise he
+    except Exception as e:
+        logger.error(f"获取用户信息请求失败: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取用户信息请求处理失败: {str(e)}"
+        )
+
+
+@app.post("/lms/registerUser")
+async def register_user(request: Request):
+    """注册新用户，调用LMS的registerUser接口"""
+    try:
+        # 1. 从请求头获取authToken
+        auth_token = request.headers.get('authToken')
+        if not auth_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized"
+            )
+
+        # 2. 获取请求体数据
+        data = await request.json()
+
+        # 3. 调用LMS接口
+        lms_register_url = f"{LMS_BASE_URL}/third/api/v1/userManagement/registerUser"
+        headers = {
+            "authToken": auth_token,
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(lms_register_url, json=data, headers=headers)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"LMS注册用户失败: {response.text}"
+            )
+    except Exception as e:
+        logger.error(f"注册用户请求失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="注册用户请求处理失败"
+        )
+
+
+@app.post("/lms/deleteUser")
+async def delete_user(request: Request):
+    """删除用户，调用LMS的deleteUser接口"""
+    try:
+        # 1. 从请求头获取authToken
+        auth_token = request.headers.get('authToken')
+        if not auth_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized"
+            )
+
+        # 2. 获取请求体数据
+        data = await request.json()
+
+        # 3. 调用LMS接口
+        lms_delete_url = f"{LMS_BASE_URL}/third/api/v1/userManagement/deleteUser"
+        headers = {
+            "authToken": auth_token,
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(lms_delete_url, json=data, headers=headers)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"LMS删除用户失败: {response.text}"
+            )
+    except Exception as e:
+        logger.error(f"删除用户请求失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="删除用户请求处理失败"
+        )
 
 if __name__ == "__main__":
     # 确保日志配置正确（已经在文件开头配置，这里不再重复配置）

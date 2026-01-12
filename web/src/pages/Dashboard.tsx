@@ -102,7 +102,7 @@ export default function Dashboard() {
       description: "管理系统用户和权限设置",
       icon: "fa-users-gear",
       color: "from-purple-500 to-purple-600",
-      path: "/personnel/permissions"
+      path: "/user_manage"
     }
   ];
 
