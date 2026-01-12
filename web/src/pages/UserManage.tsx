@@ -929,7 +929,7 @@ export default function UserManage() {
                           : "border-gray-300 focus:ring-green-500 focus:border-green-500"
                       } transition-all`}
                       placeholder="至少6位字符"
-                      autoComplete="new-password" // 添加这个属性
+                      autoComplete="new-password" // 添加这个属性 修复BUG
                     />
                   </div>
                   {formErrors.password && (
