@@ -1,29 +1,14 @@
 INFO:     Will watch for changes in these directories: ['/home/ubuntu/Projects/LeafDepot/services/api']
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [30730] using StatReload
-2026-01-10 20:40:08 - gateway - INFO - 日志文件保存路径: /home/ubuntu/Projects/LeafDepot/debug/gateway_20260110.log
-2026-01-10 20:40:08 - gateway - INFO - 条形码功能已禁用（ENABLE_BARCODE=false）
-2026-01-10 20:40:11 - gateway - INFO - 条形码识别模块已禁用（ENABLE_BARCODE=false）
-INFO:     Started server process [30733]
+INFO:     Started reloader process [17244] using StatReload
+2026-01-12 21:46:03 - gateway - INFO - 日志文件保存路径: /home/ubuntu/Projects/LeafDepot/debug/gateway_20260112.log
+2026-01-12 21:46:03 - gateway - INFO - 条形码功能已禁用（ENABLE_BARCODE=false）
+2026-01-12 21:46:04 - gateway - INFO - 条形码识别模块已禁用（ENABLE_BARCODE=false）
+INFO:     Started server process [17247]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     127.0.0.1:60732 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60732 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2026-01-10 20:40:24 - gateway - INFO - 成功解压缩并解析库位数据
-INFO:     127.0.0.1:60732 - "GET /lms/getLmsBin?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60732 - "OPTIONS /lms/getCountTasks?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2026-01-10 20:40:25 - gateway - INFO - 收到获取盘点任务请求，authToken: d7e8d8fe17fbfcdb6e41...
-2026-01-10 20:40:25 - gateway - INFO - 准备调用LMS接口: http://localhost:6000/third/api/v1/lmsToRcsService/getCountTasks
-2026-01-10 20:40:25 - gateway - INFO - 发送请求到LMS服务...
-2026-01-10 20:40:25 - gateway - INFO - LMS响应状态码: 200
-2026-01-10 20:40:25 - gateway - INFO - 成功解压缩并解析盘点任务数据
-INFO:     127.0.0.1:60732 - "GET /lms/getCountTasks?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57122 - "OPTIONS /login HTTP/1.1" 200 OK
-2026-01-10 20:42:24 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
-INFO:     127.0.0.1:57122 - "POST /login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57122 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2026-01-10 20:42:29 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
-INFO:     127.0.0.1:59530 - "POST /login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59530 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
-2026-01-10 20:55:56 - gateway - INFO - 成功解压缩并解析库位数据
-INFO:     127.0.0.1:33936 - "GET /lms/getLmsBin?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [17247]
+INFO:     Stopping reloader process [17244]

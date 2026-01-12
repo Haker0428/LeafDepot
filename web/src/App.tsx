@@ -2,8 +2,8 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-21 19:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-10-23 23:15:56
- * @FilePath: /Intergration/ui/src/App.tsx
+ * @LastEditTime: 2026-01-10 23:47:21
+ * @FilePath: /LeafDepot/web/src/App.tsx
  * @Description: 
  * 
  * Copyright (c) 2025 by lizh, All Rights Reserved. 
@@ -13,6 +13,8 @@ import Home from "@/pages/Home";
 import Dashboard from "@/pages/Dashboard";
 import InventoryStart from "@/pages/InventoryStart";
 import InventoryProgress from "@/pages/InventoryProgress";
+import UserManage from "@/pages/UserManage";
+
 import { useAuth } from '@/contexts/authContext'; // 导入 useAuth
 
 // 受保护路由组件
@@ -57,6 +59,16 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/user_manage"
+        element={
+          <ProtectedRoute>
+            <UserManage />
+          </ProtectedRoute>
+        }
+      />
+
       <Route path="/other" element={<div className="text-center text-xl">Other Page - Coming Soon</div>} />
     </Routes>
   );

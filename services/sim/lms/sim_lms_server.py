@@ -1,4 +1,8 @@
+import time
 from fastapi import FastAPI, Request, HTTPException, status
+from fastapi.responses import Response
+# 在现有的导入语句中，确保包含 Body
+from fastapi import FastAPI, Request, HTTPException, status, Body  # 添加 Body
 from fastapi.responses import Response
 import json
 import zlib
@@ -8,17 +12,20 @@ import sys
 import pandas as pd
 from pathlib import Path
 import math
-
+import time  # 添加 time 导入
+import uuid  # 添加 uuid 导入
 import random
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional  # 添加 Optional
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 import custom_utils
 
 # LMS模拟服务配置
-USER_CODE = "admin"
-PASSWORD = "admin"
+# 移除硬编码的用户名密码
+USER_CODE = "admin"  # 保留作为默认值，但主要从Excel读取
+PASSWORD = "admin"   # 保留作为默认值，但主要从Excel读取
 AUTH_TOKEN = "d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b"
 
 app = FastAPI(title="LMS Mock Service", version="1.0.0")
@@ -39,6 +46,215 @@ app.add_middleware(
 
 # 定义Excel文件路径
 EXCEL_FILE_PATH = Path("bins_data.xlsx")
+USERS_FILE_PATH = Path("users_data.xlsx")  # 新增：用户信息Excel文件路径
+
+
+def load_users_from_excel():
+    """
+    从Excel文件加载用户信息数据
+    包含以下字段：
+    1. userCode
+    2. password
+    3. userName
+    4. companyId
+    5. companyName
+    6. employeeId
+    7. deptId
+    8. deptName
+    9. dingUserId
+    10. mobile
+    11. shortName
+    12. companyLevel
+    13. nationalCode
+    14. authToken
+    15. userLevel (新增：admin/operator)
+    """
+    users_data = []
+
+    if not USERS_FILE_PATH.exists():
+        print(f"警告：用户Excel文件 '{USERS_FILE_PATH}' 不存在，使用默认管理员账号")
+        # 返回默认的管理员账号
+        return [
+            {
+                "userCode": "admin",
+                "password": "admin",
+                "userName": "管理员账号",
+                "companyId": "188",
+                "companyName": "河北省烟草局",
+                "employeeId": "1000000",
+                "deptId": "1000000",
+                "deptName": "省物流处",
+                "dingUserId": "",
+                "mobile": "131xxxx8792",
+                "shortName": "河北省局",
+                "companyLevel": "1",
+                "nationalCode": "11130001",
+                "authToken": AUTH_TOKEN,
+                "userLevel": "admin"
+            }
+        ]
+
+    try:
+        # 读取Excel文件
+        df = pd.read_excel(USERS_FILE_PATH)
+
+        # 检查列数是否足够
+        if df.shape[1] < 15:
+            print(f"警告：用户Excel文件列数不足15列，实际有{df.shape[1]}列")
+            # 返回默认管理员账号
+            return [{
+                "userCode": "admin",
+                "password": "admin",
+                "userName": "管理员账号",
+                "companyId": "188",
+                "companyName": "河北省烟草局",
+                "employeeId": "1000000",
+                "deptId": "1000000",
+                "deptName": "省物流处",
+                "dingUserId": "",
+                "mobile": "131xxxx8792",
+                "shortName": "河北省局",
+                "companyLevel": "1",
+                "nationalCode": "11130001",
+                "authToken": AUTH_TOKEN,
+                "userLevel": "admin"
+            }]
+
+        # 将每行数据转换为字典
+        for _, row in df.iterrows():
+            # 确保行数据长度足够，不足的列用空值填充
+            row_values = row.tolist()
+
+            # 如果行数据不足15个值，用空值或默认值填充
+            while len(row_values) < 15:
+                row_values.append("")
+
+            # 创建用户信息字典
+            user_info = {
+                "userCode": str(row_values[0]) if not pd.isna(row_values[0]) else "",
+                "password": str(row_values[1]) if not pd.isna(row_values[1]) else "",
+                "userName": str(row_values[2]) if not pd.isna(row_values[2]) else "",
+                "companyId": str(row_values[3]) if not pd.isna(row_values[3]) else "",
+                "companyName": str(row_values[4]) if not pd.isna(row_values[4]) else "",
+                "employeeId": str(row_values[5]) if not pd.isna(row_values[5]) else "",
+                "deptId": str(row_values[6]) if not pd.isna(row_values[6]) else "",
+                "deptName": str(row_values[7]) if not pd.isna(row_values[7]) else "",
+                "dingUserId": str(row_values[8]) if not pd.isna(row_values[8]) else "",
+                "mobile": str(row_values[9]) if not pd.isna(row_values[9]) else "",
+                "shortName": str(row_values[10]) if not pd.isna(row_values[10]) else "",
+                "companyLevel": str(row_values[11]) if not pd.isna(row_values[11]) else "",
+                "nationalCode": str(row_values[12]) if not pd.isna(row_values[12]) else "",
+                "authToken": str(row_values[13]) if not pd.isna(row_values[13]) else "",
+                # 默认操作员权限
+                "userLevel": str(row_values[14]) if not pd.isna(row_values[14]) else "operator"
+            }
+
+            # 只添加有效的用户数据行（userCode不为空）
+            if user_info["userCode"]:
+                users_data.append(user_info)
+
+        print(f"成功从Excel加载 {len(users_data)} 条用户信息")
+        return users_data
+
+    except Exception as e:
+        print(f"读取用户Excel文件出错: {e}")
+        # 返回默认管理员账号
+        return [{
+            "userCode": "admin",
+            "password": "admin",
+            "userName": "管理员账号",
+            "companyId": "188",
+            "companyName": "河北省烟草局",
+            "employeeId": "1000000",
+            "deptId": "1000000",
+            "deptName": "省物流处",
+            "dingUserId": "",
+            "mobile": "131xxxx8792",
+            "shortName": "河北省局",
+            "companyLevel": "1",
+            "nationalCode": "11130001",
+            "authToken": AUTH_TOKEN,
+            "userLevel": "admin"
+        }]
+
+# 在 load_users_from_excel 函数后添加以下代码
+
+
+class UserRegistration(BaseModel):
+    """用户注册请求模型"""
+    userCode: str
+    password: str
+    userName: str
+    userLevel: str = "operator"
+    companyId: str = ""
+    companyName: str = ""
+    employeeId: str = ""
+    deptId: str = ""
+    deptName: str = ""
+    dingUserId: str = ""
+    mobile: str = ""
+    shortName: str = ""
+    companyLevel: str = ""
+    nationalCode: str = ""
+
+
+class UserDelete(BaseModel):
+    """用户删除请求模型"""
+    userCode: str
+
+
+def get_current_user(auth_token: str):
+    """根据authToken获取当前用户信息"""
+    if not auth_token:
+        return None
+
+    for user in users_data:
+        if user.get("authToken") == auth_token:
+            return user
+    return None
+
+
+def save_users_to_excel():
+    """将用户数据保存到Excel文件"""
+    try:
+        if not USERS_FILE_PATH.exists():
+            # 如果文件不存在，创建目录
+            USERS_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # 创建DataFrame
+        users_list = []
+        for user in users_data:
+            users_list.append([
+                user.get("userCode", ""),
+                user.get("password", ""),
+                user.get("userName", ""),
+                user.get("companyId", ""),
+                user.get("companyName", ""),
+                user.get("employeeId", ""),
+                user.get("deptId", ""),
+                user.get("deptName", ""),
+                user.get("dingUserId", ""),
+                user.get("mobile", ""),
+                user.get("shortName", ""),
+                user.get("companyLevel", ""),
+                user.get("nationalCode", ""),
+                user.get("authToken", ""),
+                user.get("userLevel", "operator")
+            ])
+
+        df = pd.DataFrame(users_list, columns=[
+            "userCode", "password", "userName", "companyId", "companyName",
+            "employeeId", "deptId", "deptName", "dingUserId", "mobile",
+            "shortName", "companyLevel", "nationalCode", "authToken", "userLevel"
+        ])
+
+        # 保存到Excel
+        df.to_excel(USERS_FILE_PATH, index=False)
+        print(f"用户数据已保存到Excel文件: {USERS_FILE_PATH}")
+        return True
+    except Exception as e:
+        print(f"保存用户数据到Excel失败: {e}")
+        return False
 
 
 def load_bins_from_excel():
@@ -136,6 +352,7 @@ def load_bins_from_excel():
 
 # 程序启动时加载Excel数据
 bins_data = load_bins_from_excel()
+users_data = load_users_from_excel()  # 新增：加载用户数据
 
 # 盘点任务数据（保持不变）
 tasks_data = [
@@ -175,26 +392,34 @@ feedback_results = {}
 
 @app.get("/login")
 async def login(request: Request):
-    """登录接口"""
+    """登录接口 - 从Excel文件验证用户"""
     user_code = request.headers.get('userCode')
     password = request.headers.get('password')
 
-    if user_code == USER_CODE and password == PASSWORD:
+    # 在用户数据中查找匹配的用户
+    user_found = None
+    for user in users_data:
+        if user["userCode"] == user_code and user["password"] == password:
+            user_found = user
+            break
+
+    if user_found:
         response_data = {
-            "userId": "0000001",
-            "userCode": USER_CODE,
-            "userName": "管理员账号",
-            "companyId": "188",
-            "companyName": "河北省烟草局",
-            "employeeId": "1000000",
-            "deptId": "1000000",
-            "deptName": "省物流处",
-            "dingUserId": "",
-            "mobile": "131xxxx8792",
-            "shortName": "河北省局",
-            "companyLevel": "1",
-            "nationalCode": "11130001",
-            "authToken": AUTH_TOKEN
+            "userId": user_found.get("employeeId", "0000001"),
+            "userCode": user_found.get("userCode", ""),
+            "userName": user_found.get("userName", ""),
+            "companyId": user_found.get("companyId", "188"),
+            "companyName": user_found.get("companyName", "河北省烟草局"),
+            "employeeId": user_found.get("employeeId", "1000000"),
+            "deptId": user_found.get("deptId", "1000000"),
+            "deptName": user_found.get("deptName", "省物流处"),
+            "dingUserId": user_found.get("dingUserId", ""),
+            "mobile": user_found.get("mobile", "131xxxx8792"),
+            "shortName": user_found.get("shortName", "河北省局"),
+            "companyLevel": user_found.get("companyLevel", "1"),
+            "nationalCode": user_found.get("nationalCode", "11130001"),
+            "authToken": user_found.get("authToken", AUTH_TOKEN),
+            "userLevel": user_found.get("userLevel", "operator")
         }
         return response_data
     else:
@@ -209,14 +434,22 @@ async def auth_token(request: Request):
     """根据token获取用户信息"""
     token = request.query_params.get('token')
 
-    if token == AUTH_TOKEN:
+    # 在用户数据中查找匹配的token
+    user_found = None
+    for user in users_data:
+        if user["authToken"] == token:
+            user_found = user
+            break
+
+    if user_found:
         return {
-            "userId": "0000001",
-            "userCode": USER_CODE,
-            "userName": "管理员账号",
-            "companyId": "188",
-            "companyName": "河北省烟草局",
-            "mobile": "131xxxx8792"
+            "userId": user_found.get("employeeId", "0000001"),
+            "userCode": user_found.get("userCode", ""),
+            "userName": user_found.get("userName", ""),
+            "companyId": user_found.get("companyId", "188"),
+            "companyName": user_found.get("companyName", "河北省烟草局"),
+            "mobile": user_found.get("mobile", "131xxxx8792"),
+            "userLevel": user_found.get("userLevel", "operator")  # 新增：用户权限
         }
     else:
         raise HTTPException(
@@ -288,15 +521,200 @@ async def set_task_results(request: Request):
         )
 
 
+@app.get("/third/api/v1/userManagement/getUsers")
+async def get_users(request: Request):
+    """获取所有用户信息接口"""
+    auth_token = request.headers.get('authToken')
+
+    # 验证token
+    current_user = get_current_user(auth_token)
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized"
+        )
+
+    # 检查用户权限（只有管理员可以查看所有用户）
+    if current_user.get("userLevel") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="权限不足，只有管理员可以查看用户列表"
+        )
+
+    # 返回用户列表（排除密码字段）
+    users_response = []
+    for user in users_data:
+        user_copy = user.copy()
+        # 不返回密码
+        user_copy.pop("password", None)
+        users_response.append(user_copy)
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": users_response
+    }
+
+
+@app.post("/third/api/v1/userManagement/registerUser")
+async def register_user(request: Request, user_data: UserRegistration = Body(...)):
+    """用户注册接口"""
+    auth_token = request.headers.get('authToken')
+
+    # 验证token
+    current_user = get_current_user(auth_token)
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized"
+        )
+
+    # 检查用户权限（只有管理员可以注册用户）
+    if current_user.get("userLevel") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="权限不足，只有管理员可以注册用户"
+        )
+
+    # 检查用户代码是否已存在
+    for user in users_data:
+        if user.get("userCode") == user_data.userCode:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"用户代码 '{user_data.userCode}' 已存在"
+            )
+
+    # 生成唯一的authToken和employeeId
+    new_auth_token = str(uuid.uuid4()).replace("-", "")
+    new_employee_id = str(int(time.time() * 1000))[-8:]  # 使用时间戳生成员工ID
+
+    # 创建新用户 - 修复：使用新生成的authToken，而不是硬编码的AUTH_TOKEN
+    new_user = {
+        "userCode": user_data.userCode,
+        "password": user_data.password,
+        "userName": user_data.userName,
+        "companyId": user_data.companyId or current_user.get("companyId", "188"),
+        "companyName": user_data.companyName or current_user.get("companyName", "河北省烟草局"),
+        "employeeId": new_employee_id,
+        "deptId": user_data.deptId or current_user.get("deptId", "1000000"),
+        "deptName": user_data.deptName or current_user.get("deptName", "省物流处"),
+        "dingUserId": user_data.dingUserId,
+        "mobile": user_data.mobile,
+        "shortName": user_data.shortName or current_user.get("shortName", "河北省局"),
+        "companyLevel": user_data.companyLevel or current_user.get("companyLevel", "1"),
+        "nationalCode": user_data.nationalCode or current_user.get("nationalCode", "11130001"),
+        "authToken": new_auth_token,  # 修复：使用新生成的唯一token
+        "userLevel": user_data.userLevel
+    }
+
+    # 添加到用户列表
+    users_data.append(new_user)
+
+    # 保存到Excel文件
+    save_success = save_users_to_excel()
+
+    if save_success:
+        return {
+            "code": 200,
+            "message": "用户注册成功",
+            "data": {
+                "userCode": new_user["userCode"],
+                "userName": new_user["userName"],
+                "authToken": new_user["authToken"],
+                "employeeId": new_user["employeeId"]
+            }
+        }
+    else:
+        # 回滚：从内存中移除新用户
+        users_data.remove(new_user)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="用户注册失败，无法保存到文件"
+        )
+
+
+@app.post("/third/api/v1/userManagement/deleteUser")
+async def delete_user(request: Request, delete_data: UserDelete = Body(...)):
+    """用户删除接口"""
+    auth_token = request.headers.get('authToken')
+
+    # 验证token
+    current_user = get_current_user(auth_token)
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized"
+        )
+
+    # 检查用户权限（只有管理员可以删除用户）
+    if current_user.get("userLevel") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="权限不足，只有管理员可以删除用户"
+        )
+
+    user_code_to_delete = delete_data.userCode
+
+    # 不能删除自己
+    if current_user.get("userCode") == user_code_to_delete:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不能删除自己的账户"
+        )
+
+    # 查找要删除的用户
+    user_to_delete = None
+    for user in users_data:
+        if user.get("userCode") == user_code_to_delete:
+            user_to_delete = user
+            break
+
+    if not user_to_delete:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"用户 '{user_code_to_delete}' 不存在"
+        )
+
+    # 从用户列表中移除
+    users_data.remove(user_to_delete)
+
+    # 保存到Excel文件
+    save_success = save_users_to_excel()
+
+    if save_success:
+        return {
+            "code": 200,
+            "message": f"用户 '{user_code_to_delete}' 删除成功",
+            "data": None
+        }
+    else:
+        # 回滚：将用户添加回列表
+        users_data.append(user_to_delete)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="用户删除失败，无法保存到文件"
+        )
+
+
+# 在 __main__ 部分添加导入
+
+# 修改启动信息部分，添加用户管理接口信息
 if __name__ == "__main__":
     print("LMS模拟服务已启动 (FastAPI)")
     print(f"当前储位信息数量: {len(bins_data)} 条")
+    print(f"当前用户信息数量: {len(users_data)} 条")
 
-    # 打印前几条数据示例
-    if bins_data:
-        print("示例数据:")
-        for i, bin_info in enumerate(bins_data[:3]):
-            print(f"  第{i+1}条: {bin_info}")
+    # 打印用户数据示例
+    if users_data:
+        print("用户数据示例:")
+        for i, user_info in enumerate(users_data[:3]):
+            print(
+                f"  第{i+1}条: {user_info['userCode']} - {user_info['userName']} - 权限: {user_info.get('userLevel', 'operator')} - token: {user_info.get('authToken', '')[0:10]}...")
+
+    print("\n用户管理接口:")
+    print("  GET  /third/api/v1/userManagement/getUsers - 获取所有用户信息")
+    print("  POST /third/api/v1/userManagement/registerUser - 注册新用户")
+    print("  POST /third/api/v1/userManagement/deleteUser - 删除用户")
 
     # 使用uvicorn运行
     import uvicorn

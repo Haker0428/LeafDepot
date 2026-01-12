@@ -31,6 +31,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.21",
     "babel-plugin-import": "^1.13.8",
+    "baseline-browser-mapping": "^2.9.14",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.7.2",
