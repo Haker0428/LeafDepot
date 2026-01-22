@@ -1,39 +1,74 @@
 INFO:     Will watch for changes in these directories: ['/home/ubuntu/Projects/LeafDepot/services/sim/lms']
 INFO:     Uvicorn running on http://0.0.0.0:6000 (Press CTRL+C to quit)
-INFO:     Started reloader process [16396] using StatReload
-Process SpawnProcess-1:
-Traceback (most recent call last):
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
-    self.run()
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/multiprocessing/process.py", line 108, in run
-    self._target(*self._args, **self._kwargs)
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
-    target(sockets=sockets)
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/uvicorn/server.py", line 67, in run
-    return asyncio_run(self.serve(sockets=sockets), loop_factory=self.config.get_loop_factory())
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/uvicorn/_compat.py", line 53, in asyncio_run
-    return loop.run_until_complete(main)
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/asyncio/base_events.py", line 649, in run_until_complete
-    return future.result()
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
-    await self._serve(sockets)
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/uvicorn/server.py", line 78, in _serve
-    config.load()
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/uvicorn/config.py", line 438, in load
-    self.loaded_app = import_from_string(self.app)
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
-    module = importlib.import_module(module_str)
-  File "/home/ubuntu/anaconda3/envs/tobacco_env/lib/python3.10/importlib/__init__.py", line 126, in import_module
-    return _bootstrap._gcd_import(name[level:], package, level)
-  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
-  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
-  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
-  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
-  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
-  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
-  File "/home/ubuntu/Projects/LeafDepot/services/sim/lms/sim_lms_server.py", line 554, in <module>
-    async def register_user(request: Request, user_data: UserRegistration = Body(...)):
-NameError: name 'Body' is not defined
+INFO:     Started reloader process [5782] using StatReload
+INFO:     Started server process [5785]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
 成功从Excel加载 18 条储位信息
-成功从Excel加载 2 条用户信息
-INFO:     Stopping reloader process [16396]
+成功从Excel加载 3 条用户信息
+INFO:     127.0.0.1:38626 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38642 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38654 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38658 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48774 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48778 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59070 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59080 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48982 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48998 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49006 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49012 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38072 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38082 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51212 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51222 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51228 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51242 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51252 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51262 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51268 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51270 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46744 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46754 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35106 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35114 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35118 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35128 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34884 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34894 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57466 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57476 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57478 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57488 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41218 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41232 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41240 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41244 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42336 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42350 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54542 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54550 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54560 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54570 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54582 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54586 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54588 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54598 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54602 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57202 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57212 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49554 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50212 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50220 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50230 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50240 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36088 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36100 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60818 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60822 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54358 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54368 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44756 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44758 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60810 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60826 - "GET /third/api/v1/userManagement/getUsers HTTP/1.1" 200 OK

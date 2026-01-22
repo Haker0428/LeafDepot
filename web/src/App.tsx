@@ -2,11 +2,11 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-10-21 19:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2026-01-10 23:47:21
+ * @LastEditTime: 2026-01-22 22:30:13
  * @FilePath: /LeafDepot/web/src/App.tsx
- * @Description: 
- * 
- * Copyright (c) 2025 by lizh, All Rights Reserved. 
+ * @Description:
+ *
+ * Copyright (c) 2025 by lizh, All Rights Reserved.
  */
 import { Routes, Route, Navigate } from "react-router-dom";
 import Home from "@/pages/Home";
@@ -14,8 +14,9 @@ import Dashboard from "@/pages/Dashboard";
 import InventoryStart from "@/pages/InventoryStart";
 import InventoryProgress from "@/pages/InventoryProgress";
 import UserManage from "@/pages/UserManage";
+import History from "@/pages/History";
 
-import { useAuth } from '@/contexts/authContext'; // 导入 useAuth
+import { useAuth } from "@/contexts/authContext"; // 导入 useAuth
 
 // 受保护路由组件
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -69,7 +70,21 @@ export default function App() {
         }
       />
 
-      <Route path="/other" element={<div className="text-center text-xl">Other Page - Coming Soon</div>} />
+      <Route
+        path="/inventory/history"
+        element={
+          <ProtectedRoute>
+            <History />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/other"
+        element={
+          <div className="text-center text-xl">Other Page - Coming Soon</div>
+        }
+      />
     </Routes>
   );
 }

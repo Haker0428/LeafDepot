@@ -1,14 +1,276 @@
 INFO:     Will watch for changes in these directories: ['/home/ubuntu/Projects/LeafDepot/services/api']
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [17244] using StatReload
-2026-01-12 21:46:03 - gateway - INFO - 日志文件保存路径: /home/ubuntu/Projects/LeafDepot/debug/gateway_20260112.log
-2026-01-12 21:46:03 - gateway - INFO - 条形码功能已禁用（ENABLE_BARCODE=false）
-2026-01-12 21:46:04 - gateway - INFO - 条形码识别模块已禁用（ENABLE_BARCODE=false）
-INFO:     Started server process [17247]
+INFO:     Started reloader process [5744] using StatReload
+2026-01-22 21:37:56 - gateway - INFO - 日志文件保存路径: /home/ubuntu/Projects/LeafDepot/debug/gateway_20260122.log
+2026-01-22 21:37:56 - gateway - INFO - 条形码功能已禁用（ENABLE_BARCODE=false）
+2026-01-22 21:37:59 - gateway - INFO - 条形码识别模块已禁用（ENABLE_BARCODE=false）
+INFO:     Started server process [5747]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [17247]
-INFO:     Stopping reloader process [17244]
+INFO:     127.0.0.1:38334 - "OPTIONS /login HTTP/1.1" 200 OK
+2026-01-22 21:38:27 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:38334 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38334 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38334 - "OPTIONS /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 21:38:28 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 21:38:28 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 21:38:28 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 21:38:28 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:38334 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 21:38:29 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 21:38:29 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 21:38:29 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 21:38:29 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:38334 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44524 - "OPTIONS /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 21:49:07 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 21:49:07 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 21:49:07 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 21:49:07 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:44524 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44530 - "OPTIONS /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 21:49:07 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 21:49:07 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 21:49:07 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 21:49:07 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:44530 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35644 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35644 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 21:53:55 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 21:53:55 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 21:53:55 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 21:53:55 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:60638 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 21:53:55 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 21:53:55 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 21:53:55 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 21:53:55 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:60638 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 21:53:58 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 21:53:58 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 21:53:58 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 21:53:58 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:60638 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 21:53:58 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 21:53:58 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 21:53:58 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 21:53:58 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:60638 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55172 - "OPTIONS /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:23:03 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:23:03 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:23:03 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:23:03 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:55172 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:23:03 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:23:03 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:23:03 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:23:03 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:55172 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39908 - "OPTIONS /login HTTP/1.1" 200 OK
+2026-01-22 22:23:10 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:39908 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39908 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:23:10 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:23:10 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:23:10 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:23:10 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39908 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:23:10 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:23:10 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:23:10 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:23:10 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39908 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:23:13 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:39908 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39908 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:23:14 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:23:14 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:23:14 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:23:14 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39908 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:23:14 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:23:14 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:23:14 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:23:14 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39908 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:30:34 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:48292 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48292 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:30:37 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:30:37 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:30:37 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:30:37 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:48292 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:30:37 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:30:37 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:30:37 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:30:37 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:37554 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:30:44 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:37556 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:37556 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:31:20 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:33158 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33158 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:32:51 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:47962 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47962 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:32:52 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:32:52 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:32:52 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:32:52 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:47962 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:32:52 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:32:52 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:32:52 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:32:52 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:47972 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50830 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50830 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50830 - "OPTIONS /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50846 - "OPTIONS /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:35:28 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:35:28 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:35:28 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:35:28 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:50830 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:35:28 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:35:28 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:35:28 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:35:28 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:50846 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:35:55 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:35:55 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:35:55 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:35:55 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:40282 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:35:55 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:35:55 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:35:55 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:35:55 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:40282 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:01 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:01 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:01 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:01 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39414 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:01 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:01 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:01 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:01 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39414 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:01 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:01 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:01 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:01 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39414 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:01 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:01 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:01 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:01 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39414 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:01 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:01 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:01 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:01 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39414 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:02 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:02 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:02 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:02 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39414 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:02 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:02 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:02 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:02 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39414 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39414 - "OPTIONS /login HTTP/1.1" 200 OK
+2026-01-22 22:36:03 - gateway - INFO - 尝试连接LMS服务: http://localhost:6000/login
+INFO:     127.0.0.1:39414 - "POST /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39414 - "GET /auth/token?token=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:05 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:05 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:05 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:05 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:39414 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:36:05 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:36:05 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:36:05 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:36:05 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:48062 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:37:20 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:37:20 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:37:20 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:37:20 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:58504 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:37:28 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:37:28 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:37:28 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:37:28 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:45792 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:37:29 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:37:29 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:37:29 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:37:29 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:45792 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:37:32 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:37:32 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:37:32 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:37:32 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:45792 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:37:32 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:37:32 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:37:32 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:37:32 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:45792 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:38:06 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:38:06 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:38:06 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:38:06 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:34508 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:38:06 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:38:06 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:38:06 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:38:06 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:34508 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:38:28 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:38:28 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:38:28 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:38:28 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:34556 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:38:28 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:38:28 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:38:28 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:38:28 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:34556 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:39:13 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:39:13 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:39:13 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:39:13 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:40166 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:39:13 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:39:13 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:39:13 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:39:13 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:40166 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:39:32 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:39:32 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:39:32 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:39:32 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:40122 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:39:32 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:39:32 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:39:32 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:39:32 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:40122 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:42:53 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:42:53 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:42:53 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:42:53 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:49046 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
+2026-01-22 22:42:53 - gateway - INFO - 接收到的authToken: d7e8d8fe17fbfcdb6e41...
+2026-01-22 22:42:53 - gateway - INFO - 调用LMS用户接口: http://localhost:6000/third/api/v1/userManagement/getUsers
+2026-01-22 22:42:53 - gateway - INFO - LMS响应状态码: 200
+2026-01-22 22:42:53 - gateway - INFO - 成功获取 3 条用户数据
+INFO:     127.0.0.1:49046 - "GET /lms/getUsers?authToken=d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b HTTP/1.1" 200 OK
