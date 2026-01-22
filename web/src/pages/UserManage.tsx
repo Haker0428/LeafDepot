@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/authContext";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { GATEWAY_URL } from "@/config/ip_address";
+import { useNavigate } from "react-router-dom";
 
 // 用户类型定义
 interface User {
@@ -32,6 +33,12 @@ export default function UserManage() {
     deptName: "",
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const navigate = useNavigate();
+
+  // 处理返回按钮点击
+  const handleBack = () => {
+    navigate("/dashboard");
+  };
 
   useEffect(() => {
     console.log("UserManage - Current authentication state:", {
@@ -49,7 +56,7 @@ export default function UserManage() {
     try {
       console.log(
         "开始加载用户数据，token长度:",
-        authToken ? authToken.length : 0
+        authToken ? authToken.length : 0,
       );
 
       if (!authToken) {
@@ -60,7 +67,7 @@ export default function UserManage() {
 
       // 尝试两种方式：先作为查询参数，如果不行再尝试作为请求头
       const url = `${GATEWAY_URL}/lms/getUsers?authToken=${encodeURIComponent(
-        authToken
+        authToken,
       )}`;
       console.log("请求URL:", url);
 
@@ -300,7 +307,7 @@ export default function UserManage() {
 
         if (!response.ok || result.code !== 200) {
           throw new Error(
-            `删除用户 ${userCode} 失败: ${result.message || "未知错误"}`
+            `删除用户 ${userCode} 失败: ${result.message || "未知错误"}`,
           );
         }
       }
@@ -398,13 +405,6 @@ export default function UserManage() {
                   }`}
                 ></i>
               </div>
-
-              <button
-                onClick={logout}
-                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all flex items-center"
-              >
-                <i className="fa-solid fa-sign-out-alt mr-2"></i>退出登录
-              </button>
             </div>
           </div>
         </header>
@@ -514,10 +514,10 @@ export default function UserManage() {
             </div>
 
             <button
-              onClick={logout}
-              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all flex items-center"
+              onClick={handleBack}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-all flex items-center"
             >
-              <i className="fa-solid fa-sign-out-alt mr-2"></i>退出登录
+              <i className="fa-solid fa-arrow-left mr-2"></i>返回
             </button>
           </div>
         </div>
@@ -699,7 +699,7 @@ export default function UserManage() {
                       <td className="px-4 py-4 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getLevelBadgeStyle(
-                            user.userLevel
+                            user.userLevel,
                           )}`}
                         >
                           <i
