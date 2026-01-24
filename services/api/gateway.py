@@ -20,6 +20,8 @@ import requests
 import uvicorn
 import sys
 
+import xlsxwriter as XLSX  # 如果还没有导入的话
+
 # 配置日志
 # 创建 debug 日志目录（在文件开头就定义，供后续使用）
 _project_root = Path(__file__).parent.parent.parent
@@ -120,6 +122,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],  # 暴露所有头部
+    max_age=3600,  # 预检请求缓存时间
 )
 
 # Barcode功能开关（默认关闭）
@@ -1975,6 +1979,504 @@ async def delete_user(request: Request):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="删除用户请求处理失败"
+        )
+
+######################################### 历史数据 #########################################
+OUTPUT_ROOT = Path("/home/ubuntu/Projects/LeafDepot/output")
+
+
+@app.get("/api/history/tasks")
+async def get_history_tasks():
+    """
+    获取历史任务列表
+    读取指定路径下的所有xlsx文件，解析为历史任务列表
+    """
+    try:
+        history_tasks_dir = OUTPUT_ROOT / "history_data"
+
+        # 确保目录存在
+        history_tasks_dir.mkdir(parents=True, exist_ok=True)
+
+        # 查找所有xlsx文件
+        xlsx_files = list(history_tasks_dir.glob("*.xlsx"))
+
+        tasks = []
+
+        for xlsx_file in xlsx_files:
+            try:
+                # 从文件名解析任务ID（去掉扩展名）
+                task_id = xlsx_file.stem
+
+                # 尝试从任务ID解析日期
+                task_date = parse_task_date_from_filename(task_id)
+
+                # 检查是否过期（超过6个月）
+                is_expired = is_task_expired(task_date) if task_date else False
+
+                tasks.append({
+                    "taskId": task_id,
+                    "taskDate": task_date.isoformat() if task_date else None,
+                    "fileName": xlsx_file.name,
+                    "isExpired": is_expired,
+                    "filePath": str(xlsx_file.relative_to(OUTPUT_ROOT))
+                })
+            except Exception as e:
+                logger.error(f"解析历史任务文件失败 {xlsx_file.name}: {str(e)}")
+                continue
+
+        # 按日期倒序排序（最新的在前）
+        tasks.sort(key=lambda x: x.get("taskDate", ""), reverse=True)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "code": 200,
+                "message": "获取历史任务成功",
+                "data": {
+                    "tasks": tasks,
+                    "total": len(tasks)
+                }
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"获取历史任务列表失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取历史任务列表失败: {str(e)}"
+        )
+
+
+@app.get("/api/history/task/{task_id}")
+async def get_history_task_details(task_id: str):
+    """
+    获取历史任务详情
+    读取与任务编号同名的xlsx文件，解析其中数据
+
+    Args:
+        task_id: 任务编号，如 HS2026011817
+    """
+    try:
+        history_tasks_dir = OUTPUT_ROOT / "history_data"
+
+        # 查找对应的xlsx文件
+        xlsx_file = history_tasks_dir / f"{task_id}.xlsx"
+
+        if not xlsx_file.exists():
+            # 尝试查找其他可能的扩展名
+            possible_files = list(history_tasks_dir.glob(f"{task_id}.*"))
+            if possible_files:
+                xlsx_file = possible_files[0]
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"历史任务文件不存在: {task_id}.xlsx"
+                )
+
+        # 检查文件是否存在
+        if not xlsx_file.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"文件不存在: {xlsx_file}"
+            )
+
+        logger.info(f"读取Excel文件: {xlsx_file}")
+
+        # 方法1: 使用openpyxl读取Excel文件
+        try:
+            import openpyxl
+            logger.info("使用openpyxl读取Excel文件")
+
+            # 加载工作簿
+            workbook = openpyxl.load_workbook(str(xlsx_file), data_only=True)
+
+            # 获取第一个工作表
+            sheet_name = workbook.sheetnames[0]
+            worksheet = workbook[sheet_name]
+
+            # 读取表头
+            headers = []
+            for cell in worksheet[1]:
+                if cell.value:
+                    headers.append(str(cell.value))
+
+            logger.info(f"Excel表头: {headers}")
+
+            # 读取数据行
+            details = []
+            row_index = 0
+
+            for row in worksheet.iter_rows(min_row=2, values_only=True):
+                row_index += 1
+
+                # 跳过空行
+                if all(cell is None for cell in row):
+                    continue
+
+                # 创建行字典
+                row_dict = {}
+                for i, header in enumerate(headers):
+                    if i < len(row):
+                        row_dict[header] = row[i]
+
+                # 规范化数据格式
+                detail = {
+                    "序号": row_dict.get("序号") or row_index,
+                    "品规名称": str(row_dict.get("品规名称", "")),
+                    "储位名称": str(row_dict.get("储位名称", "")),
+                    "实际品规": str(row_dict.get("实际品规", row_dict.get("品规名称", ""))),
+                    "库存数量": int(row_dict.get("库存数量", 0) or 0),
+                    "实际数量": int(row_dict.get("实际数量", 0) or 0),
+                    "差异": str(row_dict.get("差异", "一致")),
+                    "照片1路径": str(row_dict.get("照片1路径", "/3D_CAMERA/MAIN.JPEG")),
+                    "照片2路径": str(row_dict.get("照片2路径", "/3D_CAMERA/DEPTH.JPEG")),
+                    "照片3路径": str(row_dict.get("照片3路径", "/SCAN_CAMERA_1/1.JPEG")),
+                    "照片4路径": str(row_dict.get("照片4路径", "/SCAN_CAMERA_2/1.JPEG")),
+                }
+
+                # 计算差异（如果未提供）
+                if detail["差异"] == "一致" and detail["库存数量"] != detail["实际数量"]:
+                    diff = detail["实际数量"] - detail["库存数量"]
+                    if diff > 0:
+                        detail["差异"] = f"多{diff}件"
+                    else:
+                        detail["差异"] = f"少{abs(diff)}件"
+
+                # 如果差异为空，计算差异
+                elif not detail["差异"] or detail["差异"].strip() == "":
+                    if detail["库存数量"] == detail["实际数量"]:
+                        detail["差异"] = "一致"
+                    else:
+                        diff = detail["实际数量"] - detail["库存数量"]
+                        if diff > 0:
+                            detail["差异"] = f"多{diff}件"
+                        else:
+                            detail["差异"] = f"少{abs(diff)}件"
+
+                details.append(detail)
+
+            logger.info(f"成功读取 {len(details)} 条记录")
+
+        except ImportError:
+            logger.warning("openpyxl未安装，尝试使用pandas")
+
+            # 方法2: 使用pandas读取Excel文件
+            try:
+                import pandas as pd
+                logger.info("使用pandas读取Excel文件")
+
+                # 读取Excel文件
+                df = pd.read_excel(str(xlsx_file))
+
+                details = []
+                for index, row in df.iterrows():
+                    detail = {
+                        "序号": row.get("序号") or (index + 1),
+                        "品规名称": str(row.get("品规名称", "")),
+                        "储位名称": str(row.get("储位名称", "")),
+                        "实际品规": str(row.get("实际品规", row.get("品规名称", ""))),
+                        "库存数量": int(row.get("库存数量", 0) or 0),
+                        "实际数量": int(row.get("实际数量", 0) or 0),
+                        "差异": str(row.get("差异", "一致")),
+                        "照片1路径": str(row.get("照片1路径", "/3D_CAMERA/MAIN.JPEG")),
+                        "照片2路径": str(row.get("照片2路径", "/3D_CAMERA/DEPTH.JPEG")),
+                        "照片3路径": str(row.get("照片3路径", "/SCAN_CAMERA_1/1.JPEG")),
+                        "照片4路径": str(row.get("照片4路径", "/SCAN_CAMERA_2/1.JPEG")),
+                    }
+
+                    # 计算差异（如果未提供）
+                    if detail["差异"] == "一致" and detail["库存数量"] != detail["实际数量"]:
+                        diff = detail["实际数量"] - detail["库存数量"]
+                        if diff > 0:
+                            detail["差异"] = f"多{diff}件"
+                        else:
+                            detail["差异"] = f"少{abs(diff)}件"
+
+                    # 如果差异为空，计算差异
+                    elif not detail["差异"] or pd.isna(detail["差异"]):
+                        if detail["库存数量"] == detail["实际数量"]:
+                            detail["差异"] = "一致"
+                        else:
+                            diff = detail["实际数量"] - detail["库存数量"]
+                            if diff > 0:
+                                detail["差异"] = f"多{diff}件"
+                            else:
+                                detail["差异"] = f"少{abs(diff)}件"
+
+                    details.append(detail)
+
+                logger.info(f"成功读取 {len(details)} 条记录")
+
+            except ImportError:
+                logger.error("未找到Excel解析库，请安装openpyxl或pandas")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Excel解析库未安装，请安装openpyxl或pandas"
+                )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "code": 200,
+                "message": "获取历史任务详情成功",
+                "data": {
+                    "taskId": task_id,
+                    "fileName": xlsx_file.name,
+                    "details": details,
+                    "totalBins": len(details)
+                }
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取历史任务详情失败 {task_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取历史任务详情失败: {str(e)}"
+        )
+
+
+@app.get("/api/history/task/{task_id}/bin/{bin_location}")
+async def get_history_bin_detail(task_id: str, bin_location: str):
+    """
+    获取历史任务中特定储位的详情
+
+    Args:
+        task_id: 任务编号
+        bin_location: 储位名称
+    """
+    try:
+        # 先获取整个任务的详情
+        from fastapi import BackgroundTasks
+        import asyncio
+
+        # 创建模拟请求来调用上面的接口
+        task_details_response = await get_history_task_details(task_id)
+
+        if task_details_response.status_code != 200:
+            raise HTTPException(
+                status_code=task_details_response.status_code,
+                detail=task_details_response.body.decode(
+                ) if task_details_response.body else "获取任务详情失败"
+            )
+
+        # 解析响应数据
+        response_data = json.loads(task_details_response.body.decode())
+        if response_data["code"] != 200:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=response_data["message"]
+            )
+
+        # 查找特定储位
+        details = response_data["data"]["details"]
+        bin_detail = None
+        for detail in details:
+            if detail["储位名称"] == bin_location:
+                bin_detail = detail
+                break
+
+        if not bin_detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"储位 {bin_location} 不存在于任务 {task_id} 中"
+            )
+
+        # 获取该储位的图片
+        image_urls = []
+        photo_fields = ["照片1路径", "照片2路径", "照片3路径", "照片4路径"]
+
+        for i, photo_field in enumerate(photo_fields, 1):
+            photo_path = bin_detail.get(photo_field, "")
+            if photo_path:
+                # 构建完整的图片路径
+                image_url = f"/api/history/image?taskNo={task_id}&binLocation={bin_location}&cameraType={photo_path.split('/')[1]}&filename={Path(photo_path).name}"
+                image_urls.append({
+                    "index": i,
+                    "path": photo_path,
+                    "url": image_url,
+                    "cameraType": photo_path.split('/')[1] if '/' in photo_path else "未知",
+                    "filename": Path(photo_path).name
+                })
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "code": 200,
+                "message": "获取储位详情成功",
+                "data": {
+                    "taskId": task_id,
+                    "binLocation": bin_location,
+                    "detail": bin_detail,
+                    "imageUrls": image_urls,
+                    "hasImages": len(image_urls) > 0
+                }
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取历史任务储位详情失败 {task_id}/{bin_location}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取储位详情失败: {str(e)}"
+        )
+
+
+# 辅助函数：从文件名解析日期
+def parse_task_date_from_filename(filename: str) -> Optional[datetime]:
+    """从任务ID解析日期"""
+    try:
+        # 提取数字部分
+        import re
+        numbers = re.findall(r'\d+', filename)
+
+        if numbers:
+            # 取最长的数字串（可能是日期）
+            longest_num = max(numbers, key=len)
+
+            # 尝试解析为日期
+            if len(longest_num) >= 8:
+                date_str = longest_num[:8]
+                year = int(date_str[:4])
+                month = int(date_str[4:6])
+                day = int(date_str[6:8])
+
+                # 验证日期有效性
+                if 2000 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31:
+                    return datetime(year, month, day)
+
+        # 如果无法解析，尝试从文件名中提取其他格式
+        # 例如：HS2026011817 -> 2026-01-18
+        pattern = r'(\d{4})(\d{2})(\d{2})'
+        match = re.search(pattern, filename)
+        if match:
+            year, month, day = map(int, match.groups())
+            return datetime(year, month, day)
+
+        return None
+
+    except Exception:
+        return None
+
+
+# 辅助函数：检查任务是否过期
+def is_task_expired(task_date: datetime) -> bool:
+    """检查任务是否过期（超过6个月）"""
+    now = datetime.now()
+    six_months_ago = now.replace(year=now.year - (1 if now.month <= 6 else 0),
+                                 month=(now.month - 6) % 12 or 12)
+
+    if six_months_ago.month == 12 and now.month <= 6:
+        six_months_ago = six_months_ago.replace(year=six_months_ago.year - 1)
+
+    return task_date < six_months_ago
+
+
+# 在 /api/inventory/image 接口中修改，添加对历史任务图片的支持
+
+@app.get("/api/history/image")
+async def get_history_image(
+    taskNo: str,
+    binLocation: str,
+    cameraType: str,
+    filename: str,
+    source: str = "output"  # 新增参数：source可以是"output"、"capture_img"或"history"
+):
+    """
+    获取盘点任务中的图片
+
+    Args:
+        taskNo: 任务编号
+        binLocation: 储位名称
+        cameraType: 相机类型
+        filename: 文件名
+    """
+    try:
+        project_root = OUTPUT_ROOT
+
+        # 构建基本路径
+        base_path = project_root / taskNo / binLocation / cameraType
+
+        # 定义可能的图片扩展名
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']
+
+        image_path = None
+
+        # 尝试查找不同扩展名的文件
+        for ext in image_extensions:
+            test_path = base_path / f"{filename}{ext}"
+            if test_path.exists():
+                image_path = test_path
+                break
+
+        # 如果还没找到，尝试查找大写扩展名的文件
+        if not image_path:
+            for ext in image_extensions:
+                test_path = base_path / f"{filename}{ext.upper()}"
+                if test_path.exists():
+                    image_path = test_path
+                    break
+
+        if not image_path:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"图片不存在: {filename} (路径: {base_path})"
+            )
+
+        # 读取图片文件
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+
+        # 根据文件扩展名确定媒体类型
+        image_ext = image_path.suffix.lower()
+        if image_ext in ['.jpg', '.jpeg']:
+            media_type = "image/jpeg"
+        elif image_ext == '.png':
+            media_type = "image/png"
+        elif image_ext == '.bmp':
+            media_type = "image/bmp"
+        elif image_ext == '.gif':
+            media_type = "image/gif"
+        elif image_ext == '.webp':
+            media_type = "image/webp"
+        else:
+            # 默认使用jpeg
+            media_type = "image/jpeg"
+            logger.warning(f"未知的图片扩展名 {image_ext}，使用默认媒体类型")
+
+        # 记录成功信息
+        logger.info(
+            f"成功返回图片: {image_path.name}, 大小: {len(image_data)} bytes, 类型: {media_type}")
+
+        # 添加 CORS 头
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Expose-Headers": "*",
+            "Cache-Control": "public, max-age=3600"
+        }
+
+        return Response(content=image_data, media_type=media_type, headers=headers)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取图片失败: {str(e)}")
+        # 返回 404 时也要添加 CORS 头
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"图片不存在: {filename}",
+            headers=headers
         )
 
 if __name__ == "__main__":

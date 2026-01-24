@@ -87,52 +87,36 @@ export default function History() {
     return taskDate < sixMonthsAgo;
   };
 
-  // 模拟从指定路径读取xlsx文件
+  // 1. 修改 loadHistoryTasks 函数：
   const loadHistoryTasks = async () => {
     setLoading(true);
     try {
-      // 实际项目中，这里应该是从后端API获取文件列表
-      // 这里我们模拟一个示例任务
-      const mockTasks: HistoryTask[] = [
-        {
-          taskId: "HS2026011817",
-          taskDate: parseTaskDate("HS2026011817") || new Date(2026, 0, 18),
-          fileName: "HS2026011817.xlsx",
-          isExpired: false,
-        },
-        {
-          taskId: "HS2025121512",
-          taskDate: parseTaskDate("HS2025121512") || new Date(2025, 11, 15),
-          fileName: "HS2025121512.xlsx",
-          isExpired: false,
-        },
-        {
-          taskId: "HS2024072008",
-          taskDate: parseTaskDate("HS2024072008") || new Date(2024, 6, 20),
-          fileName: "HS2024072008.xlsx",
-          isExpired: true, // 超过6个月
-        },
-        {
-          taskId: "HS2026093014",
-          taskDate: parseTaskDate("HS2026093014") || new Date(2026, 8, 30),
-          fileName: "HS2026093014.xlsx",
-          isExpired: false,
-        },
-        {
-          taskId: "HS2025110511",
-          taskDate: parseTaskDate("HS2025110511") || new Date(2025, 10, 5),
-          fileName: "HS2025110511.xlsx",
-          isExpired: false,
-        },
-      ].filter((task) => !task.isExpired); // 过滤掉过期任务
+      const response = await fetch(`${GATEWAY_URL}/api/history/tasks`);
+      const result = await response.json();
 
-      console.log("加载的历史任务:", mockTasks);
-      setTasks(mockTasks);
+      if (result.code === 200) {
+        // 过滤掉过期任务
+        const validTasks = result.data.tasks
+          .filter((task: any) => !task.isExpired)
+          .map((task: any) => ({
+            taskId: task.taskId,
+            taskDate: task.taskDate
+              ? new Date(task.taskDate)
+              : parseTaskDate(task.taskId) || new Date(),
+            fileName: task.fileName,
+            isExpired: task.isExpired,
+          }));
 
-      // 默认选中第一个任务
-      if (mockTasks.length > 0) {
-        setSelectedTask(mockTasks[0]);
-        await loadTaskDetails(mockTasks[0]);
+        console.log("加载的历史任务:", validTasks);
+        setTasks(validTasks);
+
+        // 默认选中第一个任务
+        if (validTasks.length > 0) {
+          setSelectedTask(validTasks[0]);
+          await loadTaskDetails(validTasks[0]);
+        }
+      } else {
+        toast.error("加载历史任务失败: " + result.message);
       }
     } catch (error) {
       toast.error("加载历史任务失败");
@@ -142,72 +126,41 @@ export default function History() {
     }
   };
 
-  // 加载任务详情
+  // 2. 修改 loadTaskDetails 函数：
   const loadTaskDetails = async (task: HistoryTask) => {
     try {
-      // 实际项目中，这里应该从后端API获取文件内容
-      // 这里我们模拟解析xlsx文件
-      const mockDetails: InventoryDetail[] = [
-        {
-          序号: 1,
-          品规名称: "黄鹤楼",
-          储位名称: "20-01-01",
-          实际品规: "黄鹤楼",
-          库存数量: 50,
-          实际数量: 50,
-          差异: "一致",
-          照片1路径: "/3D_CAMERA/MAIN.JPEG",
-          照片2路径: "/3D_CAMERA/DEPTH.JPEG",
-          照片3路径: "/SCAN_CAMERA_1/1.JPEG",
-          照片4路径: "/SCAN_CAMERA_2/1.JPEG",
-        },
-        {
-          序号: 2,
-          品规名称: "玉溪",
-          储位名称: "20-01-02",
-          实际品规: "玉溪",
-          库存数量: 35,
-          实际数量: 35,
-          差异: "一致",
-          照片1路径: "/3D_CAMERA/MAIN.JPEG",
-          照片2路径: "/3D_CAMERA/DEPTH.JPEG",
-          照片3路径: "/SCAN_CAMERA_1/2.JPEG",
-          照片4路径: "/SCAN_CAMERA_2/2.JPEG",
-        },
-        {
-          序号: 3,
-          品规名称: "荷花",
-          储位名称: "20-01-03",
-          实际品规: "荷花",
-          库存数量: 28,
-          实际数量: 28,
-          差异: "一致",
-          照片1路径: "/3D_CAMERA/MAIN.JPEG",
-          照片2路径: "/3D_CAMERA/DEPTH.JPEG",
-          照片3路径: "/SCAN_CAMERA_1/3.JPEG",
-          照片4路径: "/SCAN_CAMERA_2/3.JPEG",
-        },
-        {
-          序号: 4,
-          品规名称: "利群",
-          储位名称: "20-01-04",
-          实际品规: "利群",
-          库存数量: 42,
-          实际数量: 42,
-          差异: "一致",
-          照片1路径: "/3D_CAMERA/MAIN.JPEG",
-          照片2路径: "/3D_CAMERA/DEPTH.JPEG",
-          照片3路径: "/SCAN_CAMERA_1/4.JPEG",
-          照片4路径: "/SCAN_CAMERA_2/4.JPEG",
-        },
-      ];
+      const response = await fetch(
+        `${GATEWAY_URL}/api/history/task/${task.taskId}`,
+      );
+      const result = await response.json();
 
-      setTaskDetails(mockDetails);
+      if (result.code === 200) {
+        const details: InventoryDetail[] = result.data.details.map(
+          (item: any) => ({
+            序号: item.序号,
+            品规名称: item.品规名称,
+            储位名称: item.储位名称,
+            实际品规: item.实际品规,
+            库存数量: item.库存数量,
+            实际数量: item.实际数量,
+            差异: item.差异,
+            照片1路径: item.照片1路径,
+            照片2路径: item.照片2路径,
+            照片3路径: item.照片3路径,
+            照片4路径: item.照片4路径,
+          }),
+        );
 
-      // 默认选中第一个储位
-      if (mockDetails.length > 0) {
-        setSelectedPosition(mockDetails[0].储位名称);
-        updateImagesForPosition(mockDetails[0]);
+        setTaskDetails(details);
+
+        // 默认选中第一个储位
+        if (details.length > 0) {
+          setSelectedPosition(details[0].储位名称);
+          // 传入当前任务的taskId
+          updateImagesForPosition(task.taskId, details[0]);
+        }
+      } else {
+        toast.error(`加载任务 ${task.taskId} 详情失败: ${result.message}`);
       }
     } catch (error) {
       toast.error(`加载任务 ${task.taskId} 详情失败`);
@@ -215,17 +168,57 @@ export default function History() {
     }
   };
 
-  // 更新当前显示的图片
-  const updateImagesForPosition = (detail: InventoryDetail) => {
-    // 构建完整的图片路径：任务编号+储位名称+照片路径
-    const basePath = `${selectedTask?.taskId}/${detail.储位名称}`;
-    const images = [
-      `${basePath}${detail.照片1路径}`,
-      `${basePath}${detail.照片2路径}`,
-      `${basePath}${detail.照片3路径}`,
-      `${basePath}${detail.照片4路径}`,
+  // 3. 修改 updateImagesForPosition 函数中的图片路径构建：
+  const updateImagesForPosition = (taskId: string, detail: InventoryDetail) => {
+    // 从detail中获取照片路径数组
+    const photoPaths = [
+      detail.照片1路径,
+      detail.照片2路径,
+      detail.照片3路径,
+      detail.照片4路径,
     ];
-    setCurrentImages(images);
+
+    // 构建图片URL数组
+    const images = photoPaths.map((photoPath) => {
+      // 默认值
+      if (!photoPath || photoPath.trim() === "") {
+        return "";
+      }
+
+      try {
+        // 解析照片路径，格式如：/3D_CAMERA/MAIN.JPEG
+        // 去除开头的斜杠并分割路径
+        const normalizedPath = photoPath.startsWith("/")
+          ? photoPath.substring(1)
+          : photoPath;
+
+        const parts = normalizedPath.split("/");
+
+        // 确保路径至少有两部分
+        if (parts.length < 2) {
+          console.warn(`无效的照片路径格式: ${photoPath}`);
+          return "";
+        }
+
+        // cameraType是第一部分，转为小写（例如：3D_CAMERA -> 3d_camera）
+        const cameraType = parts[0].toLowerCase();
+
+        // filename是第二部分，去除文件扩展名（例如：MAIN.JPEG -> MAIN）
+        const fullFilename = parts[1];
+        const filename = fullFilename.split(".")[0]; // 移除扩展名
+
+        // 构建URL - 使用传入的taskId
+        return `${GATEWAY_URL}/api/history/image?taskNo=${taskId}&binLocation=${detail.储位名称}&cameraType=${cameraType}&filename=${filename}`;
+      } catch (error) {
+        console.error(`解析照片路径失败: ${photoPath}`, error);
+        return "";
+      }
+    });
+
+    // 过滤掉空URL
+    const validImages = images.filter((img) => img !== "");
+    console.log("生成的图片URLs:", validImages); // 添加调试日志
+    setCurrentImages(validImages);
   };
 
   // 处理选择任务
@@ -238,10 +231,25 @@ export default function History() {
   const handleSelectPosition = (position: string) => {
     setSelectedPosition(position);
     const detail = taskDetails.find((d) => d.储位名称 === position);
-    if (detail) {
-      updateImagesForPosition(detail);
+    if (detail && selectedTask) {
+      // 传入当前任务的taskId
+      updateImagesForPosition(selectedTask.taskId, detail);
     }
   };
+
+  useEffect(() => {
+    console.log("currentImages 更新:", currentImages);
+    if (currentImages.length > 0) {
+      currentImages.forEach((img, index) => {
+        // 预加载图片以检查是否可用
+        const testImg = new Image();
+        testImg.onload = () => console.log(`预加载图片 ${index} 成功: ${img}`);
+        testImg.onerror = () =>
+          console.error(`预加载图片 ${index} 失败: ${img}`);
+        testImg.src = img;
+      });
+    }
+  }, [currentImages]);
 
   // 处理文件上传（模拟读取本地文件）
   const handleFileUpload = async (
@@ -356,29 +364,6 @@ export default function History() {
           <div>
             <h2 className="text-3xl font-bold text-green-800">盘点历史记录</h2>
             <p className="text-gray-600">查看历史盘点任务和结果详情</p>
-          </div>
-          <div className="mt-4 md:mt-0 flex items-center text-gray-500">
-            <i className="fa-solid fa-history mr-2"></i>
-            <span>共 {tasks.length} 个有效任务</span>
-            <button
-              onClick={loadHistoryTasks}
-              className="ml-4 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded-lg transition-all flex items-center"
-            >
-              <i className="fa-solid fa-sync-alt mr-1"></i>刷新
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept=".xlsx,.xls"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="ml-3 text-sm bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded-lg transition-all flex items-center"
-            >
-              <i className="fa-solid fa-upload mr-1"></i>上传Excel
-            </button>
           </div>
         </div>
 
@@ -630,20 +615,36 @@ export default function History() {
                               key={index}
                               className="aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-100 relative group"
                             >
-                              {/* 在实际项目中，这里应该是真实的图片URL */}
-                              <div className="w-full h-full flex items-center justify-center">
-                                <div className="text-center">
-                                  <i className="fa-solid fa-image text-4xl text-gray-300 mb-2"></i>
-                                  <p className="text-xs text-gray-500">
-                                    图片 {index + 1}
-                                  </p>
-                                  <p className="text-xs text-gray-400 mt-1 truncate px-2">
-                                    {image.split("/").pop()}
-                                  </p>
-                                </div>
-                              </div>
+                              <img
+                                crossOrigin="anonymous"
+                                src={image}
+                                alt={`盘点图片 ${index + 1}`}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  // 图片加载失败时显示占位符
+                                  e.currentTarget.style.display = "none";
+                                  const parent = e.currentTarget.parentElement;
+                                  if (parent) {
+                                    const placeholder =
+                                      document.createElement("div");
+                                    placeholder.className =
+                                      "w-full h-full flex items-center justify-center";
+                                    placeholder.innerHTML = `
+            <div class="text-center">
+              <i class="fa-solid fa-image text-4xl text-gray-300 mb-2"></i>
+              <p class="text-xs text-gray-500">图片 ${index + 1}</p>
+              <p class="text-xs text-gray-400 mt-1">加载失败</p>
+            </div>
+          `;
+                                    parent.appendChild(placeholder);
+                                  }
+                                }}
+                              />
                               <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                <button className="bg-white bg-opacity-90 hover:bg-opacity-100 p-2 rounded-full shadow-lg">
+                                <button
+                                  className="bg-white bg-opacity-90 hover:bg-opacity-100 p-2 rounded-full shadow-lg"
+                                  onClick={() => window.open(image, "_blank")}
+                                >
                                   <i className="fa-solid fa-expand text-gray-700"></i>
                                 </button>
                               </div>
