@@ -1982,7 +1982,9 @@ async def delete_user(request: Request):
         )
 
 ######################################### 历史数据 #########################################
-OUTPUT_ROOT = Path("/home/ubuntu/Projects/LeafDepot/output")
+# OUTPUT_ROOT = Path("/home/ubuntu/Projects/LeafDepot/output")
+# 改用相对路径
+OUTPUT_ROOT = Path(__file__).parent.parent.parent / "output"
 
 
 @app.get("/api/history/tasks")
@@ -1992,6 +1994,7 @@ async def get_history_tasks():
     读取指定路径下的所有xlsx文件，解析为历史任务列表
     """
     try:
+        print(f"文件位置: {OUTPUT_ROOT}")
         history_tasks_dir = OUTPUT_ROOT / "history_data"
 
         # 确保目录存在
