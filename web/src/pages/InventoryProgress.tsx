@@ -66,6 +66,8 @@ interface InventoryItem {
   photoDepthPath?: string;
   photoScan1Path?: string;
   photoScan2Path?: string;
+  // 识别品规（区分于系统品规，用于判断是否未识别）
+  actualSpec?: string;
 }
 
 // 从InventoryStart.tsx复制的InventoryTask接口
@@ -220,6 +222,12 @@ export default function InventoryProgress() {
       }
     >
   >(new Map());
+
+  // 防止并发加载照片的竞态问题：记录当前正在加载的 photoKey
+  const photoLoadingKeyRef = useRef<string | null>(null);
+
+  // 记录最新完成（获得新照片）的 bin，用于解决多 bin 同时完成时的行选择问题
+  const latestCompletedBinRef = useRef<{ index: number; key: string } | null>(null);
 
   // 在已有的状态后面添加 WebSocket 相关状态
   const [webSocket, setWebSocket] = useState<WebSocket | null>(null);
@@ -635,6 +643,8 @@ export default function InventoryProgress() {
     const photoKey = `${taskNo}-${binDesc}`;
     loadedPhotoKeysRef.current.delete(photoKey);
     photoPathsRef.current.delete(photoKey);
+    // 标记为正在加载，防止自动加载 effect 与手动点击竞态
+    photoLoadingKeyRef.current = photoKey;
 
     console.log("🔄 开始加载照片组...");
 
@@ -731,8 +741,21 @@ export default function InventoryProgress() {
     console.log("🔍 检查是否有新照片...");
 
     // 遍历所有储位，检查是否有新照片
+    // 记录最新发现新照片的 bin（解决多 bin 同时完成时的竞态问题）
+    let latestNewBin: {
+      index: number;
+      binLocation: string;
+      photoPaths: {
+        photo3dPath: string;
+        photoDepthPath: string;
+        photoScan1Path: string;
+        photoScan2Path: string;
+      };
+    } | null = null;
+
     inventoryItems.forEach((item, index) => {
-      const binLocation = item.binDesc || item.locationName;
+      // 统一使用 binDesc 作为储位标识符，与 handleRowClick 保持一致
+      const binLocation = item.binDesc;
       const photoKey = `${currentTaskNo}-${binLocation}`;
 
       // 获取当前照片路径
@@ -780,35 +803,57 @@ export default function InventoryProgress() {
           }
         }
 
-        // 如果有新照片，自动加载
         if (hasNewPhotos) {
-          console.log(`📸 自动加载照片: 储位 ${binLocation}`);
-          console.log(`📸 照片路径:`, currentPhotoPaths);
+          // 记录最新发现新照片的 bin（每次循环覆盖，最终保留最后一个）
+          latestNewBin = {
+            index,
+            binLocation,
+            photoPaths: currentPhotoPaths,
+          };
 
           // 标记为已加载
           loadedPhotoKeysRef.current.add(photoKey);
-
-          // 自动选中该行
-          setSelectedRowIndex(index);
-
-          // 加载照片
-          loadPhotoGroups(currentTaskNo, binLocation, currentPhotoPaths);
         }
 
         // 更新照片路径记录
         photoPathsRef.current.set(photoKey, currentPhotoPaths);
       }
     });
+
+    // 只对最新发现新照片的 bin 执行加载（避免多个 bin 同时完成时的竞态覆盖）
+    if (latestNewBin) {
+      const loadingKey = `${currentTaskNo}-${latestNewBin.binLocation}`;
+
+      // 防止重复加载：只有当前没有正在加载这个 bin 时才加载
+      if (photoLoadingKeyRef.current !== loadingKey) {
+        photoLoadingKeyRef.current = loadingKey;
+        console.log(
+          `📸 自动加载照片: 储位 ${latestNewBin.binLocation}`,
+        );
+        console.log(`📸 照片路径:`, latestNewBin.photoPaths);
+
+        // 自动选中该行
+        setSelectedRowIndex(latestNewBin.index);
+
+        // 加载照片
+        loadPhotoGroups(
+          currentTaskNo,
+          latestNewBin.binLocation,
+          latestNewBin.photoPaths,
+        );
+      }
+    }
   }, [inventoryItems, currentTaskNo, isTaskStarted]);
 
-  // 任务启动时，清除之前的照片记录
+  // 任务启动或切换时，清除之前的照片记录
   useEffect(() => {
-    if (isTaskStarted) {
-      console.log("🧹 任务启动，清除照片记录");
+    if (isTaskStarted || currentTaskNo) {
+      console.log("🧹 任务/任务编号变化，清除照片记录");
       loadedPhotoKeysRef.current.clear();
       photoPathsRef.current.clear();
+      photoLoadingKeyRef.current = null;
     }
-  }, [isTaskStarted]);
+  }, [isTaskStarted, currentTaskNo]);
 
   const handleRowClickPost = async (taskNo: string, binDesc: string) => {
     if (!isTaskStarted) {
@@ -1351,6 +1396,7 @@ export default function InventoryProgress() {
             binLocations: binLocations,
             tobaccoCode: tobaccoCode,
             rcsCode: rcsCode,
+            inventoryItems: inventoryItems, // 发送完整盘点项，用于条码失败时的品规备用
             is_sim: true, // 启用模拟模式，用于测试
           }),
         },
@@ -1382,7 +1428,7 @@ export default function InventoryProgress() {
 
           // 轮询获取盘点结果
           let pollCount = 0;
-          const maxPollCount = 120; // 最多轮询2分钟（每秒一次）
+          const maxPollCount = 600; // 最多轮询10分钟（每秒一次）
           const pollInterval = 1000; // 1秒轮询一次
 
           const pollIntervalId = setInterval(async () => {
@@ -1444,10 +1490,12 @@ export default function InventoryProgress() {
                       const newItems = [...prevItems];
                       newItems[itemIndex].actualQuantity =
                         status === "异常" ? -1 : actualQuantity;
-                      // 更新品规（如果需要）
-                      if (actualSpec) {
+                      // 更新品规（识别成功时才更新，避免"未识别"污染原始品规名）
+                      if (actualSpec && actualSpec !== "未识别") {
                         newItems[itemIndex].productName = actualSpec;
                       }
+                      // 保存识别品规（用于判断是否未识别）
+                      newItems[itemIndex].actualSpec = actualSpec || undefined;
                       // 更新照片路径
                       newItems[itemIndex].photo3dPath = photo3dPath;
                       newItems[itemIndex].photoDepthPath = photoDepthPath;
@@ -1467,6 +1515,7 @@ export default function InventoryProgress() {
                 // 任务完成后，清除已加载照片的记录，允许重新加载
                 loadedPhotoKeysRef.current.clear();
                 photoPathsRef.current.clear();
+                photoLoadingKeyRef.current = null;
 
                 // 任务完成后，如果还没有选中行，自动选中第一个有照片的储位
                 if (selectedRowIndex === null) {
@@ -2132,18 +2181,8 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                             difference !== null && difference !== 0;
                           const isSelected = selectedRowIndex === index;
 
-                          // 检查是否有接收到的 CSV 数据
-                          const csvData = receivedCSVData.find(
-                            (data) =>
-                              data.taskNo === item.taskNo &&
-                              data.binLocation === item.binCode,
-                          );
-
-                          // 确定要显示的品规名称
-                          const displayProductName =
-                            csvData?.text && csvData.text.trim() !== ""
-                              ? csvData.text
-                              : item.productName;
+                          const isSpecUnrecognized =
+                            item.actualSpec === "未识别";
 
                           return (
                             <tr
@@ -2164,9 +2203,7 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                 {index + 1}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {displayProductName ||
-                                  item.productName ||
-                                  "未知品规"}
+                                {item.productName || "未知品规"}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {item.locationName}
@@ -2174,10 +2211,12 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {actualQuantity !== null ? (
                                   <div className="flex items-center">
-                                    <span className="text-green-600 font-medium">
-                                      {displayProductName || "已识别"}
+                                    <span className={`font-medium ${isSpecUnrecognized ? "text-red-600" : "text-green-600"}`}>
+                                      {isSpecUnrecognized ? "未识别" : (item.actualSpec || item.productName)}
                                     </span>
-                                    <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+                                    {!isSpecUnrecognized && (
+                                      <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+                                    )}
                                   </div>
                                 ) : (
                                   <span className="text-gray-400">待识别</span>

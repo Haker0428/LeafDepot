@@ -103,6 +103,20 @@ class BarcodeRecognizer:
 
     def _process_image(self, image_path: str, filename: str):
         """处理单张图片的条形码识别"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(f"[Barcode] 开始识别图片: {filename}, 路径: {image_path}")
+
+        # 设置库路径环境变量
+        bin_dir = Path(self.barcode_reader_path).parent
+        lib_dir = bin_dir / "lib"
+        env = os.environ.copy()
+        if lib_dir.exists():
+            existing_ld_path = env.get('LD_LIBRARY_PATH', '')
+            env['LD_LIBRARY_PATH'] = f"{lib_dir}:{existing_ld_path}" if existing_ld_path else str(lib_dir)
+            logger.debug(f"[Barcode] 设置 LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}")
+
         args = [
             self.barcode_reader_path,
             f'-type={self.code_type}',
@@ -110,19 +124,28 @@ class BarcodeRecognizer:
         ]
 
         try:
+            # 使用参考代码的方式调用
             cp = subprocess.run(
                 args,
-                universal_newlines=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=True,
-                timeout=30  # 添加超时，避免无限等待
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env
             )
-            output = cp.stdout.strip()
-            error = cp.stderr.strip()
+
+            if cp.returncode == 0 and cp.stdout.strip():
+                output = cp.stdout.strip()
+                error = ""
+                logger.info(f"[Barcode] 识别成功 - 图片: {filename}, 条码内容: {output}")
+            else:
+                output = ""
+                error = cp.stderr.strip() if cp.stderr else f"返回码: {cp.returncode}"
+                logger.warning(f"[Barcode] 未识别到条码 - 图片: {filename}, 错误: {error}")
+
         except subprocess.TimeoutExpired as e:
             output = ""
             error = f"识别超时: {e}"
+            logger.error(f"[Barcode] 识别超时 - 图片: {filename}")
         except OSError as e:
             # 处理Exec format error等系统错误
             import platform
@@ -138,9 +161,11 @@ class BarcodeRecognizer:
                     error_msg = f"可执行文件格式不兼容: {e}"
             output = ""
             error = error_msg
-        except subprocess.CalledProcessError as e:
+            logger.error(f"[Barcode] 执行错误 - 图片: {filename}, 错误: {error_msg}")
+        except Exception as e:
             output = ""
             error = f"识别失败: {e}"
+            logger.error(f"[Barcode] 识别失败 - 图片: {filename}, 错误: {e}")
 
         self.results.append({
             "filename": filename,

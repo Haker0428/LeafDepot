@@ -10,6 +10,7 @@ import logging
 import glob
 import uuid
 import shutil
+import re
 import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -328,9 +329,9 @@ app.add_middleware(
     max_age=3600,  # 预检请求缓存时间
 )
 
-# Barcode功能开关（默认关闭）
+# Barcode功能开关（默认开启）
 ENABLE_BARCODE = os.getenv(
-    "ENABLE_BARCODE", "false").lower() in ("true", "1", "yes")
+    "ENABLE_BARCODE", "true").lower() in ("true", "1", "yes")
 
 # 导入条形码路由（如果存在且开关开启）
 if ENABLE_BARCODE:
@@ -1175,6 +1176,426 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[s
     return results
 
 
+async def run_barcode_and_detect(
+    task_no: str,
+    bin_location: str,
+    image_dir: Path,
+    pile_id: int = 1,
+    code_type: str = "ucc128"
+) -> dict:
+    """
+    执行条码识别和数量检测的公共函数
+
+    Args:
+        task_no: 任务编号
+        bin_location: 储位名称
+        image_dir: 图片目录路径 (Path对象)
+        pile_id: 初始垛型ID，默认为1
+        code_type: 条码类型，默认为ucc128
+
+    Returns:
+        dict: 包含 barcode_result, detect_result, photos 的结果字典
+    """
+    project_root = Path(__file__).parent.parent.parent
+    recognition_time = datetime.now().isoformat()
+
+    results = {
+        "taskNo": task_no,
+        "binLocation": bin_location,
+        "recognition_time": recognition_time,
+        "barcode_result": None,
+        "detect_result": None,
+        "photos": []
+    }
+
+    # ========== Step 0: 查找照片文件 ==========
+    try:
+        photos = []
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+
+        # 查找主图 (3d_camera 目录)
+        if image_dir.exists():
+            for ext in image_extensions:
+                for common_name in ['main', 'MAIN', 'raw', 'RAW', 'image', 'IMAGE']:
+                    main_file = image_dir / f"{common_name}{ext}"
+                    if main_file.exists():
+                        relative_path = f"{task_no}/{bin_location}/3d_camera/{common_name.upper()}{ext}"
+                        photos.append(f"/{relative_path}")
+                        logger.info(f"找到主图: {relative_path}")
+                        break
+                if photos:
+                    break
+
+        # 查找深度图 (3d_camera 目录，与主图在同一目录)
+        depth_dir = project_root / "capture_img" / f"{task_no}/{bin_location}/3d_camera"
+        if depth_dir.exists():
+            for ext in image_extensions:
+                depth_file = depth_dir / f"depth{ext}"
+                if depth_file.exists():
+                    relative_path = f"{task_no}/{bin_location}/3d_camera/depth{ext}"
+                    photos.append(f"/{relative_path}")
+                    logger.info(f"找到深度图: {relative_path}")
+                    break
+
+        results["photos"] = photos
+        logger.info(f"共找到 {len(photos)} 张图片")
+
+    except Exception as e:
+        logger.error(f"查找照片路径失败: {str(e)}", exc_info=True)
+        results["photos"] = []
+
+    # ========== Step 1: 执行 Barcode 模块获取垛型信息 ==========
+    detected_pile_id = pile_id  # 默认使用传入的值
+
+    if ENABLE_BARCODE and BARCODE_MODULE_AVAILABLE:
+        try:
+            logger.info(f"开始执行Barcode模块识别: {task_no}/{bin_location}")
+
+            recognizer = BarcodeRecognizer(code_type=code_type)
+
+            # Barcode 只处理 scan_camera_1 和 scan_camera_2 的图片
+            parent_dir = image_dir.parent  # 从 3d_camera 的父目录开始
+            scan_dirs = [
+                parent_dir / "scan_camera_1",
+                parent_dir / "scan_camera_2"
+            ]
+
+            all_barcode_results = []
+            for scan_dir in scan_dirs:
+                if scan_dir.exists():
+                    logger.info(f"[Barcode] 处理扫描目录: {scan_dir}")
+                    results_part = recognizer.process_folder(input_dir=str(scan_dir))
+                    # 添加目录信息到结果
+                    for r in results_part:
+                        r['source_dir'] = scan_dir.name
+                    all_barcode_results.extend(results_part)
+                else:
+                    logger.warning(f"[Barcode] 扫描目录不存在: {scan_dir}")
+
+            barcode_results = all_barcode_results
+
+            # 记录所有识别结果
+            logger.info(f"[Barcode] 识别完成，共处理 {len(barcode_results)} 张图片")
+            for idx, result in enumerate(barcode_results):
+                filename = result.get('filename', f'unknown_{idx}')
+                source_dir = result.get('source_dir', 'unknown')
+                output = result.get('output', '')
+                error = result.get('error', '')
+                if output:
+                    logger.info(f"[Barcode] 结果 #{idx+1}: 目录={source_dir}, 图片={filename}, 识别内容='{output}'")
+                elif error:
+                    logger.warning(f"[Barcode] 结果 #{idx+1}: 目录={source_dir}, 图片={filename}, 错误={error}")
+                else:
+                    logger.warning(f"[Barcode] 结果 #{idx+1}: 目录={source_dir}, 图片={filename}, 未识别到条码")
+
+            resolver = get_tobacco_case_resolver()
+
+            def extract_barcodes_from_output(output_str):
+                """从嵌套 JSON 中提取所有条码 text"""
+                if not output_str:
+                    return []
+                try:
+                    data = json.loads(output_str)
+                    barcodes = []
+                    for session in data.get('sessions', []):
+                        for barcode in session.get('barcodes', []):
+                            text = barcode.get('text')
+                            if text:
+                                barcodes.append(text)
+                    if not barcodes:
+                        logger.warning(f"[Barcode] JSON解析成功但sessions/barcodes结构为空，data keys={list(data.keys()) if isinstance(data, dict) else type(data)}")
+                    return barcodes
+                except (json.JSONDecodeError, AttributeError):
+                    # 如果不是 JSON 格式，直接返回原字符串作为单个条码
+                    return [output_str] if output_str else []
+
+            def _extract_six_digits(barcode: str) -> str:
+                """从条码中提取6位数字（忽略91前缀）"""
+                if not barcode:
+                    return ""
+                # 移除 (91) 或 91 前缀
+                processed = barcode
+                if barcode.startswith('(91)'):
+                    processed = barcode[4:]
+                elif barcode.startswith('91'):
+                    processed = barcode[2:]
+                # 提取前6位连续数字
+                import re
+                match = re.search(r'(\d{6})', processed)
+                return match.group(1) if match else ""
+
+            resolved_info = None
+            tried_barcodes = []  # 记录尝试过的条码
+            for bar_result in barcode_results:
+                output = bar_result.get('output', '')
+                filename = bar_result.get('filename', 'unknown')
+                source_dir = bar_result.get('source_dir', 'unknown')
+
+                # 解析嵌套 JSON 提取所有条码
+                barcode_texts = extract_barcodes_from_output(output)
+
+                # 诊断日志：条码提取结果
+                if not barcode_texts:
+                    logger.warning(f"[Barcode] 解析条码失败: 图片={filename}, output长度={len(output)}, output前100字符='{output[:100]}'")
+
+                for barcode_text in barcode_texts:
+                    # 输出条码处理详细日志
+                    logger.info(f"成功识别条码: {barcode_text}")
+                    logger.info(f"原始条码数据: {barcode_text}")
+                    processed_barcode = barcode_text
+                    if barcode_text.startswith('(91)'):
+                        processed_barcode = barcode_text[4:]
+                    elif barcode_text.startswith('91'):
+                        processed_barcode = barcode_text[2:]
+                    logger.info(f"移除91前缀后: {processed_barcode}")
+                    six_digits = _extract_six_digits(barcode_text)
+                    logger.info(f"提取的6位数字: {six_digits}")
+
+                    logger.info(f"[Barcode] 尝试匹配烟箱信息: 目录={source_dir}, 图片={filename}")
+                    tried_barcodes.append({'filename': filename, 'source_dir': source_dir, 'barcode': barcode_text, 'six_digits': six_digits})
+                    resolved_info = resolver.resolve(barcode_text)
+                    if resolved_info['success']:
+                        product_name = resolved_info.get('product_name', '')
+                        logger.info(f"成功匹配烟箱信息: {product_name}")
+                        break
+                    else:
+                        logger.warning(f"[Barcode] 条码匹配失败: '{barcode_text}', 原因: {resolved_info.get('message', '未找到匹配记录')}")
+                if resolved_info and resolved_info['success']:
+                    break
+
+            if resolved_info and resolved_info['success']:
+                detected_pile_id = resolved_info['pile_id']
+                logger.info(f"映射后的 pile_id: {detected_pile_id} (原请求: {pile_id})")
+
+                results["barcode_result"] = {
+                    "image_path": str(image_dir),
+                    "code_type": code_type,
+                    "six_digit_code": resolved_info.get('six_digit_code'),
+                    "stack_type_1": resolved_info.get('stack_type_1'),
+                    "product_name": resolved_info.get('product_name'),
+                    "tobacco_code": resolved_info.get('tobacco_code'),
+                    "mapped_pile_id": detected_pile_id,
+                    "total_images": len(barcode_results),
+                    "status": "success"
+                }
+            else:
+                if len(tried_barcodes) == 0:
+                    logger.warning(f"[Barcode] 未检测到任何条码（目录可能不存在或图片为空）")
+                else:
+                    logger.warning(f"条码识别成功但未匹配到烟箱信息，共尝试 {len(tried_barcodes)} 个条码")
+                for tried in tried_barcodes:
+                    logger.warning(f"  - 目录: {tried['source_dir']}, 图片: {tried['filename']}, 条码: '{tried['barcode']}'")
+                results["barcode_result"] = {
+                    "image_path": str(image_dir),
+                    "code_type": code_type,
+                    "results": barcode_results,
+                    "tried_barcodes": tried_barcodes,
+                    "total_images": len(barcode_results),
+                    "status": "no_match",
+                    "message": "条码识别成功但未匹配到烟箱信息"
+                }
+
+        except Exception as e:
+            logger.error(f"Barcode模块识别失败: {str(e)}", exc_info=True)
+            results["barcode_result"] = {
+                "status": "failed",
+                "error": str(e)
+            }
+    else:
+        logger.info("Barcode模块已禁用，跳过识别")
+        results["barcode_result"] = {
+            "status": "disabled",
+            "message": "条形码功能已禁用（ENABLE_BARCODE=false）"
+        }
+
+    # ========== Step 2: 执行 Detect 模块 ==========
+    if DETECT_MODULE_AVAILABLE:
+        if not image_dir.exists() or not image_dir.is_dir():
+            logger.error(f"图片目录不存在: {image_dir}")
+            results["detect_result"] = {
+                "status": "failed",
+                "error": "图片目录不存在"
+            }
+            return results
+
+        try:
+            logger.info(f"开始执行Detect模块识别: {task_no}/{bin_location}, pile_id={detected_pile_id}")
+
+            # 查找主图片文件
+            image_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+            image_files = []
+
+            common_names = ['main', 'raw', 'image', 'img', 'photo']
+            for name in common_names:
+                for ext in image_extensions:
+                    common_file = image_dir / f"{name}{ext}"
+                    if common_file.exists():
+                        image_files.append(common_file)
+                        break
+                if image_files:
+                    break
+
+            if not image_files:
+                for ext in image_extensions:
+                    image_files.extend(list(image_dir.glob(f"*{ext}")))
+                    if image_files:
+                        break
+
+            if not image_files:
+                results["detect_result"] = {
+                    "status": "failed",
+                    "error": f"在路径 {image_dir} 中未找到图片文件"
+                }
+                return results
+
+            image_path_for_detect = str(image_files[0])
+
+            # 查找深度图（与主图在同一目录 3d_camera）
+            depth_dir = project_root / "capture_img" / task_no / bin_location / "3d_camera"
+            depth_image_path_for_detect = None
+            for ext in image_extensions:
+                depth_file = depth_dir / f"depth{ext}"
+                if depth_file.exists():
+                    depth_image_path_for_detect = str(depth_file)
+                    logger.info(f"找到深度图文件: {depth_image_path_for_detect}")
+                    break
+
+            if not depth_image_path_for_detect:
+                logger.warning(f"深度图文件不存在: {depth_dir}/depth.*")
+
+            # 构建debug输出目录
+            debug_output_dir = project_root / "debug" / task_no / bin_location
+            debug_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # 创建日志文件处理器
+            log_file_path = debug_output_dir / f"debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            file_handler = logging.FileHandler(str(log_file_path), encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+            file_formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(file_formatter)
+            logger.addHandler(file_handler)
+
+            try:
+                logger.info(f"Debug输出目录: {debug_output_dir}")
+                logger.info(f"使用主图片: {image_path_for_detect}")
+                if depth_image_path_for_detect:
+                    logger.info(f"使用深度图: {depth_image_path_for_detect}")
+
+                # 执行检测
+                total_count = count_boxes(
+                    image_path=image_path_for_detect,
+                    pile_id=detected_pile_id,
+                    depth_image_path=depth_image_path_for_detect,
+                    enable_debug=True,
+                    enable_visualization=True,
+                    output_dir=str(debug_output_dir)
+                )
+
+                logger.info(f"Detect模块识别完成，箱数: {total_count}")
+
+                results["detect_result"] = {
+                    "image_path": image_path_for_detect,
+                    "pile_id": detected_pile_id,
+                    "total_count": total_count,
+                    "status": "success"
+                }
+
+            except Exception as e:
+                logger.error(f"Detect模块识别失败: {str(e)}", exc_info=True)
+                results["detect_result"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+            finally:
+                logger.removeHandler(file_handler)
+                file_handler.close()
+
+        except Exception as e:
+            logger.error(f"Detect模块初始化失败: {str(e)}", exc_info=True)
+            results["detect_result"] = {
+                "status": "failed",
+                "error": str(e)
+            }
+    else:
+        logger.info("Detect模块不可用，跳过识别")
+        results["detect_result"] = {
+            "status": "unavailable",
+            "message": "检测模块不可用"
+        }
+
+    # ========== Step 3: 更新任务状态 ==========
+    storage = get_task_state_storage()
+    inventory_task_bins = storage["bins"]
+    inventory_task_details = storage["details"]
+
+    if task_no in inventory_task_bins:
+        for bin_status in inventory_task_bins[task_no]:
+            if bin_status.bin_location == bin_location:
+                bin_status.detect_result = results["detect_result"]
+                bin_status.barcode_result = results["barcode_result"]
+                bin_status.recognition_time = recognition_time
+                break
+
+    # 存储到任务详情
+    if task_no not in inventory_task_details:
+        inventory_task_details[task_no] = {}
+
+    if bin_location not in inventory_task_details[task_no]:
+        inventory_task_details[task_no][bin_location] = {}
+
+    inventory_task_details[task_no][bin_location]["recognition"] = results
+
+    # 保存识别结果为ini文件
+    try:
+        import configparser
+        config = configparser.ConfigParser()
+
+        config.add_section('BasicInfo')
+        config.set('BasicInfo', 'taskNo', task_no)
+        config.set('BasicInfo', 'binLocation', bin_location)
+        config.set('BasicInfo', 'recognition_time', recognition_time)
+
+        config.add_section('ImagePaths')
+        config.set('ImagePaths', 'original_image_dir', str(image_dir))
+        if results.get("detect_result") and results["detect_result"].get("image_path"):
+            config.set('ImagePaths', 'detect_image_path', results["detect_result"]["image_path"])
+
+        if results.get("detect_result"):
+            config.add_section('DetectResult')
+            detect_result = results["detect_result"]
+            if detect_result.get("status"):
+                config.set('DetectResult', 'status', detect_result["status"])
+            if detect_result.get("total_count") is not None:
+                config.set('DetectResult', 'total_count', str(detect_result["total_count"]))
+            if detect_result.get("pile_id") is not None:
+                config.set('DetectResult', 'pile_id', str(detect_result["pile_id"]))
+            if detect_result.get("error"):
+                config.set('DetectResult', 'error', detect_result["error"])
+
+        if results.get("barcode_result"):
+            config.add_section('BarcodeResult')
+            barcode_result = results["barcode_result"]
+            if barcode_result.get("status"):
+                config.set('BarcodeResult', 'status', barcode_result["status"])
+            if barcode_result.get("mapped_pile_id") is not None:
+                config.set('BarcodeResult', 'mapped_pile_id', str(barcode_result["mapped_pile_id"]))
+            if barcode_result.get("product_name"):
+                config.set('BarcodeResult', 'product_name', barcode_result["product_name"])
+
+        ini_file_path = image_dir / "recognition_result.ini"
+        with open(ini_file_path, 'w', encoding='utf-8') as f:
+            config.write(f)
+        logger.info(f"识别结果已保存到: {ini_file_path}")
+
+    except Exception as e:
+        logger.error(f"保存识别结果ini文件失败: {str(e)}", exc_info=True)
+
+    return results
+
+
 async def process_single_bin_location(task_no: str, bin_location: str, index: int, total: int, is_sim: bool = False):
     """处理单个储位的完整流程"""
     result = {
@@ -1202,67 +1623,96 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
             project_root = Path(__file__).parent.parent.parent
             capture_img_dir = project_root / "capture_img" / task_no / bin_location
 
-            # 创建目录
-            capture_img_dir.mkdir(parents=True, exist_ok=True)
+            # 如果目录已存在，跳过拷贝
+            if capture_img_dir.exists():
+                logger.info(f"模拟模式：目录已存在，跳过拷贝 {capture_img_dir}")
+            else:
+                # 创建目录
+                capture_img_dir.mkdir(parents=True, exist_ok=True)
 
-            # 复制模拟图片到 capture_img 目录
-            # 4张照片的映射关系：
-            # 1.jpg -> 3d_camera/main.jpg
-            # 2.jpg -> 3d_camera/depth.jpg
-            # 3.jpg -> scan_camera_1/main.jpg
-            # 4.jpg -> scan_camera_2/main.jpg
-            public_dir = project_root / "web" / "src" / "public"
-            image_mapping = [
-                ("1.jpg", "3d_camera", "main.jpg"),
-                ("2.jpg", "3d_camera", "depth.jpg"),
-                ("3.jpg", "scan_camera_1", "main.jpg"),
-                ("4.jpg", "scan_camera_2", "main.jpg")
-            ]
+                # 复制模拟图片到 capture_img 目录
+                # 4张照片的映射关系：
+                # 1.jpg -> 3d_camera/main.jpg
+                # 2.jpg -> 3d_camera/depth.jpg (用于算法计算)
+                #       -> 3d_camera/depth_color.jpg (用于UI显示)
+                # 3.jpg -> scan_camera_1/main.jpg
+                # 4.jpg -> scan_camera_2/main.jpg
+                public_dir = project_root / "web" / "src" / "public"
+                image_mapping = [
+                    ("1.jpg", "3d_camera", "main.jpg"),
+                    ("2.jpg", "3d_camera", "depth.jpg"),         # 用于算法
+                    ("2.jpg", "3d_camera", "depth_color.jpg"),   # 用于UI显示
+                    ("3.jpg", "scan_camera_1", "main.jpg"),
+                    ("4.jpg", "scan_camera_2", "main.jpg")
+                ]
 
-            for img_file, camera_dir, dest_filename in image_mapping:
-                src_file = public_dir / img_file
-                dest_dir = capture_img_dir / camera_dir
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                dest_file = dest_dir / dest_filename
+                for img_file, camera_dir, dest_filename in image_mapping:
+                    src_file = public_dir / img_file
+                    dest_dir = capture_img_dir / camera_dir
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    dest_file = dest_dir / dest_filename
 
-                if src_file.exists():
-                    shutil.copy(src_file, dest_file)
-                    logger.info(f"模拟模式：复制图片 {src_file} -> {dest_file}")
-                else:
-                    logger.warning(f"模拟图片不存在: {src_file}")
+                    if src_file.exists():
+                        shutil.copy(src_file, dest_file)
+                        logger.info(f"模拟模式：复制图片 {src_file} -> {dest_file}")
+                    else:
+                        logger.warning(f"模拟图片不存在: {src_file}")
 
-            # 设置模拟图片路径
-            result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main.jpg"
-            result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth.jpg"
+            # 设置模拟图片路径（UI显示用旋转后的图片）
+            result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
+            result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
             result["photoScan1Path"] = f"/{task_no}/{bin_location}/scan_camera_1/main.jpg"
             result["photoScan2Path"] = f"/{task_no}/{bin_location}/scan_camera_2/main.jpg"
 
             logger.info(f"模拟模式：抓图成功: {bin_location}")
 
-            # 模拟算法接口
-            # 从inventoryItems中查找匹配的储位信息
-            inventory_item = None
-            if task_no in inventory_task_details and "inventoryItems" in inventory_task_details[task_no]:
-                for item in inventory_task_details[task_no]["inventoryItems"]:
-                    if item.get("locationName") == bin_location:
-                        inventory_item = item
-                        break
+            # ========== 调用公共识别函数 ==========
+            # 构建3d_camera目录路径
+            image_dir = capture_img_dir / "3d_camera"
 
-            # 获取系统库存数量和品规名称（从inventoryItems中获取）
-            system_quantity = 0
-            system_spec_name = ""
+            # 调用公共识别函数（Barcode + Detect）
+            recognition_result = await run_barcode_and_detect(
+                task_no=task_no,
+                bin_location=bin_location,
+                image_dir=image_dir,
+                pile_id=1,
+                code_type="ucc128"
+            )
 
-            if inventory_item:
-                system_quantity = inventory_item.get("systemQuantity", 0)
-                system_spec_name = inventory_item.get(
-                    "productName", "")  # 品规名称
+            # 从识别结果中提取数量和品规
+            detect_result = recognition_result.get("detect_result", {})
+            barcode_result = recognition_result.get("barcode_result", {})
 
-            # 模拟模式下，实际品规使用品规名称，实际数量使用系统库存数量
-            result["actualQuantity"] = system_quantity
-            result["actualSpec"] = system_spec_name  # 使用品规名称，而不是"模拟品规"
+            # 优先使用识别结果，如果识别失败则使用系统库存作为备用
+            if detect_result.get("status") == "success" and detect_result.get("total_count") is not None:
+                result["actualQuantity"] = detect_result["total_count"]
+                logger.info(f"模拟模式：使用Detect识别数量: {result['actualQuantity']}")
+            else:
+                # 识别失败，从inventoryItems中获取系统数量作为备用
+                inventory_item = None
+                if task_no in inventory_task_details and "inventoryItems" in inventory_task_details[task_no]:
+                    for item in inventory_task_details[task_no]["inventoryItems"]:
+                        if item.get("locationName") == bin_location:
+                            inventory_item = item
+                            break
+                result["actualQuantity"] = inventory_item.get("systemQuantity", 0) if inventory_item else 0
+                logger.info(f"模拟模式：Detect识别失败，使用系统数量: {result['actualQuantity']}")
+
+            # 优先使用条码识别的品规，识别失败则显示"未识别"
+            if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
+                result["actualSpec"] = barcode_result["product_name"]
+                logger.info(f"模拟模式：使用Barcode识别品规: {result['actualSpec']}")
+            else:
+                result["actualSpec"] = "未识别"
+                logger.info(f"模拟模式：Barcode识别失败，品规=未识别")
+
+            # 更新结果中的识别详情
+            result["barcodeResult"] = barcode_result
+            result["detectResult"] = detect_result
+            result["photos"] = recognition_result.get("photos", [])
 
             logger.info(
-                f"模拟模式：算法接口调用成功，实际数量: {result['actualQuantity']}, 品规: {result['actualSpec']}")
+                f"模拟模式：识别完成，实际数量: {result['actualQuantity']}, 品规: {result['actualSpec']}")
 
             # 更新任务状态中的图片和计算结果（供前端获取）
             if task_no in inventory_task_bins:
@@ -1279,6 +1729,9 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
                         }
                         bin_status.capture_time = result["startTime"]
                         bin_status.compute_time = datetime.now().isoformat()
+                        # 新增识别结果
+                        bin_status.detect_result = detect_result
+                        bin_status.barcode_result = barcode_result
                         break
 
             # 存储详细结果
@@ -1297,7 +1750,9 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
                 },
                 "capture_time": result["startTime"],
                 "compute_time": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
+                "updated_at": datetime.now().isoformat(),
+                # 新增识别结果
+                "recognition": recognition_result
             }
 
             result["status"] = "成功"
@@ -1346,30 +1801,51 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
                     result["photoDepthPath"] = capture_results.get(
                         "photoDepthPath")
 
-                    # 执行算法接口
-                    # 从inventoryItems中查找匹配的储位信息
-                    inventory_item = None
-                    if task_no in inventory_task_details and "inventoryItems" in inventory_task_details[task_no]:
-                        for item in inventory_task_details[task_no]["inventoryItems"]:
-                            if item.get("locationName") == bin_location:
-                                inventory_item = item
-                                break
+                    # ========== 调用公共识别函数 ==========
+                    # 构建3d_camera目录路径
+                    project_root = Path(__file__).parent.parent.parent
+                    capture_img_dir = project_root / "capture_img" / task_no / bin_location
+                    image_dir = capture_img_dir / "3d_camera"
 
-                    # 获取系统库存数量和品规名称（从inventoryItems中获取）
-                    system_quantity = 0
-                    system_spec_name = ""
+                    # 调用公共识别函数（Barcode + Detect）
+                    recognition_result = await run_barcode_and_detect(
+                        task_no=task_no,
+                        bin_location=bin_location,
+                        image_dir=image_dir,
+                        pile_id=1,
+                        code_type="ucc128"
+                    )
 
-                    if inventory_item:
-                        system_quantity = inventory_item.get(
-                            "systemQuantity", 0)
-                        system_spec_name = inventory_item.get(
-                            "productName", "")  # 品规名称
+                    detect_result = recognition_result.get("detect_result", {})
+                    barcode_result = recognition_result.get("barcode_result", {})
 
-                    result["actualQuantity"] = system_quantity
-                    result["actualSpec"] = system_spec_name  # 使用品规名称
+                    # 优先使用识别结果，如果识别失败则使用系统库存作为备用
+                    if detect_result.get("status") == "success" and detect_result.get("total_count") is not None:
+                        result["actualQuantity"] = detect_result["total_count"]
+                        logger.info(f"真实模式：使用Detect识别数量: {result['actualQuantity']}")
+                    else:
+                        # 识别失败，从inventoryItems中获取系统数量作为备用
+                        inventory_item = None
+                        if task_no in inventory_task_details and "inventoryItems" in inventory_task_details[task_no]:
+                            for item in inventory_task_details[task_no]["inventoryItems"]:
+                                if item.get("locationName") == bin_location:
+                                    inventory_item = item
+                                    break
+                        result["actualQuantity"] = inventory_item.get("systemQuantity", 0) if inventory_item else 0
+                        logger.info(f"真实模式：Detect识别失败，使用系统数量: {result['actualQuantity']}")
 
-                    logger.info(
-                        f"真实模式：算法接口调用成功，实际数量: {result['actualQuantity']}, 品规: {result['actualSpec']}")
+                    # 优先使用条码识别的品规，识别失败则显示"未识别"
+                    if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
+                        result["actualSpec"] = barcode_result["product_name"]
+                        logger.info(f"真实模式：使用Barcode识别品规: {result['actualSpec']}")
+                    else:
+                        result["actualSpec"] = "未识别"
+                        logger.info(f"真实模式：Barcode识别失败，品规=未识别")
+
+                    # 更新结果中的识别详情
+                    result["barcodeResult"] = barcode_result
+                    result["detectResult"] = detect_result
+                    result["photos"] = recognition_result.get("photos", [])
 
                     # 更新任务状态中的图片和计算结果（供前端获取）
                     if task_no in inventory_task_bins:
@@ -1382,6 +1858,9 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
                                 }
                                 bin_status.capture_time = result["startTime"]
                                 bin_status.compute_time = datetime.now().isoformat()
+                                # 新增识别结果
+                                bin_status.detect_result = detect_result
+                                bin_status.barcode_result = barcode_result
                                 break
 
                     # 存储详细结果
@@ -1396,7 +1875,9 @@ async def process_single_bin_location(task_no: str, bin_location: str, index: in
                         },
                         "capture_time": result["startTime"],
                         "compute_time": datetime.now().isoformat(),
-                        "updated_at": datetime.now().isoformat()
+                        "updated_at": datetime.now().isoformat(),
+                        # 新增识别结果
+                        "recognition": recognition_result
                     }
 
                     result["status"] = "成功"
@@ -1487,21 +1968,16 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
     inventory_results = []
 
     try:
-        # 循环处理每个储位
-        for i, bin_location in enumerate(bin_locations):
-            logger.info(f"开始处理储位 {i+1}/{len(bin_locations)}: {bin_location}")
+        # 并行处理所有储位
+        logger.info(f"开始并行处理 {len(bin_locations)} 个储位")
 
-            # 更新当前步骤
-            inventory_tasks[task_no].current_step = i + 1
+        # 先将所有储位状态设为运行中
+        if task_no in inventory_task_bins:
+            for bin_status in inventory_task_bins[task_no]:
+                bin_status.status = "running"
 
-            # 更新储位状态为运行中
-            if task_no in inventory_task_bins:
-                for bin_status in inventory_task_bins[task_no]:
-                    if bin_status.bin_location == bin_location:
-                        bin_status.status = "running"
-                        break
-
-            # 处理单个储位
+        # 并行执行所有 bin 的处理
+        async def process_and_wrap(i: int, bin_location: str):
             result = await process_single_bin_location(
                 task_no=task_no,
                 bin_location=bin_location,
@@ -1509,15 +1985,21 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 total=len(bin_locations),
                 is_sim=is_sim
             )
+            return bin_location, result
 
-            # 保存结果
+        tasks = [
+            process_and_wrap(i, bin_location)
+            for i, bin_location in enumerate(bin_locations)
+        ]
+        bin_results = await asyncio.gather(*tasks)
+
+        # 更新每个 bin 的状态并收集结果
+        for bin_location, result in bin_results:
+            # 更新 bin 状态
             if task_no in inventory_task_bins:
                 for bin_status in inventory_task_bins[task_no]:
                     if bin_status.bin_location == bin_location:
-                        if result["status"] == "成功":
-                            bin_status.status = "completed"
-                        else:
-                            bin_status.status = "failed"
+                        bin_status.status = "completed" if result["status"] == "成功" else "failed"
                         break
 
             # 从原始盘点项中查找匹配的储位信息
@@ -1530,11 +2012,10 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
 
             # 计算差异
             actual_qty = result.get("actualQuantity", 0)
-            system_qty = inventory_item.get(
-                "systemQuantity", 0) if inventory_item else 0
+            system_qty = inventory_item.get("systemQuantity", 0) if inventory_item else 0
             difference = actual_qty - system_qty
 
-            # 收集盘点结果（包括成功和失败的）
+            # 收集盘点结果
             inventory_results.append({
                 "binLocation": bin_location,
                 "status": result["status"],
@@ -1545,14 +2026,12 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 "photoScan1Path": result.get("photoScan1Path", ""),
                 "photoScan2Path": result.get("photoScan2Path", ""),
                 "error": result.get("error"),
-                # 新增字段用于Excel导出
-                # 品规名称
                 "specName": inventory_item.get("productName", "") if inventory_item else "",
-                "systemQuantity": system_qty,  # 库存数量
-                "difference": difference,  # 差异
+                "systemQuantity": system_qty,
+                "difference": difference,
             })
 
-            # 即使储位失败，也继续执行其他储位（不抛出异常）
+        logger.info(f"所有 {len(bin_locations)} 个储位处理完成")
 
         # 更新任务状态为完成
         inventory_tasks[task_no].status = "completed"
@@ -2013,27 +2492,14 @@ async def scan_and_recognize(request: ScanAndRecognizeRequest = Body(...)):
 
                 photos.extend(main_images)
 
-                # 查找深度图 (depth 目录)
+                # 查找深度图 (3d_camera 目录，与主图在同一目录)
                 depth_dir = project_root / "capture_img" / \
-                    f"{request.taskNo}/{request.binLocation}/depth"
+                    f"{request.taskNo}/{request.binLocation}/3d_camera"
                 if depth_dir.exists():
                     for ext in image_extensions:
-                        # 查找常见的文件名
-                        for common_name in ['color', 'COLOR', 'depth', 'DEPTH']:
-                            depth_file = depth_dir / f"{common_name}{ext}"
-                            if depth_file.exists():
-                                relative_path = f"{request.taskNo}/{request.binLocation}/depth/{common_name.upper()}{ext}"
-                                photos.append(f"/{relative_path}")
-                                logger.info(f"找到深度图: {relative_path}")
-                                break
-                        if len(photos) > len(main_images):  # 已经找到深度图
-                            break
-
-                        # 如果没有找到常见文件名，查找第一张图片
-                        depth_files = list(depth_dir.glob(f"*{ext}"))
-                        if depth_files and len(photos) == len(main_images):
-                            depth_file = depth_files[0]
-                            relative_path = f"{request.taskNo}/{request.binLocation}/depth/{depth_file.name}"
+                        depth_file = depth_dir / f"depth{ext}"
+                        if depth_file.exists():
+                            relative_path = f"{request.taskNo}/{request.binLocation}/3d_camera/depth{ext}"
                             photos.append(f"/{relative_path}")
                             logger.info(f"找到深度图: {relative_path}")
                             break
