@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Build
+build/
+CMakeCache.txt
+CMakeFiles/
+*.o
+*.so
+
+# Node.js
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# OS
+.DS_Store
+*.log
+
+# Runtime
+logs/
+debug/
+output/
+capture_img/
+.pids/
+
+# Backup
+*.bak
+*bak*/
+
+# Env
+.env
+.env.*
+
+# Test
+.pytest_cache/

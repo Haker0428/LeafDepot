@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/hepeng/Project/leafDepotBak/Leafdepot unzip -o /Users/hepeng/Project/leafDepotBak/**)",
+      "Bash(git checkout:*)",
+      "Bash(git ls-tree:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/hepeng/Project/leafDepotBak/Leafdepot/.git"
+    ]
+  }
+}

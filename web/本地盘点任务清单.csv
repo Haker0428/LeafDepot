@@ -1,0 +1,2 @@
+序号,taskNo,taskDetailId,binId,binDesc,binCode,itemId,itemCode,itemDesc,invQty,qtyUnit,countQty,status
+1,T20251117012,T20251117012,BIN-012,22-02-01,22-02-01,ITEM012,130801,钻石(软荷花),42,件,0,1

@@ -1,0 +1,14 @@
+{
+  "name": "leaf-depot",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter web dev --port 5000 --host",
+    "build": "pnpm --filter web build",
+    "start": "pnpm --filter web start --port 5000"
+  },
+  "devDependencies": {
+    "pnpm": "^10.24.0"
+  }
+}
