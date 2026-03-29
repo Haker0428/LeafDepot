@@ -21,10 +21,14 @@ const API_BASE = `${GATEWAY_URL}/api/operationLogs`;
  */
 export async function addOperationLog(log: Omit<OperationLog, 'id' | 'timestamp'>): Promise<OperationLog> {
   try {
+    // 从 sessionStorage 获取 authToken
+    const authToken = sessionStorage.getItem('authToken');
+
     const response = await fetch(API_BASE, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(authToken ? { 'authToken': authToken } : {}),
       },
       body: JSON.stringify(log),
     });

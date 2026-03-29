@@ -163,6 +163,7 @@ export default function InventoryProgress() {
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [progress, setProgress] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingAndCreating, setIsSavingAndCreating] = useState(false);
   const [isSaving2LMS, setIsSaving2LMS] = useState(false);
   const [isIssuingTask, setIsIssuingTask] = useState(false);
   const [isStartingTask, setIsStartingTask] = useState(false);
@@ -1074,6 +1075,14 @@ export default function InventoryProgress() {
     abnormalTasks: [] as any[],
   });
 
+  // 编辑品规状态
+  const [editingSpecId, setEditingSpecId] = useState<string | null>(null);
+  const [editSpecValue, setEditSpecValue] = useState<string>("");
+
+  // 编辑差异状态
+  const [editingDiffId, setEditingDiffId] = useState<string | null>(null);
+  const [editDiffValue, setEditDiffValue] = useState<string>("");
+
   // 在已有的状态后面添加
   const [gatewayStatus, setGatewayStatus] = useState<string>("disconnected");
   const [robotStatus, setRobotStatus] = useState<string>("idle");
@@ -1383,6 +1392,9 @@ export default function InventoryProgress() {
 
       toast.info("发送任务到网关...");
 
+      // 从 sessionStorage 获取 authToken
+      const authToken = sessionStorage.getItem('authToken');
+
       // 发送任务到网关
       const taskResponse = await fetch(
         `${GATEWAY_URL}/api/inventory/start-inventory`,
@@ -1390,6 +1402,7 @@ export default function InventoryProgress() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...(authToken ? { 'authToken': authToken } : {}),
           },
           body: JSON.stringify({
             taskNo: currentTaskNo,
@@ -1397,7 +1410,6 @@ export default function InventoryProgress() {
             tobaccoCode: tobaccoCode,
             rcsCode: rcsCode,
             inventoryItems: inventoryItems, // 发送完整盘点项，用于条码失败时的品规备用
-            is_sim: true, // 启用模拟模式，用于测试
           }),
         },
       );
@@ -1741,8 +1753,8 @@ export default function InventoryProgress() {
         binLocation: item.locationName,
         status: item.actualQuantity !== null ? "成功" : "异常",
         actualQuantity: item.actualQuantity,
-        actualSpec: item.productName, // 实际品规
-        specName: item.productName, // 品规名称
+        actualSpec: item.actualSpec || item.productName, // 实际品规（优先用校准值）
+        specName: item.productName, // 系统品规名称
         systemQuantity: item.systemQuantity, // 库存数量
         difference:
           item.actualQuantity !== null
@@ -1818,6 +1830,108 @@ export default function InventoryProgress() {
       toast.error(`保存盘点结果失败`);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // 完成盘点并创建下个盘点（保存盘点结果 + 更新 bins_data.xlsx 并跳转）
+  const handleSaveInventoryAndCreateNext = async () => {
+    if (!currentTaskNo) {
+      toast.error("任务编号不存在");
+      return;
+    }
+
+    // 检查是否有未识别的品规
+    const unrecognizedItems = inventoryItems.filter(
+      (item) => item.actualSpec === "未识别" || !item.actualSpec
+    );
+
+    if (unrecognizedItems.length > 0) {
+      const unrecognizedLocations = unrecognizedItems
+        .map((item) => item.locationName || item.binDesc)
+        .join("、");
+      toast.error(
+        `以下储位品规未识别，请先校准：${unrecognizedLocations}`,
+        { duration: 5000 }
+      );
+      return;
+    }
+
+    setIsSavingAndCreating(true);
+
+    try {
+      // 1. 先保存盘点结果到历史记录
+      const inventoryResults = inventoryItems.map((item) => ({
+        binLocation: item.locationName,
+        status: item.actualQuantity !== null ? "成功" : "异常",
+        actualQuantity: item.actualQuantity,
+        actualSpec: item.actualSpec || item.productName, // 实际品规（优先用校准值）
+        specName: item.productName, // 系统品规名称
+        systemQuantity: item.systemQuantity,
+        difference:
+          item.actualQuantity !== null
+            ? item.actualQuantity - item.systemQuantity
+            : 0,
+        photo3dPath: item.photo3dPath || "",
+        photoDepthPath: item.photoDepthPath || "",
+        photoScan1Path: item.photoScan1Path || "",
+        photoScan2Path: item.photoScan2Path || "",
+      }));
+
+      const saveResponse = await fetch(`${GATEWAY_URL}/api/inventory/save-results`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          taskNo: currentTaskNo,
+          inventoryResults: inventoryResults,
+        }),
+      });
+
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json();
+        throw new Error(errorData.detail || "保存盘点结果失败");
+      }
+
+      const saveResult = await saveResponse.json();
+      if (saveResult.code !== 200) {
+        throw new Error(saveResult.message || "保存盘点结果失败");
+      }
+      console.log("盘点结果已保存到历史记录:", saveResult.data?.xlsxFile);
+
+      // 2. 更新 bins_data.xlsx 中的数量和品规
+      const updateResponse = await fetch(`${GATEWAY_URL}/api/inventory/update-bins-data`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          inventoryItems: inventoryItems.map((item) => ({
+            ...item,
+            actualSpec: item.actualSpec || item.productName,
+          })),
+        }),
+      });
+
+      const updateResult = await updateResponse.json();
+      if (updateResult.code === 200) {
+        toast.success(updateResult.message);
+      } else {
+        console.warn("更新 bins_data.xlsx 失败:", updateResult.message);
+        toast.error(updateResult.message || "更新失败");
+        return;
+      }
+
+      // 跳转到创建下一个盘点页面
+      toast.success("盘点结果已保存，即将跳转到创建盘点页面...");
+      setTimeout(() => {
+        navigate("/inventory/start");
+      }, 1500);
+    } catch (error) {
+      console.error("保存或更新失败:", error);
+      toast.error(`操作失败`);
+    } finally {
+      setIsSavingAndCreating(false);
     }
   };
 
@@ -2139,6 +2253,9 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                             实际品规
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            校准
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             库存数量（件）
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -2146,6 +2263,9 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             差异
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            校准
                           </th>
 
                           {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -2222,6 +2342,67 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                   <span className="text-gray-400">待识别</span>
                                 )}
                               </td>
+                              {/* 校准列 - 只修改实际品规 */}
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                {editingSpecId === item.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      value={editSpecValue}
+                                      onChange={(e) => setEditSpecValue(e.target.value)}
+                                      className="w-32 px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                                      placeholder="输入实际品规"
+                                      onClick={(e) => e.stopPropagation()}
+                                      autoFocus
+                                    />
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (editSpecValue.trim()) {
+                                          setInventoryItems((prevItems) =>
+                                            prevItems.map((i) =>
+                                              i.id === item.id
+                                                ? { ...i, actualSpec: editSpecValue.trim() }
+                                                : i
+                                            )
+                                          );
+                                          toast.success("实际品规已校准");
+                                        }
+                                        setEditingSpecId(null);
+                                        setEditSpecValue("");
+                                      }}
+                                      className="p-1.5 text-green-600 hover:bg-green-50 rounded-md transition-colors"
+                                      title="确认"
+                                    >
+                                      <i className="fa-solid fa-check"></i>
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingSpecId(null);
+                                        setEditSpecValue("");
+                                      }}
+                                      className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                      title="取消"
+                                    >
+                                      <i className="fa-solid fa-times"></i>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingSpecId(item.id);
+                                      setEditSpecValue(item.actualSpec || item.productName || "");
+                                    }}
+                                    className="px-3 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-md transition-colors flex items-center gap-1.5 border border-blue-200"
+                                    title="校准实际品规"
+                                  >
+                                    <i className="fa-solid fa-pen-to-square"></i>
+                                    校准
+                                  </button>
+                                )}
+                              </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {systemQuantity !== null ? systemQuantity : 0}
                               </td>
@@ -2238,32 +2419,96 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                 )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
-                                {difference !== null ? (
-                                  <span
-                                    className={`text-sm font-medium ${
-                                      hasDifference
-                                        ? "text-red-600"
-                                        : "text-green-600"
-                                    }`}
-                                  >
-                                    {hasDifference ? (
-                                      <>
-                                        <i className="fa-solid fa-exclamation-circle mr-1"></i>
-                                        {difference > 0
-                                          ? `+${difference}`
-                                          : difference}
-                                      </>
-                                    ) : (
-                                      <>
-                                        <i className="fa-solid fa-check-circle mr-1"></i>
-                                        一致
-                                      </>
-                                    )}
-                                  </span>
+                                {(() => {
+                                  const hasDiff = difference !== null && difference !== 0;
+
+                                  return difference !== null ? (
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={`text-sm font-medium ${
+                                          hasDiff ? "text-red-600" : "text-green-600"
+                                        }`}
+                                      >
+                                        {hasDiff ? (
+                                          <>
+                                            <i className="fa-solid fa-exclamation-circle mr-1"></i>
+                                            {difference > 0 ? `+${difference}` : difference}
+                                            <span className="text-xs text-gray-400 ml-1">件</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <i className="fa-solid fa-check-circle mr-1"></i>
+                                            一致
+                                          </>
+                                        )}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-sm text-gray-400">待计算</span>
+                                  );
+                                })()}
+                              </td>
+                              {/* 差异校准列 */}
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                {editingDiffId === item.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="number"
+                                      value={editDiffValue}
+                                      onChange={(e) => setEditDiffValue(e.target.value)}
+                                      className="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                                      placeholder="校准数量"
+                                      onClick={(e) => e.stopPropagation()}
+                                      autoFocus
+                                    />
+                                    <span className="text-xs text-gray-500">件</span>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const val = editDiffValue ? parseInt(editDiffValue, 10) : 0;
+                                        // 直接更新 actualQuantity，差异会自动重新计算
+                                        setInventoryItems((prevItems) =>
+                                          prevItems.map((i) =>
+                                            i.id === item.id
+                                              ? { ...i, actualQuantity: val }
+                                              : i
+                                          )
+                                        );
+                                        setEditingDiffId(null);
+                                        setEditDiffValue("");
+                                        toast.success("实际数量已校准，差异已重新计算");
+                                      }}
+                                      className="p-1.5 text-green-600 hover:bg-green-50 rounded-md transition-colors"
+                                      title="确认"
+                                    >
+                                      <i className="fa-solid fa-check"></i>
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingDiffId(null);
+                                        setEditDiffValue("");
+                                      }}
+                                      className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                      title="取消"
+                                    >
+                                      <i className="fa-solid fa-times"></i>
+                                    </button>
+                                  </div>
                                 ) : (
-                                  <span className="text-sm text-gray-400">
-                                    待计算
-                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingDiffId(item.id);
+                                      // 默认显示当前实际数量
+                                      setEditDiffValue(String(actualQuantity ?? systemQuantity ?? 0));
+                                    }}
+                                    className="px-3 py-1.5 text-xs bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-md transition-colors flex items-center gap-1.5 border border-orange-200"
+                                    title="校准实际数量"
+                                  >
+                                    <i className="fa-solid fa-pen-to-square"></i>
+                                    校准
+                                  </button>
                                 )}
                               </td>
                               {/* <td className="px-6 py-4 whitespace-nowrap">
@@ -2349,16 +2594,25 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                   )}
                 </button>
                 <button
-                  onClick={handleBack}
-                  disabled={!isTaskCompleted}
+                  onClick={handleSaveInventoryAndCreateNext}
+                  disabled={isSavingAndCreating}
                   className={`px-6 py-3 rounded-lg transition-colors flex items-center ${
                     !isTaskCompleted
                       ? "bg-gray-400 cursor-not-allowed"
                       : "bg-blue-600 hover:bg-blue-700 text-white"
                   }`}
                 >
-                  <i className="fa-solid fa-plus mr-2"></i>
-                  创建下个盘点
+                  {isSavingAndCreating ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin mr-2"></i>
+                      处理中...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-plus mr-2"></i>
+                      完成并创建下个盘点
+                    </>
+                  )}
                 </button>
               </div>
             </motion.div>

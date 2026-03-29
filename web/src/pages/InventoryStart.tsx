@@ -43,7 +43,7 @@ interface InventoryTask {
 export default function InventoryStart() {
   const navigate = useNavigate();
 
-  const { authToken, userName, userLevel } = useAuth();
+  const { authToken, userName, userLevel, userId } = useAuth();
   const [inventoryTasks, setInventoryTasks] = useState<InventoryTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [taskLoading, setTaskLoading] = useState(false);
@@ -291,7 +291,8 @@ export default function InventoryStart() {
 
     setIsLoading(true);
     try {
-      const url = `${GATEWAY_URL}/lms/getLmsBin?authToken=${encodeURIComponent(authToken)}`;
+      // 使用 useLocal=true 从本地 bins_data.xlsx 读取最新数据
+      const url = `${GATEWAY_URL}/lms/getLmsBin?authToken=${encodeURIComponent(authToken)}&useLocal=true`;
       const response = await fetch(url, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
@@ -489,7 +490,7 @@ export default function InventoryStart() {
       // 记录操作日志 - 合并为"生成任务清单"
       await addOperationLog({
         operation_type: "inventory",
-        user_id: authToken || undefined,
+        user_id: userId || undefined,
         user_name: userName || undefined,
         action: "生成任务清单",
         target: taskNoInput,
