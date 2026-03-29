@@ -40,30 +40,53 @@ log_warn() {
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
-# 服务配置
-declare -A SERVICES=(
-    ["gateway"]="gateway:app --host 0.0.0.0 --port 8000 --reload"
-    ["lms"]="sim_lms_server:app --host 0.0.0.0 --port 6000 --reload"
-    ["rcs"]="sim_rcs_server:app --host 0.0.0.0 --port 4001 --reload"
-)
+# 获取服务配置
+get_service_config() {
+    local service=$1
+    case "$service" in
+        gateway)
+            echo "gateway:app --host 0.0.0.0 --port 8000 --reload"
+            ;;
+        lms)
+            echo "sim_lms_server:app --host 0.0.0.0 --port 6000 --reload"
+            ;;
+        rcs)
+            echo "sim_rcs_server:app --host 0.0.0.0 --port 4001 --reload"
+            ;;
+    esac
+}
 
-declare -A SERVICE_DIRS=(
-    ["gateway"]="services/api"
-    ["lms"]="services/sim/lms"
-    ["rcs"]="services/sim/rcs"
-)
+# 获取服务目录
+get_service_dir() {
+    local service=$1
+    case "$service" in
+        gateway)
+            echo "services/api"
+            ;;
+        lms)
+            echo "services/sim/lms"
+            ;;
+        rcs)
+            echo "services/sim/rcs"
+            ;;
+    esac
+}
 
-declare -A SERVICE_SCRIPTS=(
-    ["gateway"]="start_gateway.sh"
-    ["lms"]="start_lms_sim.sh"
-    ["rcs"]="start_rcs_sim.sh"
-)
-
-declare -A SERVICE_URLS=(
-    ["gateway"]="http://localhost:8000/docs"
-    ["lms"]="http://localhost:6000"
-    ["rcs"]="http://localhost:4001"
-)
+# 获取服务URL
+get_service_url() {
+    local service=$1
+    case "$service" in
+        gateway)
+            echo "http://localhost:8000/docs"
+            ;;
+        lms)
+            echo "http://localhost:6000"
+            ;;
+        rcs)
+            echo "http://localhost:4001"
+            ;;
+    esac
+}
 
 # 获取PID文件路径
 get_pid_file() {
@@ -84,7 +107,7 @@ is_running() {
 start_service() {
     local service=$1
     local pid_file=$(get_pid_file "$service")
-    
+
     # 检查是否已经运行
     if [ -f "$pid_file" ]; then
         local pid=$(cat "$pid_file")
@@ -95,64 +118,37 @@ start_service() {
             rm -f "$pid_file"
         fi
     fi
-    
+
     log_info "启动 $service 服务..."
-    
+
     # 设置PYTHONPATH
     export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
-    
-    # 检查是否有专门的启动脚本
-    local service_script="${SERVICE_SCRIPTS[$service]}"
-    if [ -f "$PROJECT_ROOT/$service_script" ] || [ -f "$PROJECT_ROOT/services/sim/lms/$service_script" ] || [ -f "$PROJECT_ROOT/services/sim/rcs/$service_script" ]; then
-        # 使用专门的启动脚本
-        local script_path="$PROJECT_ROOT/$service_script"
-        if [ ! -f "$script_path" ]; then
-            # 尝试在其他位置查找
-            script_path="$PROJECT_ROOT/services/sim/lms/$service_script"
-        fi
-        if [ ! -f "$script_path" ]; then
-            script_path="$PROJECT_ROOT/services/sim/rcs/$service_script"
-        fi
-        
-        log_info "使用启动脚本: $(basename "$script_path")"
-        
-        # 切换到脚本所在目录
-        local script_dir=$(dirname "$script_path")
-        cd "$script_dir"
-        
-        # 执行启动脚本
-        nohup bash "$(basename "$script_path")" > "$PROJECT_ROOT/logs/${service}.log" 2>&1 &
-        local pid=$!
-    else
-        # 使用内置启动方式
-        local service_dir="${SERVICE_DIRS[$service]}"
-        local service_config="${SERVICES[$service]}"
-        
-        if [ -z "$service_dir" ] || [ -z "$service_config" ]; then
-            log_error "未知的服务: $service"
-            return 1
-        fi
-        
-        # 切换到服务目录
-        cd "$PROJECT_ROOT/$service_dir"
-        
-        # 启动服务
-        nohup uvicorn $service_config > "$PROJECT_ROOT/logs/${service}.log" 2>&1 &
-        local pid=$!
+
+    # 获取服务配置
+    local service_dir=$(get_service_dir "$service")
+    local service_config=$(get_service_config "$service")
+    local service_url=$(get_service_url "$service")
+
+    if [ -z "$service_dir" ] || [ -z "$service_config" ]; then
+        log_error "未知的服务: $service"
+        return 1
     fi
-    
+
+    # 切换到服务目录
+    cd "$PROJECT_ROOT/$service_dir"
+
+    # 启动服务
+    nohup uvicorn $service_config > "$PROJECT_ROOT/logs/${service}.log" 2>&1 &
+    local pid=$!
+
     # 保存PID
     echo $pid > "$pid_file"
-    
+
     sleep 2
     if is_running "$pid"; then
         log_info "$service 服务启动成功 (PID: $pid)"
         log_info "日志文件: $PROJECT_ROOT/logs/${service}.log"
-        
-        local service_url="${SERVICE_URLS[$service]}"
-        if [ -n "$service_url" ]; then
-            log_info "服务地址: $service_url"
-        fi
+        log_info "服务地址: $service_url"
     else
         log_error "$service 服务启动失败"
         log_error "请查看日志文件: $PROJECT_ROOT/logs/${service}.log"
@@ -161,25 +157,10 @@ start_service() {
     fi
 }
 
-# 启动gateway服务
-start_gateway() {
-    start_service "gateway"
-}
-
-# 启动lms服务
-start_lms() {
-    start_service "lms"
-}
-
-# 启动rcs服务
-start_rcs() {
-    start_service "rcs"
-}
-
 # 启动web服务
 start_web() {
     local pid_file=$(get_pid_file "web")
-    
+
     # 检查是否已经运行
     if [ -f "$pid_file" ]; then
         local pid=$(cat "$pid_file")
@@ -190,22 +171,22 @@ start_web() {
             rm -f "$pid_file"
         fi
     fi
-    
+
     log_info "启动Web服务..."
-    
+
     # 切换到web目录并在后台启动
     cd "$PROJECT_ROOT/web"
     nohup npm run dev > "$PROJECT_ROOT/logs/web.log" 2>&1 &
     local pid=$!
-    
+
     # 保存PID
     echo $pid > "$pid_file"
-    
+
     sleep 3
     if is_running "$pid"; then
         log_info "Web服务启动成功 (PID: $pid)"
         log_info "日志文件: $PROJECT_ROOT/logs/web.log"
-        log_info "访问地址: http://localhost:3000"
+        log_info "访问地址: http://localhost:5173"
     else
         log_error "Web服务启动失败"
         rm -f "$pid_file"
@@ -217,39 +198,39 @@ start_web() {
 stop_service() {
     local service=$1
     local pid_file=$(get_pid_file "$service")
-    
+
     if [ ! -f "$pid_file" ]; then
         log_warn "$service 服务未运行（PID文件不存在）"
         return 1
     fi
-    
+
     local pid=$(cat "$pid_file")
-    
+
     if ! is_running "$pid"; then
         log_warn "$service 服务未运行 (PID: $pid)"
         rm -f "$pid_file"
         return 1
     fi
-    
+
     log_info "停止 $service 服务 (PID: $pid)..."
-    
+
     # 杀死进程及其子进程
     kill -TERM "$pid" 2>/dev/null
-    
+
     # 等待进程结束
     local count=0
     while is_running "$pid" && [ $count -lt 10 ]; do
         sleep 1
         count=$((count + 1))
     done
-    
+
     # 如果还在运行，强制杀死
     if is_running "$pid"; then
         log_warn "进程未正常退出，强制杀死..."
         kill -KILL "$pid" 2>/dev/null
         sleep 1
     fi
-    
+
     if ! is_running "$pid"; then
         log_info "$service 服务已停止"
         rm -f "$pid_file"
@@ -264,10 +245,10 @@ show_status() {
     echo ""
     echo "=== 服务状态 ==="
     echo ""
-    
+
     local services=("gateway" "lms" "rcs" "web")
     local all_stopped=true
-    
+
     for service in "${services[@]}"; do
         local pid_file=$(get_pid_file "$service")
         if [ -f "$pid_file" ]; then
@@ -283,7 +264,7 @@ show_status() {
             echo -e "${RED}✗${NC} $service: 未运行"
         fi
     done
-    
+
     echo ""
     if [ "$all_stopped" = true ]; then
         log_info "所有服务都已停止"
@@ -294,33 +275,27 @@ show_status() {
 main() {
     local command=$1
     local service=$2
-    
+
     # 创建日志目录
     mkdir -p "$PROJECT_ROOT/logs"
-    
+
     case "$command" in
         start)
             if [ "$service" = "all" ]; then
                 log_info "启动所有服务..."
-                start_gateway
-                sleep 1
-                start_lms
-                sleep 1
-                start_rcs
-                sleep 1
+                start_service "gateway"
+                sleep 3
+                start_service "lms"
+                sleep 3
+                start_service "rcs"
+                sleep 3
                 start_web
                 echo ""
                 show_status
             else
                 case "$service" in
-                    gateway)
-                        start_gateway
-                        ;;
-                    lms)
-                        start_lms
-                        ;;
-                    rcs)
-                        start_rcs
+                    gateway|lms|rcs)
+                        start_service "$service"
                         ;;
                     web)
                         start_web
