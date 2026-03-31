@@ -35,11 +35,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
-GATEWAY_URL = "http://localhost:8000"
+GATEWAY_URL = "http://10.16.82.95:8000"
 
 
 # 定义允许的源列表
 origins = [
+    "http://10.16.82.95",
+    "http://10.16.82.95:8000",
+    "http://10.16.82.95:5000",
     "http://localhost",
     "http://localhost:8000",  # 内部网关端口
     "http://localhost:5000",  # CamSys
@@ -68,7 +71,7 @@ class RobotTaskSimulator:
     paused_tasks: Dict[str, dict] = {}
 
     # 回调地址（假设您的系统地址）
-    callback_url = "http://localhost:8000/api/robot/reporter/task"
+    callback_url = "http://10.16.82.95:8000/api/robot/reporter/task"
 
     @classmethod
     async def simulate_task_execution(cls, robot_task_code: str, target_route: List[dict], task_type: str):

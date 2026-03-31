@@ -12,6 +12,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { Modal } from "antd";
 import { GATEWAY_URL } from "../config/ip_address";
 import { useAuth } from "../contexts/authContext";
 import { addOperationLog } from "../lib/operationLog";
@@ -192,6 +193,13 @@ export default function InventoryProgress() {
   const [currentExecutingTaskIndex, setCurrentExecutingTaskIndex] = useState<
     number | null
   >(null);
+
+  // 盘点失败的库位弹窗状态
+  const [failedBinsModal, setFailedBinsModal] = useState<{
+    open: boolean;
+    bins: Array<{ binLocation: string; error: string }>;
+    onOk: () => void;
+  }>({ open: false, bins: [], onOk: () => {} });
 
   // 照片组状态：4组图片对，每组2张（上、下）
   // 组1: 3d_camera/main (上) + 3d_camera/depth (下)
@@ -1467,6 +1475,9 @@ export default function InventoryProgress() {
 
                 const inventoryResults = progressResult.data.inventoryResults;
 
+                // 收集失败的库位
+                const failedBins: Array<{ binLocation: string; error: string }> = [];
+
                 // 更新每个储位的盘点结果和照片
                 for (const inventoryResult of inventoryResults) {
                   const {
@@ -1478,7 +1489,12 @@ export default function InventoryProgress() {
                     photoScan1Path,
                     photoScan2Path,
                     status,
+                    error,
                   } = inventoryResult;
+
+                  if (status === "异常") {
+                    failedBins.push({ binLocation, error: error || "未知错误" });
+                  }
 
                   // 找到对应的 inventory item
                   const itemIndex = inventoryItems.findIndex(
@@ -1523,6 +1539,23 @@ export default function InventoryProgress() {
                 );
                 setIsTaskCompleted(true);
                 setIsStartingTask(false);
+
+                // 如果有库位盘点失败，弹出提示
+                if (failedBins.length > 0) {
+                  const binList = failedBins
+                    .map((b) => `${b.binLocation}（${b.error}）`)
+                    .join("\n");
+                  setFailedBinsModal({
+                    open: true,
+                    bins: failedBins,
+                    onOk: () => {
+                      setFailedBinsModal((prev) => ({ ...prev, open: false }));
+                    },
+                  });
+                  toast.error(
+                    `${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`,
+                  );
+                }
 
                 // 任务完成后，清除已加载照片的记录，允许重新加载
                 loadedPhotoKeysRef.current.clear();
@@ -2939,6 +2972,43 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
           </div>
         </div>
       </footer>
+
+      {/* 盘点失败库位提示弹窗 */}
+      <Modal
+        title="⚠️ 盘点失败库位"
+        open={failedBinsModal.open}
+        onOk={failedBinsModal.onOk}
+        onCancel={failedBinsModal.onOk}
+        okText="确认"
+        cancelText=""
+        width={500}
+        footer={[
+          <button
+            key="ok"
+            onClick={failedBinsModal.onOk}
+            className="px-4 py-2 bg-green-700 text-white rounded hover:bg-green-800 transition-colors"
+          >
+            确认
+          </button>,
+        ]}
+      >
+        <div className="py-2">
+          <p className="mb-3 text-gray-600">
+            以下 {failedBinsModal.bins.length} 个库位盘点失败，已记录为盘点失败：
+          </p>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 max-h-64 overflow-y-auto">
+            {failedBinsModal.bins.map((bin, index) => (
+              <div key={index} className="py-1 border-b border-red-100 last:border-0">
+                <span className="font-medium text-red-700">{bin.binLocation}</span>
+                <span className="text-gray-500 text-sm ml-2">— {bin.error}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-gray-500 text-sm">
+            点击确认后，失败库位将以"盘点失败"记录，实际数量记为0，品规记为"未识别"。
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 }

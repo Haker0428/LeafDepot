@@ -31,6 +31,8 @@ AUTH_TOKEN = "d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16
 app = FastAPI(title="LMS Mock Service", version="1.0.0")
 # 定义允许的源列表
 origins = [
+    "http://10.16.82.95",
+    "http://10.16.82.95:8000",
     "http://localhost",
     "http://localhost:8000",  # 内部网关端口
 ]

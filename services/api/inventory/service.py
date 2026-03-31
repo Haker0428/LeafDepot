@@ -466,6 +466,96 @@ async def process_single_bin_location(
         if is_sim:
             # 模拟模式
             logger.info(f"模拟模式：处理储位 {bin_location}")
+
+            from services.api.shared.config import WITH_CAMERA
+
+            if WITH_CAMERA:
+                # 不等待机器人，直接执行相机脚本
+                logger.info(f"模拟模式 with_camera：执行相机脚本 for {bin_location}")
+                capture_results = await capture_images_with_scripts(task_no, bin_location)
+                if not capture_results.get("success"):
+                    result["status"] = "异常"
+                    result["error"] = f"抓图失败: {capture_results.get('error')}"
+                    result["actualQuantity"] = 0
+                    result["actualSpec"] = "未识别"
+                    result["endTime"] = datetime.now().isoformat()
+
+                    if (index + 1) < total:
+                        logger.info(f"跳过储位 {bin_location}，继续下一个储位")
+                        continue_result = await continue_inventory_task()
+                        logger.info(f"继续任务接口调用结果: {continue_result}")
+                        result["continueResult"] = continue_result
+
+                    return result
+
+                result["captureResults"] = capture_results
+                result["photo3dPath"] = capture_results.get("photo3dPath")
+                result["photoDepthPath"] = capture_results.get("photoDepthPath")
+
+                # 执行识别
+                image_dir = project_root / "capture_img" / task_no / bin_location / "3d_camera"
+                recognition_result = await run_barcode_and_detect(
+                    task_no=task_no,
+                    bin_location=bin_location,
+                    image_dir=image_dir,
+                    pile_id=1,
+                    code_type="ucc128"
+                )
+
+                detect_result = recognition_result.get("detect_result", {})
+                barcode_result = recognition_result.get("barcode_result", {})
+
+                if detect_result.get("status") == "success" and detect_result.get("total_count") is not None:
+                    result["actualQuantity"] = detect_result["total_count"]
+                else:
+                    result["actualQuantity"] = 0
+
+                if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
+                    result["actualSpec"] = barcode_result["product_name"]
+                else:
+                    result["actualSpec"] = "未识别"
+
+                result["barcodeResult"] = barcode_result
+                result["detectResult"] = detect_result
+                result["photos"] = recognition_result.get("photos", [])
+                result["endTime"] = datetime.now().isoformat()
+
+                logger.info(f"模拟模式 with_camera：识别完成，数量: {result['actualQuantity']}, 品规: {result['actualSpec']}")
+
+                # 更新任务状态
+                if task_no in _inventory_task_bins:
+                    for bin_status in _inventory_task_bins[task_no]:
+                        if bin_status.bin_location == bin_location:
+                            bin_status.image_data = {
+                                "success": True,
+                                "photo3dPath": result["photo3dPath"],
+                                "photoDepthPath": result["photoDepthPath"]
+                            }
+                            bin_status.compute_result = {
+                                "actualQuantity": result["actualQuantity"],
+                                "actualSpec": result["actualSpec"]
+                            }
+                            bin_status.capture_time = result["startTime"]
+                            bin_status.compute_time = datetime.now().isoformat()
+                            bin_status.detect_result = detect_result
+                            bin_status.barcode_result = barcode_result
+                            break
+
+                if task_no not in _inventory_task_details:
+                    _inventory_task_details[task_no] = {}
+                if bin_location not in _inventory_task_details[task_no]:
+                    _inventory_task_details[task_no][bin_location] = {}
+                _inventory_task_details[task_no][bin_location] = {
+                    "binLocation": bin_location,
+                    "actualQuantity": result["actualQuantity"],
+                    "actualSpec": result["actualSpec"],
+                    "photo3dPath": result["photo3dPath"],
+                    "photoDepthPath": result["photoDepthPath"],
+                    "photos": recognition_result.get("photos", [])
+                }
+
+                return result
+
             await asyncio.sleep(2)
 
             capture_img_dir = project_root / "capture_img" / task_no / bin_location
@@ -600,6 +690,8 @@ async def process_single_bin_location(
                         logger.error(f"抓图失败，跳过储位: {bin_location}")
                         result["status"] = "异常"
                         result["error"] = "抓图失败（重试3次后仍失败）"
+                        result["actualQuantity"] = 0
+                        result["actualSpec"] = "未识别"
                         result["endTime"] = datetime.now().isoformat()
 
                         if (index + 1) < total:
@@ -695,12 +787,23 @@ async def process_single_bin_location(
                 logger.error(f"等待机器人结束状态超时: {str(e)}")
                 result["status"] = "异常"
                 result["error"] = "等待机器人结束状态超时"
+                result["actualQuantity"] = 0
+                result["actualSpec"] = "未识别"
                 result["endTime"] = datetime.now().isoformat()
+
+                if (index + 1) < total:
+                    logger.info(f"跳过储位 {bin_location}，继续下一个储位")
+                    continue_result = await continue_inventory_task()
+                    logger.info(f"继续任务接口调用结果: {continue_result}")
+                    result["continueResult"] = continue_result
+
                 return result
 
     except Exception as e:
         result["status"] = "异常"
         result["error"] = str(e)
+        result["actualQuantity"] = 0
+        result["actualSpec"] = "未识别"
         result["endTime"] = datetime.now().isoformat()
         logger.error(f"处理储位失败 {bin_location}: {str(e)}")
 

@@ -75,7 +75,7 @@ async def get_history_tasks():
                 logger.error(f"解析历史任务文件失败 {xlsx_file.name}: {str(e)}")
                 continue
 
-        tasks.sort(key=lambda x: x.get("taskDate", ""), reverse=True)
+        tasks.sort(key=lambda x: x.get("taskDate") or "", reverse=True)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,

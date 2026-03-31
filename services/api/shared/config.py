@@ -43,12 +43,15 @@ if _config_file.exists():
         logger.error(f"加载配置文件失败: {e}")
 
 # 服务地址配置
-LMS_BASE_URL = os.getenv("LMS_BASE_URL", "http://localhost:6000")
-RCS_BASE_URL = os.getenv("RCS_BASE_URL", "http://localhost:4001")
+LMS_BASE_URL = os.getenv("LMS_BASE_URL", "http://10.16.82.95:6000")
+RCS_BASE_URL = os.getenv("RCS_BASE_URL", "http://10.16.82.95:4001")
 RCS_PREFIX = os.getenv("RCS_PREFIX", "")
 
 # 模拟模式配置（从 JSON 文件读取）
 IS_SIM = _config.get("is_sim", True)
+
+# 模拟模式下是否执行真实相机脚本
+WITH_CAMERA = _config.get("with_camera", False)
 
 # 检测调试配置（从 JSON 文件读取）
 ENABLE_DEBUG = _config.get("enable_debug", False)
@@ -56,6 +59,9 @@ ENABLE_VISUALIZATION = _config.get("enable_visualization", False)
 
 # CORS 配置（从 JSON 文件读取）
 CORS_ORIGINS = _config.get("cors_origins", [
+    "http://10.16.82.95",
+    "http://10.16.82.95:8000",
+    "http://10.16.82.95:5173",
     "http://localhost",
     "http://localhost:8000",
     "http://localhost:5173",
