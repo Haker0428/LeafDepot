@@ -2,8 +2,8 @@
  * @Author: lizh 447628890@qq.com
  * @Date: 2025-12-10 17:45:34
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-12-11 22:02:22
- * @FilePath: /cam_sys_3/src/CamController.cpp
+ * @LastEditTime: 2026-03-31 20:42:44
+ * @FilePath: /LeafDepot/hardware/cam_sys/src/CamController.cpp
  * @Description:
  *
  * Copyright (c) 2025 by lizh, All Rights Reserved.
@@ -193,7 +193,8 @@ void CamController::getPic() {
   }
 
   // 构建基础路径
-  std::string basePath = "../../../output/" +task_id_ + "/" + bin_code_ + "/" + camera_type_;
+  std::string basePath =
+      "../../../capture_img/" + task_id_ + "/" + bin_code_ + "/" + camera_type_;
 
   // 创建目录（如果不存在）
   createDirectory(basePath);
