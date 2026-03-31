@@ -15,7 +15,8 @@ debug_log_dir = project_root / "debug"
 debug_log_dir.mkdir(parents=True, exist_ok=True)
 
 # 创建日志文件路径（按日期命名）
-_log_filename = debug_log_dir / f"gateway_{datetime.now().strftime('%Y%m%d')}.log"
+_log_filename = debug_log_dir / \
+    f"gateway_{datetime.now().strftime('%Y%m%d')}.log"
 
 # 配置根日志记录器
 logging.basicConfig(
@@ -74,8 +75,9 @@ logger.info(f"配置加载完成: CORS_ORIGINS={len(CORS_ORIGINS)}个")
 
 # 抓图脚本路径
 CAPTURE_SCRIPTS = [
-    str(project_root / "hardware" / "cam_sys" / "scan_1_capture.py"),
-    str(project_root / "hardware" / "cam_sys" / "scan_2_capture.py"),
+    str(project_root / "hardware" / "cam_sys" / "build" / "scan_1_capture.py"),
+    str(project_root / "hardware" / "cam_sys" / "build" / "scan_2_capture.py"),
+    str(project_root / "hardware" / "cam_sys" / "build" / "3d_capture.py"),
 ]
 
 # 垛型字符串 → 垛型编码 映射
@@ -98,7 +100,8 @@ STACK_TYPE_CODE_TO_PILE_ID = {
 }
 
 # Barcode功能开关
-ENABLE_BARCODE = os.getenv("ENABLE_BARCODE", "true").lower() in ("true", "1", "yes")
+ENABLE_BARCODE = os.getenv(
+    "ENABLE_BARCODE", "true").lower() in ("true", "1", "yes")
 
 # 检测模块可用性
 try:
