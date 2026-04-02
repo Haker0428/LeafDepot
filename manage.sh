@@ -214,8 +214,8 @@ stop_service() {
 
     log_info "停止 $service 服务 (PID: $pid)..."
 
-    # 杀死进程及其子进程
-    kill -TERM "$pid" 2>/dev/null
+    # 尝试杀死整个进程组（父进程+子进程）
+    kill -TERM -"$pid" 2>/dev/null
 
     # 等待进程结束
     local count=0
@@ -224,12 +224,23 @@ stop_service() {
         count=$((count + 1))
     done
 
-    # 如果还在运行，强制杀死
+    # 如果还在运行，强制杀死进程组
     if is_running "$pid"; then
-        log_warn "进程未正常退出，强制杀死..."
-        kill -KILL "$pid" 2>/dev/null
+        log_warn "进程未正常退出，强制杀死进程组..."
+        kill -KILL -"$pid" 2>/dev/null
         sleep 1
     fi
+
+    # 额外清理：用 pkill 杀死所有残留的同名服务进程
+    case "$service" in
+        gateway)  pkill -f "uvicorn.*gateway:app" 2>/dev/null ;;
+        lms)      pkill -f "uvicorn.*sim_lms_server:app" 2>/dev/null ;;
+        rcs)      pkill -f "uvicorn.*sim_rcs_server:app" 2>/dev/null ;;
+        web)      pkill -f "npm.*dev" 2>/dev/null ;;
+    esac
+
+    # 等待端口释放
+    sleep 1
 
     if ! is_running "$pid"; then
         log_info "$service 服务已停止"
