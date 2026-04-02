@@ -112,11 +112,12 @@ def main(task_no: str, bin_location: str):
         # 停止预览
         print("停止预览...")
         cam.stopRealPlay()
-        
-        # 预览第四码流
+
+        # 预览第四码流（分辨率更高，等待解码器初始化）
         print("再次开始预览...")
         cam.startRealPlay(1, 3, 0, 1)
-        
+        time.sleep(3)
+
         # 捕获第四码流
         print("再次获取捕获...")
         capture_result2 = cam.getCapture()

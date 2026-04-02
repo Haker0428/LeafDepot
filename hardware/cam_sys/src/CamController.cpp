@@ -194,7 +194,7 @@ void CamController::getPic() {
 
   // 构建基础路径
   std::string basePath =
-      "../../../capture_img/" + task_id_ + "/" + bin_code_ + "/" + camera_type_;
+      "capture_img/" + task_id_ + "/" + bin_code_ + "/" + camera_type_;
 
   // 创建目录（如果不存在）
   createDirectory(basePath);

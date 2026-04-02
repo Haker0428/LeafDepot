@@ -5,6 +5,16 @@
   "with_camera": true,
   "rcs_prefix": "/rcs/rtas",
   "lms_prefix": "/lms/srm",
+  "rcs_real": {
+    "host": "10.16.82.90",
+    "port": 443,
+    "use_ssl": true,
+    "task_type": "PF-CTU-HS-H-DETECT-NOTIFY-1",
+    "app_id": "1008",
+    "sign": "d950ec04accd8f1176379a4611a1795d",
+    "continue_url": "/rcs/rtas/api/robot/controller/task/extend/continue",
+    "callback_url": "http://10.16.82.95:8000/api/robot/reporter/task"
+  },
   "cors_origins": [
     "http://10.16.82.95",
     "http://10.16.82.95:8000",

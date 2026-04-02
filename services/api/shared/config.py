@@ -51,7 +51,13 @@ LMS_PREFIX = os.getenv("LMS_PREFIX", "") or _config.get("lms_prefix", "")
 # 完整的 RCS URL（base + prefix），避免两个变量分开导入的拼接问题
 RCS_FULL_URL = RCS_BASE_URL.rstrip("/") + RCS_PREFIX
 
-logger.info(f"[{datetime.now().isoformat()}] RCS_BASE_URL={RCS_BASE_URL}, RCS_PREFIX={RCS_PREFIX}, RCS_FULL_URL={RCS_FULL_URL}")
+# 真实 RCS 配置（用于 is_sim=False 模式）
+RCS_REAL = _config.get("rcs_real", {})
+
+# RCS 回调地址（真实模式由 RCS 回调此地址通知任务状态）
+RCS_CALLBACK_URL = RCS_REAL.get("callback_url", f"http://10.16.82.95:8000/api/robot/reporter/task")
+
+logger.info(f"[{datetime.now().isoformat()}] RCS_BASE_URL={RCS_BASE_URL}, RCS_PREFIX={RCS_PREFIX}, RCS_FULL_URL={RCS_FULL_URL}, RCS_REAL={RCS_REAL}")
 
 # 模拟模式配置（从 JSON 文件读取）
 IS_SIM = _config.get("is_sim", True)

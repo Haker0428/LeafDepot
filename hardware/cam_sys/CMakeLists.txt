@@ -103,11 +103,11 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 #set (Python_ROOT_DIR     "/root/miniconda3/envs/kylin_tobacco_env/bin/python3.10")
 #set(pybind11_DIR "/root/miniconda3/envs/kylin_tobacco_env/lib/python3.10/site-packages/pybind11/share/cmake/pybind11")
 
-set (Python_ROOT_DIR     "/root/miniconda3/envs/tobacco_env/bin/python3.10")
-set(pybind11_DIR "/root/miniconda3/envs/tobacco_env/lib/python3.10/site-packages/pybind11/share/cmake/pybind11")
+#set (Python_ROOT_DIR     "/root/miniconda3/envs/tobacco_env/bin/python3.10")
+#set(pybind11_DIR "/root/miniconda3/envs/tobacco_env/lib/python3.10/site-packages/pybind11/share/cmake/pybind11")
 
-#set (Python_ROOT_DIR     "/home/zihui-lang/miniconda3/envs/tobacco_env/bin/python3.10")
-#set(pybind11_DIR "/home/zihui-lang/miniconda3/envs/tobacco_env/lib/python3.10/site-packages/pybind11/share/cmake/pybind11")
+set (Python_ROOT_DIR     "/home/zihui-lang/miniconda3/envs/tobacco_env/bin/python3.10")
+set(pybind11_DIR "/home/zihui-lang/miniconda3/envs/tobacco_env/lib/python3.10/site-packages/pybind11/share/cmake/pybind11")
 set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
 
