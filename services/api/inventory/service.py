@@ -26,7 +26,7 @@ from services.api.shared.config import (
     logger,
     project_root,
     RCS_BASE_URL,
-    RCS_PREFIX,
+    RCS_FULL_URL,
     ENABLE_BARCODE,
     BARCODE_MODULE_AVAILABLE,
     DETECT_MODULE_AVAILABLE,
@@ -74,12 +74,15 @@ def get_inventory_service():
 
 # ==================== 机器人任务下发函数 ====================
 
-async def submit_inventory_task(task_no: str, bin_locations: List[str]):
-    """下发盘点任务，接收任务编号和储位名称列表"""
+async def submit_inventory_task(task_no: str, bin_locations: List[str], max_retries: int = 3):
+    """下发盘点任务，接收任务编号和储位名称列表，支持失败重试"""
+    import time as time_module
+
     try:
         logger.info(f"下发盘点任务: {task_no}, 储位: {bin_locations}")
 
-        url = f"{RCS_BASE_URL}{RCS_PREFIX}/api/robot/controller/task/submit"
+        url = f"{RCS_FULL_URL}/api/robot/controller/task/submit"
+        logger.info(f"RCS请求地址: {url}")
         headers = {
             "X-lr-request-id": "ldui",
             "Content-Type": "application/json"
@@ -101,27 +104,54 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str]):
             "targetRoute": target_route
         }
 
-        response = requests.post(url, json=request_body, headers=headers, timeout=30)
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(url, json=request_body, headers=headers, timeout=30)
 
-        if response.status_code == 200:
-            response_data = response.json()
-            if response_data.get("code") == "SUCCESS":
-                logger.info(f"储位 {bin_locations} 已发送到机器人系统")
-                return {"success": True, "message": "盘点任务已下发"}
-        else:
-            return {"success": False, "message": "盘点任务下发失败"}
+                if response.status_code == 200:
+                    response_data = response.json()
+                    if response_data.get("code") == "SUCCESS":
+                        logger.info(f"储位 {bin_locations} 已发送到机器人系统")
+                        return {"success": True, "message": "盘点任务已下发"}
+                    else:
+                        last_error = f" RCS 返回错误码: {response_data.get('code')}"
+                        logger.warning(f"下发任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+                else:
+                    last_error = f" HTTP {response.status_code}"
+                    logger.warning(f"下发任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+
+            except requests.exceptions.Timeout:
+                last_error = " 请求超时"
+                logger.warning(f"下发任务超时 (尝试 {attempt + 1}/{max_retries})")
+            except requests.exceptions.ConnectionError as conn_err:
+                last_error = f" 连接失败: {conn_err}"
+                logger.warning(f"下发任务连接失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+            except Exception as req_err:
+                last_error = f" 请求异常: {req_err}"
+                logger.warning(f"下发任务异常 (尝试 {attempt + 1}/{max_retries}){last_error}")
+
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2  # 2秒、4秒递增等待
+                logger.info(f"等待 {wait_time} 秒后重试...")
+                time_module.sleep(wait_time)
+
+        logger.error(f"下发盘点任务失败，已达到最大重试次数 ({max_retries})")
+        return {"success": False, "message": f"盘点任务下发失败，已重试{max_retries}次{last_error}"}
 
     except Exception as e:
         logger.error(f"下发盘点任务失败: {str(e)}")
         raise
 
 
-async def continue_inventory_task():
-    """继续盘点任务"""
+async def continue_inventory_task(max_retries: int = 3):
+    """继续盘点任务，支持失败重试"""
+    import time as time_module
+
     try:
         logger.info(f"继续执行盘点任务")
 
-        url = f"{RCS_BASE_URL}{RCS_PREFIX}/api/robot/controller/task/extend/continue"
+        url = f"{RCS_FULL_URL}/api/robot/controller/task/extend/continue"
         headers = {
             "X-lr-request-id": "ldui",
             "Content-Type": "application/json"
@@ -132,15 +162,40 @@ async def continue_inventory_task():
             "triggerCode": "001"
         }
 
-        response = requests.post(url, json=request_body, headers=headers, timeout=30)
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(url, json=request_body, headers=headers, timeout=30)
 
-        if response.status_code == 200:
-            response_data = response.json()
-            if response_data.get("code") == "SUCCESS":
-                logger.info(f"继续执行盘点任务命令已发送到机器人系统")
-                return {"success": True, "message": "盘点任务已继续"}
-        else:
-            return {"success": False, "message": "盘点任务下发失败"}
+                if response.status_code == 200:
+                    response_data = response.json()
+                    if response_data.get("code") == "SUCCESS":
+                        logger.info(f"继续执行盘点任务命令已发送到机器人系统")
+                        return {"success": True, "message": "盘点任务已继续"}
+                    else:
+                        last_error = f" RCS 返回错误码: {response_data.get('code')}"
+                        logger.warning(f"继续任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+                else:
+                    last_error = f" HTTP {response.status_code}"
+                    logger.warning(f"继续任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+
+            except requests.exceptions.Timeout:
+                last_error = " 请求超时"
+                logger.warning(f"继续任务超时 (尝试 {attempt + 1}/{max_retries})")
+            except requests.exceptions.ConnectionError as conn_err:
+                last_error = f" 连接失败: {conn_err}"
+                logger.warning(f"继续任务连接失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+            except Exception as req_err:
+                last_error = f" 请求异常: {req_err}"
+                logger.warning(f"继续任务异常 (尝试 {attempt + 1}/{max_retries}){last_error}")
+
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2
+                logger.info(f"等待 {wait_time} 秒后重试...")
+                time_module.sleep(wait_time)
+
+        logger.error(f"继续盘点任务失败，已达到最大重试次数 ({max_retries})")
+        return {"success": False, "message": f"继续任务已重试{max_retries}次{last_error}"}
 
     except Exception as e:
         logger.error(f"继续盘点任务失败: {str(e)}")
@@ -210,6 +265,71 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300):
     except ImportError:
         logger.error("机器人状态管理器模块不存在，无法等待状态")
         raise
+
+
+# ==================== 系统在线状态检查 ====================
+
+def check_service_online(host: str, port: int, timeout: int = 5) -> bool:
+    """检查服务是否在线（TCP 连接检测）"""
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+async def check_systems_online(is_sim: bool, with_camera: bool) -> Dict[str, Any]:
+    """
+    检查 RCS 和相机系统是否在线
+
+    :param is_sim: 是否模拟模式
+    :param with_camera: 是否使用真实相机
+    :return: {"online": bool, "details": {...}}
+    """
+    from services.api.shared.config import RCS_BASE_URL, CAPTURE_SCRIPTS
+    import re
+
+    results = {"rcs": {}, "cameras": {}}
+
+    # 解析 RCS 地址
+    rcs_match = re.match(r"http://([^:/]+):(\d+)", RCS_BASE_URL)
+    if rcs_match:
+        rcs_host = rcs_match.group(1)
+        rcs_port = int(rcs_match.group(2))
+        rcs_online = check_service_online(rcs_host, rcs_port)
+        results["rcs"] = {"host": rcs_host, "port": rcs_port, "online": rcs_online}
+    else:
+        results["rcs"] = {"host": RCS_BASE_URL, "online": False, "error": "无法解析地址"}
+
+    # 模拟模式且不启用相机 → RCS 在线即可
+    if is_sim and not with_camera:
+        results["cameras"] = {"status": "跳过（模拟模式）", "online": True}
+        all_online = results["rcs"].get("online", False)
+        return {"online": all_online, "details": results}
+
+    # 检查相机在线状态
+    camera_ips = {
+        "3d_camera": "10.16.82.180",
+        "scan_camera_1": "10.16.82.181",
+        "scan_camera_2": "10.16.82.182",
+    }
+    camera_port = 8000  # 海康威视相机默认管理端口
+
+    all_cameras_online = True
+    for cam_name, cam_ip in camera_ips.items():
+        cam_online = check_service_online(cam_ip, camera_port)
+        results["cameras"][cam_name] = {"ip": cam_ip, "online": cam_online}
+        if not cam_online:
+            all_cameras_online = False
+
+    all_online = results["rcs"].get("online", False) and all_cameras_online
+    results["all_online"] = all_online
+
+    return {"online": all_online, "details": results}
 
 
 # ==================== 图片检查和抓图函数 ====================
@@ -844,11 +964,70 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
     _inventory_tasks[task_no].status = "running"
     _inventory_tasks[task_no].current_step = 0
 
+    # 预检：检查 RCS 和相机系统是否在线
+    from services.api.shared.config import WITH_CAMERA
+    check_result = await check_systems_online(is_sim, WITH_CAMERA)
+    details = check_result.get("details", {})
+
+    logger.info(f"系统在线检查: RCS={'在线' if details.get('rcs',{}).get('online') else '离线'}, "
+                 f"相机={'在线' if details.get('cameras',{}).get('status') == '跳过（模拟模式）' else str(details.get('cameras',{}))}")
+
+    if not check_result.get("online"):
+        rcs_status = details.get("rcs", {})
+        cam_status = details.get("cameras", {})
+        rcs_info = f"RCS ({rcs_status.get('host','?')})" + ("在线" if rcs_status.get("online") else "离线")
+        cam_info = cam_status.get("status", str(cam_status))
+
+        offline_parts = []
+        if not rcs_status.get("online"):
+            offline_parts.append("RCS")
+        if isinstance(cam_status, dict):
+            for cam_name, cam_info in cam_status.items():
+                if isinstance(cam_info, dict) and not cam_info.get("online"):
+                    offline_parts.append(f"{cam_name} ({cam_info.get('ip','?')})")
+
+        error_msg = f"系统离线，无法发起盘点：" + "、".join(offline_parts)
+        logger.error(error_msg)
+        offline_types = set()
+        if not rcs_status.get("online"):
+            offline_types.add("rcs")
+        if isinstance(cam_status, dict):
+            for cam_name, cam_detail in cam_status.items():
+                if isinstance(cam_detail, dict) and not cam_detail.get("online"):
+                    offline_types.add("camera")
+                    break
+        error_type = "rcs" if "rcs" in offline_types else ("camera" if "camera" in offline_types else "other")
+        _inventory_tasks[task_no].status = "failed"
+        _inventory_tasks[task_no].end_time = datetime.now().isoformat()
+        _inventory_tasks[task_no].error_message = error_msg
+        _inventory_tasks[task_no].error_type = error_type
+        return {
+            "success": False,
+            "message": error_msg,
+            "errorType": error_type,
+            "task_no": task_no,
+            "check_details": details
+        }
+
     # 整体下发盘点任务
     method = "start"
     await update_robot_status(method)
 
     submit_result = await submit_inventory_task(task_no, bin_locations)
+
+    if not submit_result.get("success"):
+        logger.error(f"盘点任务下发失败: {submit_result.get('message')}")
+        error_msg = submit_result.get("message", "盘点任务下发失败")
+        _inventory_tasks[task_no].status = "failed"
+        _inventory_tasks[task_no].end_time = datetime.now().isoformat()
+        _inventory_tasks[task_no].error_message = error_msg
+        _inventory_tasks[task_no].error_type = "rcs"
+        return {
+            "success": False,
+            "message": error_msg,
+            "errorType": "rcs",
+            "task_no": task_no
+        }
 
     # 存储所有储位的盘点结果
     inventory_results = []

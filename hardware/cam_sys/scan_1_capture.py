@@ -6,8 +6,10 @@ LastEditTime: 2025-12-11 22:12:25
 FilePath: /cam_sys_3/3d_capture.py
 Description: SCAN抓图脚本，接收任务编号和储位名称作为参数
 
-Copyright (c) 2025 by lizh, All Rights Reserved. 
+Copyright (c) 2025 by lizh, All Rights Reserved.
 '''
+
+import time
 import sys
 import os
 import traceback
@@ -74,10 +76,21 @@ def main(task_no: str, bin_location: str):
         cam = camera_api.CamController()
         print("✅ CamController对象创建成功")
         
-        # 登录
+        # 登录（带重试）
         print("尝试登录相机...")
-        result = cam.login("10.16.82.181", 8000, "admin", "qwe147852")
-        print(f"登录结果: {result}")
+        login_success = False
+        for attempt in range(3):
+            result = cam.login("10.16.82.181", 8000, "admin", "qwe147852")
+            print(f"登录尝试 {attempt + 1}: {result}")
+            if result:
+                login_success = True
+                break
+            if attempt < 2:
+                print(f"登录失败，{3} 秒后重试...")
+                time.sleep(3)
+        if not login_success:
+            print("登录失败，已达到最大重试次数")
+            return {"success": False, "error": "登录失败，已达到最大重试次数", "task_no": task_no, "bin_location": bin_location}
         
         # 设置任务信息（使用传入的参数）
         print(f"设置任务信息: 任务编号={task_no}, 储位信息={bin_location}")

@@ -45,7 +45,13 @@ if _config_file.exists():
 # 服务地址配置
 LMS_BASE_URL = os.getenv("LMS_BASE_URL", "http://10.16.82.95:6000")
 RCS_BASE_URL = os.getenv("RCS_BASE_URL", "http://10.16.82.95:4001")
-RCS_PREFIX = os.getenv("RCS_PREFIX", "")
+RCS_PREFIX = os.getenv("RCS_PREFIX", "") or _config.get("rcs_prefix", "")
+LMS_PREFIX = os.getenv("LMS_PREFIX", "") or _config.get("lms_prefix", "")
+
+# 完整的 RCS URL（base + prefix），避免两个变量分开导入的拼接问题
+RCS_FULL_URL = RCS_BASE_URL.rstrip("/") + RCS_PREFIX
+
+logger.info(f"[{datetime.now().isoformat()}] RCS_BASE_URL={RCS_BASE_URL}, RCS_PREFIX={RCS_PREFIX}, RCS_FULL_URL={RCS_FULL_URL}")
 
 # 模拟模式配置（从 JSON 文件读取）
 IS_SIM = _config.get("is_sim", True)

@@ -214,6 +214,23 @@ async def get_inventory_results(taskNo: str):
         task_status = inventory_tasks[taskNo]
 
         if task_status.status != "completed":
+            # 任务失败时，携带错误信息返回
+            if task_status.status == "failed":
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "code": 200,
+                        "message": task_status.error_message or "任务失败",
+                        "errorType": task_status.error_type or "other",
+                        "data": {
+                            "taskNo": taskNo,
+                            "status": task_status.status,
+                            "currentStep": task_status.current_step,
+                            "totalSteps": task_status.total_steps,
+                            "inventoryResults": []
+                        }
+                    }
+                )
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={

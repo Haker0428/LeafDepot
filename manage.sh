@@ -138,7 +138,7 @@ start_service() {
     cd "$PROJECT_ROOT/$service_dir"
 
     # 启动服务
-    nohup uvicorn $service_config > "$PROJECT_ROOT/logs/${service}.log" 2>&1 &
+    nohup /home/zihui-lang/miniconda3/envs/tobacco_env/bin/uvicorn $service_config > "$PROJECT_ROOT/logs/${service}.log" 2>&1 &
     local pid=$!
 
     # 保存PID

@@ -201,6 +201,21 @@ export default function InventoryProgress() {
     onOk: () => void;
   }>({ open: false, bins: [], onOk: () => {} });
 
+  // 系统离线弹窗状态
+  const [systemOfflineModal, setSystemOfflineModal] = useState<{
+    open: boolean;
+    message: string;
+    onOk: () => void;
+  }>({ open: false, message: "", onOk: () => {} });
+
+  // 任务下发失败弹窗状态
+  const [taskErrorModal, setTaskErrorModal] = useState<{
+    open: boolean;
+    errorType: "rcs" | "camera" | "other";
+    message: string;
+    onOk: () => void;
+  }>({ open: false, errorType: "other", message: "", onOk: () => {} });
+
   // 照片组状态：4组图片对，每组2张（上、下）
   // 组1: 3d_camera/main (上) + 3d_camera/depth (下)
   // 组2: scan_camera_1/main (上) + scan_camera_2/main (下)
@@ -1577,6 +1592,40 @@ export default function InventoryProgress() {
                     setSelectedRowIndex(index);
                   }
                 }
+              } else if (progressResult.data.status === "failed") {
+                // 预检或下发失败
+                clearInterval(pollIntervalId);
+                const errorType: "rcs" | "camera" | "other" =
+                  (progressResult.errorType as "rcs" | "camera" | "other") || "other";
+                if (errorType === "rcs") {
+                  setTaskErrorModal({
+                    open: true,
+                    errorType: "rcs",
+                    message: progressResult.message || "RCS 连接失败",
+                    onOk: () => {
+                      setTaskErrorModal((prev) => ({ ...prev, open: false }));
+                    },
+                  });
+                } else if (errorType === "camera") {
+                  setTaskErrorModal({
+                    open: true,
+                    errorType: "camera",
+                    message: progressResult.message || "相机连接失败",
+                    onOk: () => {
+                      setTaskErrorModal((prev) => ({ ...prev, open: false }));
+                    },
+                  });
+                } else {
+                  setTaskErrorModal({
+                    open: true,
+                    errorType: "other",
+                    message: progressResult.message || "盘点任务下发失败",
+                    onOk: () => {
+                      setTaskErrorModal((prev) => ({ ...prev, open: false }));
+                    },
+                  });
+                }
+                setIsStartingTask(false);
               } else if (pollCount >= maxPollCount) {
                 // 超时
                 clearInterval(pollIntervalId);
@@ -1592,8 +1641,32 @@ export default function InventoryProgress() {
         }
       } else {
         // API 返回了业务逻辑错误
-        toast.error(`任务启动失败: ${result.message || "未知错误"}`);
-        throw new Error(result.message || "任务启动失败");
+        if (result.message && result.message.startsWith("系统离线")) {
+          // 系统离线弹窗
+          setSystemOfflineModal({
+            open: true,
+            message: result.message,
+            onOk: () => {
+              setSystemOfflineModal((prev) => ({ ...prev, open: false }));
+            },
+          });
+          setIsStartingTask(false);
+          return;
+        } else {
+          // 下发失败弹窗，根据错误类型展示不同提示
+          const errorType: "rcs" | "camera" | "other" =
+            result.errorType || "other";
+          setTaskErrorModal({
+            open: true,
+            errorType,
+            message: result.message || "未知错误",
+            onOk: () => {
+              setTaskErrorModal((prev) => ({ ...prev, open: false }));
+            },
+          });
+          setIsStartingTask(false);
+          return;
+        }
       }
     } catch (error) {
       console.error("任务启动失败:", error);
@@ -3007,6 +3080,112 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
           <p className="mt-3 text-gray-500 text-sm">
             点击确认后，失败库位将以"盘点失败"记录，实际数量记为0，品规记为"未识别"。
           </p>
+        </div>
+      </Modal>
+
+      {/* 系统离线提示弹窗 */}
+      <Modal
+        title={
+          systemOfflineModal.message?.includes("RCS")
+            ? "⚠️ RCS 离线"
+            : "⚠️ 相机离线"
+        }
+        open={systemOfflineModal.open}
+        onCancel={systemOfflineModal.onOk}
+        footer={[
+          <button
+            key="ok"
+            onClick={systemOfflineModal.onOk}
+            className="px-4 py-2 bg-blue-700 text-white rounded hover:bg-blue-800 transition-colors"
+          >
+            确认
+          </button>,
+        ]}
+        width={500}
+      >
+        <div className="py-2">
+          <p className="mb-3 text-gray-700">无法发起盘点任务，以下系统不在线：</p>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-700 font-medium whitespace-pre-line">
+              {systemOfflineModal.message.replace("系统离线，无法发起盘点：", "")}
+            </p>
+          </div>
+          {systemOfflineModal.message?.includes("RCS") && (
+            <div className="mt-3 text-gray-600 text-sm">
+              <p className="mb-1 font-medium">排查步骤：</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-500">
+                <li>检查 RCS 服务（端口 4001）是否正常运行</li>
+                <li>检查网络连接是否正常</li>
+                <li>重启 RCS 服务后重试</li>
+              </ul>
+            </div>
+          )}
+          {systemOfflineModal.message?.includes("RCS") === false && (
+            <div className="mt-3 text-gray-600 text-sm">
+              <p className="mb-1 font-medium">排查步骤：</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-500">
+                <li>检查相机 IP（10.16.82.180/181/182）是否可达</li>
+                <li>检查相机网线连接是否正常</li>
+                <li>确认相机已通电且指示灯正常</li>
+              </ul>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* 下发失败提示弹窗 */}
+      <Modal
+        title={
+          taskErrorModal.errorType === "rcs"
+            ? "⚠️ RCS 连接失败"
+            : taskErrorModal.errorType === "camera"
+            ? "⚠️ 相机连接失败"
+            : "⚠️ 盘点任务下发失败"
+        }
+        open={taskErrorModal.open}
+        onCancel={taskErrorModal.onOk}
+        footer={[
+          <button
+            key="ok"
+            onClick={taskErrorModal.onOk}
+            className="px-4 py-2 bg-red-700 text-white rounded hover:bg-red-800 transition-colors"
+          >
+            确认
+          </button>,
+        ]}
+        width={500}
+      >
+        <div className="py-2">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-700 font-medium whitespace-pre-line">
+              {taskErrorModal.message}
+            </p>
+          </div>
+          {taskErrorModal.errorType === "rcs" && (
+            <div className="mt-3 text-gray-600 text-sm">
+              <p className="mb-1 font-medium">排查步骤：</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-500">
+                <li>检查 RCS 服务（端口 4001）是否正常运行</li>
+                <li>检查网络连接是否正常</li>
+                <li>重启 RCS 服务后重试</li>
+              </ul>
+            </div>
+          )}
+          {taskErrorModal.errorType === "camera" && (
+            <div className="mt-3 text-gray-600 text-sm">
+              <p className="mb-1 font-medium">排查步骤：</p>
+              <ul className="list-disc list-inside space-y-1 text-gray-500">
+                <li>检查相机 IP（10.16.82.180/181/182）是否可达</li>
+                <li>检查相机网线连接是否正常</li>
+                <li>确认相机已通电且指示灯正常</li>
+              </ul>
+            </div>
+          )}
+          {taskErrorModal.errorType === "other" && (
+            <p className="mt-3 text-gray-500 text-sm">
+              请检查上述错误信息，或联系技术支持。
+            </p>
+          )}
         </div>
       </Modal>
     </div>

@@ -2,7 +2,9 @@
   "is_sim": true,
   "enable_debug": true,
   "enable_visualization": true,
-  "with_camera": false,
+  "with_camera": true,
+  "rcs_prefix": "/rcs/rtas",
+  "lms_prefix": "/lms/srm",
   "cors_origins": [
     "http://10.16.82.95",
     "http://10.16.82.95:8000",

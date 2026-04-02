@@ -28,6 +28,8 @@ class TaskStatus(BaseModel):
     total_steps: int = 0
     start_time: Optional[str] = None
     end_time: Optional[str] = None
+    error_message: Optional[str] = None  # 失败原因
+    error_type: Optional[str] = None     # rcs / camera / other
 
 
 class BinLocationStatus(BaseModel):
