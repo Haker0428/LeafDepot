@@ -222,14 +222,23 @@ void CamController::getPic() {
 
   // 抓10张图（可以根据需要调整次数）
   while (i++ < 1) {
-    // 获取当前视频文件的分辨率
-    bFlag =
-        PlayM4_GetPictureSize(m_lPort[lRealPlayHandle], &dwWidth, &dwHeight);
+    // 获取当前视频文件的分辨率（带重试，最多等10秒）
+    int retry = 0;
+    bFlag = FALSE;
+    while (retry < 10 && !bFlag) {
+      bFlag = PlayM4_GetPictureSize(m_lPort[lRealPlayHandle], &dwWidth, &dwHeight);
+      if (bFlag == FALSE) {
+        dwErr = PlayM4_GetLastError(m_lPort[lRealPlayHandle]);
+        printf("PlayM4_GetPictureSize error %d，重试 %d/10\n", dwErr, retry + 1);
+        sleep(1);
+      }
+      retry++;
+    }
     if (bFlag == FALSE) {
-      dwErr = PlayM4_GetLastError(m_lPort[lRealPlayHandle]);
-      printf("PlayM4_GetPictureSize, error code: %d\n", dwErr);
+      printf("PlayM4_GetPictureSize 最终失败，error code: %d\n", dwErr);
       break;
     }
+    printf("获取分辨率成功: %dx%d\n", dwWidth, dwHeight);
 
     // 计算图片大小（根据YUV420格式，宽度*高度*1.5）
     dwSize = dwWidth * dwHeight * 3 / 2;
@@ -241,12 +250,25 @@ void CamController::getPic() {
       return;
     }
 
-    // 抓图
-    bFlag =
-        PlayM4_GetJPEG(m_lPort[lRealPlayHandle], m_pCapBuf, dwSize, &dwCapSize);
+    // 抓图（带重试，error 32=无帧可取时等1秒再试）
+    retry = 0;
+    bFlag = FALSE;
+    while (retry < 10 && !bFlag) {
+      bFlag = PlayM4_GetJPEG(m_lPort[lRealPlayHandle], m_pCapBuf, dwSize, &dwCapSize);
+      if (bFlag == FALSE) {
+        dwErr = PlayM4_GetLastError(m_lPort[lRealPlayHandle]);
+        if (dwErr == 32) {  // PLAY_NO_VIDEO_FRAME
+          printf("PlayM4_GetJPEG error 32（暂无帧），重试 %d/10\n", retry + 1);
+          sleep(1);
+        } else {
+          printf("PlayM4_GetJPEG, error code: %d\n", dwErr);
+          break;
+        }
+      }
+      retry++;
+    }
     if (bFlag == FALSE) {
-      dwErr = PlayM4_GetLastError(m_lPort[lRealPlayHandle]);
-      printf("PlayM4_GetJPEG, error code: %d\n", dwErr);
+      printf("PlayM4_GetJPEG 最终失败\n");
       delete[] m_pCapBuf;
       break;
     }
@@ -259,7 +281,7 @@ void CamController::getPic() {
       if (fp) {
         fwrite(m_pCapBuf, sizeof(char), dwCapSize, fp);
         fclose(fp);
-        printf("抓图保存到: %s\n", filePath.c_str());
+        printf("抓图保存到: %s (大小=%d)\n", filePath.c_str(), dwCapSize);
       } else {
         printf("无法打开文件: %s\n", filePath.c_str());
       }
@@ -392,7 +414,26 @@ bool CamController::startRealPlay(unsigned short channel,
     return false;
   }
   // 等待播放库有数据，否则后面无法使用播放库抓图
-  sleep(3);
+  // 循环检测直到有视频帧（最多等待30秒，每秒检测一次）
+  printf("等待解码器初始化...\n");
+  int wait_count = 0;
+  while (wait_count < 30) {
+    LONG testWidth = 0, testHeight = 0;
+    // 找一个有效的端口
+    for (int idx = 0; idx < 16; idx++) {
+      if (m_lPort[idx] >= 0) {
+        if (PlayM4_GetPictureSize(m_lPort[idx], &testWidth, &testHeight)) {
+          printf("解码器就绪，端口=%d，分辨率=%dx%d\n", idx, testWidth, testHeight);
+          return true;
+        }
+      }
+    }
+    sleep(1);
+    wait_count++;
+    printf("等待解码器... %d/30\n", wait_count);
+  }
+  printf("警告: 解码器30秒内未能就绪，继续尝试抓图\n");
+  return true;
 
   return true;
 }

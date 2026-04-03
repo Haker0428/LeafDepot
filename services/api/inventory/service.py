@@ -427,15 +427,33 @@ async def execute_capture_script(script_path: str, task_no: str, bin_location: s
         return {"success": False, "error": str(e)}
 
 
+def _ping_camera(host: str, timeout: int = 3) -> bool:
+    """检测相机是否网络可达"""
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, 8000))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
 async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[str, Any]:
     """使用脚本抓取图片（带重试机制）"""
     from services.api.shared.config import CAPTURE_SCRIPTS
 
-    max_retries = 3
+    max_retries = 5  # 增加重试次数
     retry_count = 0
 
     while retry_count < max_retries:
         try:
+            # 抓图前检测相机网络是否可达（检测3D相机IP）
+            if not _ping_camera("10.16.82.180"):
+                logger.warning(f"相机 10.16.82.180 不可达，等待重试...")
+                await asyncio.sleep(5)  # 等待网络恢复
+
             logger.info(f"开始抓图: {task_no}/{bin_location}, 第 {retry_count + 1} 次尝试")
 
             # 执行所有抓图脚本
