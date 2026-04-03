@@ -9,6 +9,7 @@
  * Copyright (c) 2025 by lizh, All Rights Reserved.
  */
 #include "CamController.h"
+#include <map>
 
 // 全局的播放库port号 - 现在作为CamController的静态成员变量
 LONG CamController::m_lPort[16] = {-1, -1, -1, -1, -1, -1, -1, -1,
@@ -83,6 +84,12 @@ void CALLBACK CamController::g_RealDataCallBack_V30(LONG lRealHandle,
                                                     BYTE* pBuffer,
                                                     DWORD dwBufSize,
                                                     void* pUser) {
+  // 用回调传入的 lRealHandle 参数区分不同流
+  const char* dtype_name = (dwDataType == 1) ? "NET_DVR_SYSHEAD" :
+                            (dwDataType == 2) ? "NET_DVR_STREAMDATA" : "OTHER";
+  printf("[g_RealDataCallBack_V30] lRealHandle=%d dtype=%s(%d) bufSize=%d\n",
+         lRealHandle, dtype_name, dwDataType, dwBufSize);
+
   CamController* pThis = static_cast<CamController*>(pUser);
   if (pThis) {
     pThis->HandleRealData(lRealHandle, dwDataType, pBuffer, dwBufSize);
@@ -96,69 +103,72 @@ void CamController::HandleRealData(LONG lRealHandle, DWORD dwDataType,
   BOOL inData = FALSE;
   LONG lPort = -1;
 
+  // 静态 map：记录 lRealHandle → 码流编号（递增分配）
+  static std::map<LONG, int> handle_to_stream;
+  static int stream_counter = 0;
+  if (handle_to_stream.find(lRealHandle) == handle_to_stream.end()) {
+    handle_to_stream[lRealHandle] = ++stream_counter;
+  }
+  int stream_id = handle_to_stream[lRealHandle];
+  const char* stream_tag = (stream_id == 1) ? "[第1码流-主码流]" :
+                           (stream_id == 2) ? "[第2码流-第四码流]" : "[其他码流]";
+
   switch (dwDataType) {
     case NET_DVR_SYSHEAD:  // 系统头
+      printf("%s [HandleRealData] NET_DVR_SYSHEAD dwBufSize=%d\n", stream_tag, dwBufSize);
       if (!PlayM4_GetPort(&lPort)) {
-        printf("申请播放库资源失败");
+        printf("%s 申请播放库资源失败\n", stream_tag);
         break;
       }
-      printf("播放库句柄：%d\n", lPort);
+      printf("%s 播放库句柄：%d\n", stream_tag, lPort);
 
-      // 使用成员变量lRealPlayHandle
-      m_lPort[lRealPlayHandle] = lPort;
+      // 用 lRealHandle 作为索引存储端口，每个流独立
+      m_lPort[lRealHandle] = lPort;
 
       if (dwBufSize > 0) {
-        // 使用成员变量
-        if (!PlayM4_SetStreamOpenMode(m_lPort[lRealPlayHandle],
-                                      STREAME_REALTIME)) {
-          printf("PlayM4_SetStreamOpenMode Error\n");
-          printf("GetLastError错误码 :%d\n",
-                 PlayM4_GetLastError(m_lPort[lRealPlayHandle]));
+        if (!PlayM4_SetStreamOpenMode(m_lPort[lRealHandle], STREAME_REALTIME)) {
+          printf("%s PlayM4_SetStreamOpenMode Error, err=%d\n", stream_tag,
+                 PlayM4_GetLastError(m_lPort[lRealHandle]));
           break;
         } else {
-          printf("PlayM4_SetStreamOpenMode Sus!\n");
+          printf("%s PlayM4_SetStreamOpenMode Sus!\n", stream_tag);
         }
 
-        if (!PlayM4_OpenStream(m_lPort[lRealPlayHandle], pBuffer, dwBufSize,
+        if (!PlayM4_OpenStream(m_lPort[lRealHandle], pBuffer, dwBufSize,
                                5 * 1024 * 1024)) {
-          printf("PlayM4_OpenStream Error\n");
-          printf("GetLastError错误码 :%d\n",
-                 PlayM4_GetLastError(m_lPort[lRealPlayHandle]));
+          printf("%s PlayM4_OpenStream Error, err=%d\n", stream_tag,
+                 PlayM4_GetLastError(m_lPort[lRealHandle]));
           break;
         } else {
-          printf("PlayM4_OpenStream Sus!\n");
+          printf("%s PlayM4_OpenStream Sus!\n", stream_tag);
         }
 
-        // 设置解码回调函数，传递this指针
-        if (!PlayM4_SetDecCallBackExMend(m_lPort[lRealPlayHandle], DecCBFunIm,
+        if (!PlayM4_SetDecCallBackExMend(m_lPort[lRealHandle], DecCBFunIm,
                                          reinterpret_cast<char*>(this), 0,
                                          NULL)) {
-          printf("PlayM4_SetDecCallBackExMend Error\n");
-          printf("GetLastError错误码 :%d\n",
-                 PlayM4_GetLastError(m_lPort[lRealPlayHandle]));
+          printf("%s PlayM4_SetDecCallBackExMend Error, err=%d\n", stream_tag,
+                 PlayM4_GetLastError(m_lPort[lRealHandle]));
           break;
         } else {
-          printf("PlayM4_SetDecodeEngine Sus!\n");
+          printf("%s PlayM4_SetDecodeEngine Sus!\n", stream_tag);
         }
 
-        if (!PlayM4_Play(m_lPort[lRealPlayHandle], NULL)) {
-          printf("PlayM4_Play Error\n");
-          printf("GetLastError错误码 :%d\n",
-                 PlayM4_GetLastError(m_lPort[lRealPlayHandle]));
+        if (!PlayM4_Play(m_lPort[lRealHandle], NULL)) {
+          printf("%s PlayM4_Play Error, err=%d\n", stream_tag,
+                 PlayM4_GetLastError(m_lPort[lRealHandle]));
           break;
         } else {
-          printf("PlayM4_Play Sus!\n");
+          printf("%s PlayM4_Play Sus!\n", stream_tag);
         }
       }
       break;
 
     case NET_DVR_STREAMDATA:  // 码流数据
-      if (dwBufSize > 0 && m_lPort[lRealPlayHandle] != -1) {
-        while (
-            !PlayM4_InputData(m_lPort[lRealPlayHandle], pBuffer, dwBufSize)) {
-          int dwError = PlayM4_GetLastError(m_lPort[lRealPlayHandle]);
-          printf("播放库句柄ID：%d,错误码：%d\n", m_lPort[lRealPlayHandle],
-                 dwError);
+      if (dwBufSize > 0 && m_lPort[lRealHandle] != -1) {
+        while (!PlayM4_InputData(m_lPort[lRealHandle], pBuffer, dwBufSize)) {
+          int dwError = PlayM4_GetLastError(m_lPort[lRealHandle]);
+          printf("%s PlayM4_InputData 播放库句柄ID=%d,错误码=%d\n",
+                 stream_tag, m_lPort[lRealHandle], dwError);
           if (dwError == 11) {
             continue;
           }
@@ -168,8 +178,8 @@ void CamController::HandleRealData(LONG lRealHandle, DWORD dwDataType,
       break;
 
     default:  // 其他数据
-      if (dwBufSize > 0 && m_lPort[lRealPlayHandle] != -1) {
-        if (!PlayM4_InputData(m_lPort[lRealPlayHandle], pBuffer, dwBufSize)) {
+      if (dwBufSize > 0 && m_lPort[lRealHandle] != -1) {
+        if (!PlayM4_InputData(m_lPort[lRealHandle], pBuffer, dwBufSize)) {
           break;
         }
       }

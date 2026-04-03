@@ -634,7 +634,7 @@ class StackProcessorFactory:
             # 使用深度计算器的旋转功能
             rotated_path_str = self.depth_calculator.rotate_image(
                 str(image_path),
-                rotation_angle=-90,
+                rotation_angle=90,
                 output_path=str(rotated_path),
                 overwrite=True  # 允许覆盖
             )
@@ -721,7 +721,7 @@ class StackProcessorFactory:
                 
                 rotated_depth_path_str = self.depth_calculator.rotate_image(
                     str(depth_image_path),
-                    rotation_angle=-90,
+                    rotation_angle=90,
                     output_path=str(rotated_depth_path),
                     overwrite=False
                 )

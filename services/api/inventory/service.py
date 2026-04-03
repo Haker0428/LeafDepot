@@ -26,6 +26,7 @@ from services.api.shared.config import (
     logger,
     project_root,
     RCS_BASE_URL,
+    RCS_PREFIX,
     RCS_FULL_URL,
     RCS_REAL,
     RCS_CALLBACK_URL,
@@ -36,8 +37,13 @@ from services.api.shared.config import (
     ENABLE_VISUALIZATION,
 )
 
-# RCS_PREFIX 默认值
-RCS_PREFIX = os.getenv("RCS_PREFIX", "")
+# 从 robot/router 导入状态管理（避免与 services.api.state 混淆）
+from services.api.robot.router import (
+    _robot_status_store,
+    _status_event,
+    update_robot_status as _router_update_status,
+    wait_for_robot_status as _router_wait_status,
+)
 
 # 任务状态存储
 _inventory_tasks: Dict[str, TaskStatus] = {}
@@ -148,11 +154,9 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                         "targetRoute": target_route,
                         "taskType": real_cfg.get("task_type", "PF-CTU-HS-H-DETECT-NOTIFY-1")
                     }
-                    logger.info(f"真实RCS下发请求: url={url}")
-                    logger.info(f"真实RCS下发请求头: {headers}")
-                    logger.info(f"真实RCS下发报文体: {request_body}")
+                    logger.info(f"【真实RCS下发请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
                     response = requests.post(url, json=request_body, headers=headers, timeout=20, verify=False)
-                    logger.info(f"真实RCS响应状态码: {response.status_code}, 响应内容: {response.text}")
+                    logger.info(f"【真实RCS下发响应】code={response.status_code} body={response.text}")
 
                 if response.status_code == 200:
                     response_data = response.json()
@@ -242,11 +246,9 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                         "triggerType": "TASK",
                         "triggerCode": robot_task_code
                     }
-                    logger.info(f"真实RCS继续请求: url={url}")
-                    logger.info(f"真实RCS继续请求头: {headers}")
-                    logger.info(f"真实RCS继续请求体: {request_body}")
+                    logger.info(f"【真实RCS继续请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
                     response = requests.post(url, json=request_body, headers=headers, timeout=20, verify=False)
-                    logger.info(f"真实RCS继续响应状态码: {response.status_code}, 响应内容: {response.text}")
+                    logger.info(f"【真实RCS继续响应】code={response.status_code} body={response.text}")
 
                 if response.status_code == 200:
                     response_data = response.json()
@@ -288,66 +290,13 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
 # ==================== 机器人状态管理函数 ====================
 
 async def update_robot_status(method: str, data: Optional[Dict] = None):
-    """更新机器人状态并触发事件"""
-    try:
-        from services.api.state.robot_state import get_robot_state_manager
-        manager = get_robot_state_manager()
-        from services.api.config import ROBOT_STATUS_KEY
-
-        manager._robot_status_store[ROBOT_STATUS_KEY] = {
-            "method": method,
-            "timestamp": time.time(),
-            "data": data or {}
-        }
-
-        logger.info(f"更新机器人状态: {method}")
-        manager._status_event.set()
-    except ImportError:
-        logger.warning("机器人状态管理器模块不存在，无法更新状态")
+    """更新机器人状态并触发事件（委托给 robot/router）"""
+    await _router_update_status(method, data)
 
 
 async def wait_for_robot_status(expected_method: str, timeout: int = 300):
-    """等待特定机器人状态"""
-    try:
-        from services.api.state.robot_state import get_robot_state_manager
-        from services.api.config import ROBOT_STATUS_KEY
-        manager = get_robot_state_manager()
-
-        logger.info(f"开始等待机器人状态: {expected_method}, 超时: {timeout}秒")
-        start_time = time.time()
-
-        manager._status_event.clear()
-
-        # 检查是否已有期望状态
-        if ROBOT_STATUS_KEY in manager._robot_status_store:
-            current_status = manager._robot_status_store[ROBOT_STATUS_KEY]
-            if current_status.get("method") == expected_method:
-                logger.info(f"已存在期望状态: {expected_method}")
-                return current_status
-
-        while True:
-            try:
-                await asyncio.wait_for(manager._status_event.wait(), timeout=1.0)
-
-                if ROBOT_STATUS_KEY in manager._robot_status_store:
-                    current_status = manager._robot_status_store[ROBOT_STATUS_KEY]
-                    logger.info(f"收到机器人状态: {current_status.get('method')}")
-
-                    if current_status.get("method") == expected_method:
-                        logger.info(f"收到期望状态: {expected_method}")
-                        return current_status
-
-                manager._status_event.clear()
-
-            except asyncio.TimeoutError:
-                elapsed_time = time.time() - start_time
-                if elapsed_time >= timeout:
-                    logger.error(f"等待机器人状态超时: {expected_method}")
-                    raise asyncio.TimeoutError(f"等待 {expected_method} 状态超时")
-                continue
-    except ImportError:
-        logger.error("机器人状态管理器模块不存在，无法等待状态")
-        raise
+    """等待特定机器人状态（委托给 robot/router）"""
+    return await _router_wait_status(expected_method, timeout)
 
 
 # ==================== 系统在线状态检查 ====================
@@ -460,7 +409,8 @@ async def execute_capture_script(script_path: str, task_no: str, bin_location: s
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(project_root)  # 让子进程从项目根目录运行，C++ 相对路径才能解析正确
         )
 
         stdout, stderr = await process.communicate()
@@ -1063,30 +1013,6 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             "check_details": details
         }
 
-    # 整体下发盘点任务
-    method = "start"
-    await update_robot_status(method)
-
-    submit_result = await submit_inventory_task(task_no, bin_locations, is_sim=is_sim)
-
-    if not submit_result.get("success"):
-        logger.error(f"盘点任务下发失败: {submit_result.get('message')}")
-        error_msg = submit_result.get("message", "盘点任务下发失败")
-        _inventory_tasks[task_no].status = "failed"
-        _inventory_tasks[task_no].end_time = datetime.now().isoformat()
-        _inventory_tasks[task_no].error_message = error_msg
-        _inventory_tasks[task_no].error_type = "rcs"
-        return {
-            "success": False,
-            "message": error_msg,
-            "errorType": "rcs",
-            "task_no": task_no
-        }
-
-    # 获取 robotTaskCode，用于后续 continue 调用
-    robot_task_code = submit_result.get("robotTaskCode", "")
-    logger.info(f"获取到 robotTaskCode: {robot_task_code}")
-
     # 存储所有储位的盘点结果
     inventory_results = []
 
@@ -1100,6 +1026,51 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
 
         # 顺序执行所有 bin 的处理
         for i, bin_location in enumerate(bin_locations):
+            logger.info(f"下发第 {i+1}/{len(bin_locations)} 个库位: {bin_location}")
+
+            if is_sim:
+                # 模拟模式：只在第一个库位一次性下发所有库位
+                if i == 0:
+                    submit_result = await submit_inventory_task(task_no, bin_locations, is_sim=True)
+                    if not submit_result.get("success"):
+                        logger.error(f"盘点任务下发失败: {submit_result.get('message')}")
+                        error_msg = submit_result.get("message", "盘点任务下发失败")
+                        _inventory_tasks[task_no].status = "failed"
+                        _inventory_tasks[task_no].end_time = datetime.now().isoformat()
+                        _inventory_tasks[task_no].error_message = error_msg
+                        _inventory_tasks[task_no].error_type = "rcs"
+                        return {
+                            "success": False,
+                            "message": error_msg,
+                            "errorType": "rcs",
+                            "task_no": task_no
+                        }
+                robot_task_code = ""
+            else:
+                # 真实模式：每个库位单独下发，得到各自的 robotTaskCode
+                method = "start"
+                await update_robot_status(method)
+                submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=False)
+                robot_task_code = submit_result.get("robotTaskCode", "")
+                logger.info(f"获取到 robotTaskCode: {robot_task_code}")
+
+                if not submit_result.get("success"):
+                    logger.error(f"库位 {bin_location} 下发失败: {submit_result.get('message')}")
+                    result = {
+                        "status": "异常",
+                        "actualQuantity": 0,
+                        "actualSpec": "未识别",
+                        "error": submit_result.get("message", "下发失败")
+                    }
+                    inventory_results.append({
+                        "binLocation": bin_location,
+                        "status": result["status"],
+                        "actualQuantity": result.get("actualQuantity"),
+                        "actualSpec": result.get("actualSpec"),
+                        "error": result.get("error"),
+                    })
+                    continue
+
             result = await process_single_bin_location(
                 task_no=task_no,
                 bin_location=bin_location,
@@ -1108,10 +1079,10 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 is_sim=is_sim
             )
 
-            # 真实模式下，当前库位处理完成后（除最后一个），发送 continue 触发下一个
-            if not is_sim and (i + 1) < len(bin_locations):
+            # 真实模式下，当前库位处理完成后，发送 continue（使用本库位的 robotTaskCode）
+            if not is_sim:
                 logger.info(f"库位 {bin_location} 处理完成，发送 continue")
-                continue_result = await continue_inventory_task(is_sim=is_sim, robot_task_code=robot_task_code)
+                continue_result = await continue_inventory_task(is_sim=False, robot_task_code=robot_task_code)
                 logger.info(f"continue 接口调用结果: {continue_result}")
 
             # 更新 bin 状态

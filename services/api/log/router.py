@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException, status, Body
 from fastapi.responses import JSONResponse
 
-from services.api.shared.config import logger, debug_log_dir
+from services.api.shared.config import logger, logs_dir
 from services.api.shared.models import FrontendLogRequest
 from services.api.shared.operation_log import get_recent_operations, get_all_operations
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["log"])
 async def collect_frontend_log(request: FrontendLogRequest = Body(...)):
     """收集前端日志并保存到 debug 目录"""
     try:
-        frontend_log_filename = debug_log_dir / f"frontend_{datetime.now().strftime('%Y%m%d')}.log"
+        frontend_log_filename = logs_dir / f"frontend_{datetime.now().strftime('%Y%m%d')}.log"
 
         frontend_logger = logging.getLogger("frontend")
         frontend_logger.setLevel(logging.DEBUG)

@@ -19,6 +19,7 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 PID_DIR="$PROJECT_ROOT/.pids"
+DATE="$(date +%Y%m%d)"
 mkdir -p "$PID_DIR"
 
 # 颜色输出
@@ -45,13 +46,13 @@ get_service_config() {
     local service=$1
     case "$service" in
         gateway)
-            echo "gateway:app --host 0.0.0.0 --port 8000 --reload"
+            echo "gateway:app --host 0.0.0.0 --port 8000"
             ;;
         lms)
-            echo "sim_lms_server:app --host 0.0.0.0 --port 6000 --reload"
+            echo "sim_lms_server:app --host 0.0.0.0 --port 6000"
             ;;
         rcs)
-            echo "sim_rcs_server:app --host 0.0.0.0 --port 4001 --reload"
+            echo "sim_rcs_server:app --host 0.0.0.0 --port 4001"
             ;;
     esac
 }
@@ -138,7 +139,7 @@ start_service() {
     cd "$PROJECT_ROOT/$service_dir"
 
     # 启动服务
-    nohup conda run -n tobacco_env uvicorn $service_config > "$PROJECT_ROOT/logs/${service}.log" 2>&1 &
+    nohup conda run -n tobacco_env uvicorn $service_config > "$PROJECT_ROOT/logs/${service}_${DATE}.log" 2>&1 &
     local pid=$!
 
     # 保存PID
@@ -147,11 +148,11 @@ start_service() {
     sleep 2
     if is_running "$pid"; then
         log_info "$service 服务启动成功 (PID: $pid)"
-        log_info "日志文件: $PROJECT_ROOT/logs/${service}.log"
+        log_info "日志文件: $PROJECT_ROOT/logs/${service}_${DATE}.log"
         log_info "服务地址: $service_url"
     else
         log_error "$service 服务启动失败"
-        log_error "请查看日志文件: $PROJECT_ROOT/logs/${service}.log"
+        log_error "请查看日志文件: $PROJECT_ROOT/logs/${service}_${DATE}.log"
         rm -f "$pid_file"
         return 1
     fi
@@ -176,7 +177,7 @@ start_web() {
 
     # 切换到web目录并在后台启动
     cd "$PROJECT_ROOT/web"
-    nohup npm run dev > "$PROJECT_ROOT/logs/web.log" 2>&1 &
+    nohup npm run dev > "$PROJECT_ROOT/logs/web_${DATE}.log" 2>&1 &
     local pid=$!
 
     # 保存PID
@@ -185,7 +186,7 @@ start_web() {
     sleep 3
     if is_running "$pid"; then
         log_info "Web服务启动成功 (PID: $pid)"
-        log_info "日志文件: $PROJECT_ROOT/logs/web.log"
+        log_info "日志文件: $PROJECT_ROOT/logs/web_${DATE}.log"
         log_info "访问地址: http://localhost:5173"
     else
         log_error "Web服务启动失败"

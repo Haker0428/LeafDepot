@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # 导入共享配置和日志
-from services.api.shared.config import logger, debug_log_dir, CORS_ORIGINS
+from services.api.shared.config import logger, logs_dir, CORS_ORIGINS
 from services.api.shared.operation_log import log_operation
 
 # 导入各服务模块的路由
@@ -92,7 +92,7 @@ async def startup_event():
     logger.info("🚀 Gateway服务启动")
     logger.info("📡 API地址: http://0.0.0.0:8000")
     logger.info("📚 API文档: http://localhost:8000/docs")
-    logger.info(f"📝 日志目录: {debug_log_dir}")
+    logger.info(f"📝 日志目录: {logs_dir}")
 
     # 记录启动日志
     log_operation(

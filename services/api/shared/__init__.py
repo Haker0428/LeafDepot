@@ -18,7 +18,7 @@ from services.api.shared.config import (
     STACK_TYPE_CODE_TO_PILE_ID,
     ENABLE_BARCODE,
     logger,
-    debug_log_dir,
+    logs_dir,
     project_root,
 )
 from services.api.shared.operation_log import (
@@ -52,7 +52,7 @@ __all__ = [
     "STACK_TYPE_CODE_TO_PILE_ID",
     "ENABLE_BARCODE",
     "logger",
-    "debug_log_dir",
+    "logs_dir",
     "project_root",
     # Operation Log
     "generate_operation_id",

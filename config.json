@@ -9,7 +9,7 @@
     "host": "10.16.82.90",
     "port": 443,
     "use_ssl": true,
-    "task_type": "PF-CTU-HS-H-DETECT-NOTIFY-1",
+    "task_type": "PF-CTU-HS-H-DETECT-NOTIFY-2",
     "app_id": "1008",
     "sign": "d950ec04accd8f1176379a4611a1795d",
     "continue_url": "/rcs/rtas/api/robot/controller/task/extend/continue",

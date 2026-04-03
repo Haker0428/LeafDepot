@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from services.api.shared.models import OperationLog
-from services.api.shared.config import debug_log_dir, logger
+from services.api.shared.config import logs_dir, logger
 
 # 操作记录存储根目录
-OPERATION_LOGS_DIR = debug_log_dir / "operation_logs"
+OPERATION_LOGS_DIR = logs_dir / "operation_logs"
 OPERATION_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # 创建各类型子目录

@@ -64,7 +64,7 @@ async def task_status(request: Request):
     try:
         request_data = await request.json()
         logger.info("反馈任务状态")
-        logger.info(f"请求数据: {json.dumps(request_data, indent=2, ensure_ascii=False)}")
+        logger.info(f"【RCS回调请求】data={json.dumps(request_data, ensure_ascii=False)}")
 
         robot_task_code = request_data.get("robotTaskCode")
         single_robot_code = request_data.get("singleRobotCode")
@@ -72,21 +72,33 @@ async def task_status(request: Request):
 
         if extra:
             try:
-                extra_list = json.loads(extra)
-                if isinstance(extra_list, list):
-                    for item in extra_list:
-                        method = item.get("method", "")
+                extra_data = json.loads(extra) if isinstance(extra, str) else extra
+                # extra 可能是 dict {"values": {...}} 或 list [{"values": {...}}]
+                if isinstance(extra_data, list):
+                    for item in extra_data:
+                        values = item.get("values", {})
+                        method = values.get("method", "")
                         logger.info(f"处理method: {method}")
-                        await update_robot_status(method, item)
-
+                        await update_robot_status(method, values)
                         if method == "start":
                             logger.info("任务开始")
                         elif method == "outbin":
                             logger.info("走出储位")
                         elif method == "end":
                             logger.info("任务完成")
-            except json.JSONDecodeError:
-                logger.error(f"无法解析extra字段: {extra}")
+                else:
+                    values = extra_data.get("values", {})
+                    method = values.get("method", "")
+                    logger.info(f"处理method: {method}")
+                    await update_robot_status(method, values)
+                    if method == "start":
+                        logger.info("任务开始")
+                    elif method == "outbin":
+                        logger.info("走出储位")
+                    elif method == "end":
+                        logger.info("任务完成")
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"无法解析extra字段: {extra}, error: {e}")
 
         return {
             "code": "SUCCESS",

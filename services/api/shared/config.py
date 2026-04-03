@@ -10,24 +10,38 @@ from datetime import datetime
 # 项目根目录
 project_root = Path(__file__).parent.parent.parent.parent
 
-# 配置日志
-debug_log_dir = project_root / "debug"
-debug_log_dir.mkdir(parents=True, exist_ok=True)
+# 日志目录（与 manage.sh 重定向路径保持一致）
+logs_dir = project_root / "logs"
+try:
+    logs_dir.mkdir(parents=True, exist_ok=True)
+except Exception as e:
+    print(f"[FATAL] 无法创建日志目录 {logs_dir}: {e}")
 
 # 创建日志文件路径（按日期命名）
-_log_filename = debug_log_dir / \
+_log_filename = logs_dir / \
     f"gateway_{datetime.now().strftime('%Y%m%d')}.log"
 
-# 配置根日志记录器
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.StreamHandler(),  # 控制台输出
-        logging.FileHandler(str(_log_filename), encoding='utf-8')  # 文件输出
-    ]
-)
+# 配置根日志记录器（basicConfig 只在 root handler 为空时生效）
+_handlers = []
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'))
+_handlers.append(_stream_handler)
+
+try:
+    _file_handler = logging.FileHandler(str(_log_filename), encoding='utf-8')
+    _file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'))
+    _handlers.append(_file_handler)
+    print(f"[LOG] 日志文件: {_log_filename}")
+except Exception as e:
+    print(f"[WARN] 无法创建日志文件 {_log_filename}: {e}")
+
+_root_logger = logging.getLogger()
+_root_logger.setLevel(logging.INFO)
+_root_logger.handlers = _handlers  # 替换而非追加，避免重复 handler
 logger = logging.getLogger(__name__)
 
 # 从 JSON 配置文件读取配置
@@ -45,8 +59,8 @@ if _config_file.exists():
 # 服务地址配置
 LMS_BASE_URL = os.getenv("LMS_BASE_URL", "http://10.16.82.95:6000")
 RCS_BASE_URL = os.getenv("RCS_BASE_URL", "http://10.16.82.95:4001")
-RCS_PREFIX = os.getenv("RCS_PREFIX", "") or _config.get("rcs_prefix", "")
-LMS_PREFIX = os.getenv("LMS_PREFIX", "") or _config.get("lms_prefix", "")
+RCS_PREFIX = os.getenv("RCS_PREFIX") or _config.get("rcs_prefix", "/rcs/rtas")
+LMS_PREFIX = os.getenv("LMS_PREFIX") or _config.get("lms_prefix", "/lms/srm")
 
 # 完整的 RCS URL（base + prefix），避免两个变量分开导入的拼接问题
 RCS_FULL_URL = RCS_BASE_URL.rstrip("/") + RCS_PREFIX

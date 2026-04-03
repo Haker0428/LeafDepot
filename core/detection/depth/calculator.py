@@ -26,14 +26,14 @@ class DepthCalculator:
         self.baseline_mm = baseline_mm
         self.enable_debug = enable_debug
     
-    def rotate_image(self, image_path: str, rotation_angle: int = -90, 
-                     output_path: Optional[str] = None, 
+    def rotate_image(self, image_path: str, rotation_angle: int = 90,
+                     output_path: Optional[str] = None,
                      overwrite: bool = False) -> str:
         """
-        旋转图像（顺时针90度）
-        
+        旋转图像（逆时针90度，相机装反额外旋转180度）
+
         :param image_path: 输入图像路径
-        :param rotation_angle: 旋转角度（负数表示顺时针，默认-90度）
+        :param rotation_angle: 旋转角度（正数表示逆时针，默认90度）
         :param output_path: 输出路径（可选，如果不提供且overwrite=False，则创建临时文件）
         :param overwrite: 是否覆盖原文件（默认False，创建新文件）
         :return: 旋转后的图像路径
@@ -341,9 +341,9 @@ class DepthCalculator:
         # 0. 旋转图像（顺时针90度）- 如果未跳过
         if not skip_rotation:
             if self.enable_debug:
-                print("\n步骤0: 旋转图像（顺时针90度）...")
+                print("\n步骤0: 旋转图像（逆时针90度）...")
             # 创建旋转后的临时图像文件（不覆盖原文件）
-            rotated_image_path = self.rotate_image(image_path, rotation_angle=-90, overwrite=False)
+            rotated_image_path = self.rotate_image(image_path, rotation_angle=90, overwrite=False)
         else:
             if self.enable_debug:
                 print("\n步骤0: 跳过旋转（图像已旋转）...")
@@ -362,11 +362,11 @@ class DepthCalculator:
         if self.enable_debug:
             print(f"原始图像尺寸: {orig_width}x{orig_height}")
             print(f"分割图目录: {split_output_dir}")
-        
+
         # 2. 提取左上和右上图像（左右图）
-        # 注意：根据用户要求，使用左上和右上象限
-        left_path = quadrants[0]  # 左上象限作为左图
-        right_path = quadrants[1]  # 右上象限作为右图
+        # 注意：左图用右上象限，右图用左上象限（对调）
+        left_path = quadrants[1]  # 右上象限作为左图
+        right_path = quadrants[0]  # 左上象限作为右图
         if self.enable_debug:
             print(f"\n📸 深度处理使用的左右图:")
             print(f"   ✅ 左图（左眼图像）: {os.path.basename(left_path)} - 左上象限 (quadrants[0])")
