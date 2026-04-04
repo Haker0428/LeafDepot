@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/authContext";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { GATEWAY_URL } from "../config/ip_address";
+import { gatewayUrl } from "../config/ip_address";
 import { useNavigate } from "react-router-dom";
 import { addOperationLog } from "../lib/operationLog";
 
@@ -67,7 +67,7 @@ export default function UserManage() {
       }
 
       // 尝试两种方式：先作为查询参数，如果不行再尝试作为请求头
-      const url = `${GATEWAY_URL}/lms/getUsers?authToken=${encodeURIComponent(
+      const url = `${gatewayUrl()}/lms/getUsers?authToken=${encodeURIComponent(
         authToken,
       )}`;
       console.log("请求URL:", url);
@@ -239,7 +239,7 @@ export default function UserManage() {
     }
 
     try {
-      const response = await fetch(`${GATEWAY_URL}/lms/registerUser`, {
+      const response = await fetch(`${gatewayUrl()}/lms/registerUser`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -332,7 +332,7 @@ export default function UserManage() {
       
       // 逐个删除选中的用户
       for (const userCode of selectedUsers) {
-        const response = await fetch(`${GATEWAY_URL}/lms/deleteUser`, {
+        const response = await fetch(`${gatewayUrl()}/lms/deleteUser`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

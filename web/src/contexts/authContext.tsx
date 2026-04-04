@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import { GATEWAY_URL } from '../config/ip_address'; // 导入常量
+import { gatewayUrl } from '../config/ip_address';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -82,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyToken = useCallback(async (token: string) => {
     try {
-      const response = await fetch(`${GATEWAY_URL}/auth/token?token=${token}`);
+      const response = await fetch(`${gatewayUrl()}/auth/token?token=${token}`);
       if (response.ok) {
         const userData = await response.json();
         setUser(userData);
@@ -116,7 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     try {
-      const response = await fetch(`${GATEWAY_URL}/login`, {
+      const response = await fetch(`${gatewayUrl()}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -13,7 +13,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Modal } from "antd";
-import { GATEWAY_URL } from "../config/ip_address";
+import { gatewayUrl } from "../config/ip_address";
 import { useAuth } from "../contexts/authContext";
 import { addOperationLog } from "../lib/operationLog";
 
@@ -713,7 +713,7 @@ export default function InventoryProgress() {
     }
 
     try {
-      const response = await fetch(`${GATEWAY_URL}/api/get-image-original`, {
+      const response = await fetch(`${gatewayUrl()}/api/get-image-original`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -905,7 +905,7 @@ export default function InventoryProgress() {
     // setImageError(false);
 
     try {
-      const response = await fetch(`${GATEWAY_URL}/api/get-image-postprocess`, {
+      const response = await fetch(`${gatewayUrl()}/api/get-image-postprocess`, {
         method: "POST",
 
         headers: {
@@ -984,7 +984,7 @@ export default function InventoryProgress() {
 
       // 使用 /api/history/image 接口，该接口会自动尝试不同扩展名
       // 添加 source=capture_img 参数指定从 capture_img 目录读取
-      return `${GATEWAY_URL}/api/history/image?taskNo=${pathTaskNo}&binLocation=${pathBinLocation}&cameraType=${cameraType}&filename=${filename}&source=capture_img`;
+      return `${gatewayUrl()}/api/history/image?taskNo=${pathTaskNo}&binLocation=${pathBinLocation}&cameraType=${cameraType}&filename=${filename}&source=capture_img`;
     } catch (error) {
       console.error(`解析照片路径失败: ${photoPath}`, error);
       return "";
@@ -1046,7 +1046,7 @@ export default function InventoryProgress() {
         // 如果没有提供图片路径，使用默认的图片路径（兼容原有逻辑）
         // 获取 main.jpg - 用于上半部分显示
         const mainRotatedResponse = await fetch(
-          `${GATEWAY_URL}/api/inventory/image?taskNo=${encodeURIComponent(
+          `${gatewayUrl()}/api/inventory/image?taskNo=${encodeURIComponent(
             taskNo,
           )}&binLocation=${encodeURIComponent(
             binDesc,
@@ -1066,7 +1066,7 @@ export default function InventoryProgress() {
 
         // 获取 depth.jpg - 用于下半部分显示
         const depthColorResponse = await fetch(
-          `${GATEWAY_URL}/api/inventory/image?taskNo=${encodeURIComponent(
+          `${gatewayUrl()}/api/inventory/image?taskNo=${encodeURIComponent(
             taskNo,
           )}&binLocation=${encodeURIComponent(
             binDesc,
@@ -1310,7 +1310,7 @@ export default function InventoryProgress() {
     // 调用扫码+识别接口（真实接口）
     try {
       const response = await fetch(
-        `${GATEWAY_URL}/api/inventory/scan-and-recognize`,
+        `${gatewayUrl()}/api/inventory/scan-and-recognize`,
         {
           method: "POST",
           headers: {
@@ -1420,7 +1420,7 @@ export default function InventoryProgress() {
 
       // 发送任务到网关
       const taskResponse = await fetch(
-        `${GATEWAY_URL}/api/inventory/start-inventory`,
+        `${gatewayUrl()}/api/inventory/start-inventory`,
         {
           method: "POST",
           headers: {
@@ -1470,7 +1470,7 @@ export default function InventoryProgress() {
             pollCount++;
             try {
               const progressResponse = await fetch(
-                `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(currentTaskNo)}`,
+                `${gatewayUrl()}/api/inventory/results?taskNo=${encodeURIComponent(currentTaskNo)}`,
               );
 
               if (!progressResponse.ok) {
@@ -1874,7 +1874,7 @@ export default function InventoryProgress() {
 
       // 调用后端接口保存盘点结果
       const response = await fetch(
-        `${GATEWAY_URL}/api/inventory/save-results`,
+        `${gatewayUrl()}/api/inventory/save-results`,
         {
           method: "POST",
           headers: {
@@ -1900,7 +1900,7 @@ export default function InventoryProgress() {
         // 下载Excel文件
         if (result.data.xlsxUrl) {
           const link = document.createElement("a");
-          link.href = `${GATEWAY_URL}${result.data.xlsxUrl}`;
+          link.href = `${gatewayUrl()}${result.data.xlsxUrl}`;
           link.download = `${currentTaskNo}.xlsx`;
           document.body.appendChild(link);
           link.click();
@@ -1983,7 +1983,7 @@ export default function InventoryProgress() {
         photoScan2Path: item.photoScan2Path || "",
       }));
 
-      const saveResponse = await fetch(`${GATEWAY_URL}/api/inventory/save-results`, {
+      const saveResponse = await fetch(`${gatewayUrl()}/api/inventory/save-results`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2006,7 +2006,7 @@ export default function InventoryProgress() {
       console.log("盘点结果已保存到历史记录:", saveResult.data?.xlsxFile);
 
       // 2. 更新 bins_data.xlsx 中的数量和品规
-      const updateResponse = await fetch(`${GATEWAY_URL}/api/inventory/update-bins-data`, {
+      const updateResponse = await fetch(`${gatewayUrl()}/api/inventory/update-bins-data`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2061,7 +2061,7 @@ export default function InventoryProgress() {
         return;
       }
 
-      const response = await fetch(`${GATEWAY_URL}/lms/setTaskResults`, {
+      const response = await fetch(`${gatewayUrl()}/lms/setTaskResults`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

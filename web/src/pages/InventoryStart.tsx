@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { GATEWAY_URL } from "../config/ip_address";
+import { gatewayUrl } from "../config/ip_address";
 import { useAuth } from "../contexts/authContext";
 import { addOperationLog } from "../lib/operationLog";
 
@@ -283,7 +283,7 @@ export default function InventoryStart() {
     const loadDropdownOptions = async () => {
       if (!authToken) return;
       try {
-        const url = `${GATEWAY_URL}/lms/getLmsBin?authToken=${encodeURIComponent(authToken)}&useLocal=true`;
+        const url = `${gatewayUrl()}/lms/getLmsBin?authToken=${encodeURIComponent(authToken)}&useLocal=true`;
         const response = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
         if (!response.ok) return;
         const result = await response.json();
@@ -333,7 +333,7 @@ export default function InventoryStart() {
     setIsLoading(true);
     try {
       // 使用 useLocal=true 从本地 bins_data.xlsx 读取最新数据
-      const url = `${GATEWAY_URL}/lms/getLmsBin?authToken=${encodeURIComponent(authToken)}&useLocal=true`;
+      const url = `${gatewayUrl()}/lms/getLmsBin?authToken=${encodeURIComponent(authToken)}&useLocal=true`;
       const response = await fetch(url, {
         method: "GET",
         headers: { "Content-Type": "application/json" },

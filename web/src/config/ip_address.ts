@@ -9,7 +9,7 @@
  * Copyright (c) 2025 by lizh, All Rights Reserved.
  */
 
-const DEFAULT_GATEWAY_URL = "http://10.16.82.95:8000";
+const DEFAULT_GATEWAY_URL = "http://localhost:8000";
 
 // cachedGatewayUrl: null = 未获取, string = 已缓存
 let cachedGatewayUrl: string | null = null;
@@ -26,7 +26,7 @@ export async function getGatewayUrl(): Promise<string> {
 
   fetchPromise = (async () => {
     try {
-      // 尝试通过 /api 代理访问网关（适用于 Vite dev server 跨域场景）
+      // 通过 /api 代理访问网关（Vite dev server 代理到 localhost:8000）
       const resp = await fetch("/api/config/gateway", {
         method: "GET",
         headers: { "Content-Type": "application/json" },
@@ -60,7 +60,16 @@ export function getCachedGatewayUrl(): string | null {
 }
 
 /**
+ * 同步获取网关地址。
+ * 如果动态地址已缓存则返回缓存值，否则返回默认值。
+ * 适合在已调用过 getGatewayUrl() 后同步使用。
+ */
+export function gatewayUrl(): string {
+  return cachedGatewayUrl ?? DEFAULT_GATEWAY_URL;
+}
+
+/**
  * 网关地址常量（向后兼容）。
- * 建议优先使用 getGatewayUrl() 异步获取动态地址。
+ * 建议优先使用 gatewayUrl() 或 getGatewayUrl()。
  */
 export const GATEWAY_URL = DEFAULT_GATEWAY_URL;

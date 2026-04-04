@@ -13,8 +13,7 @@ export interface OperationLog {
 }
 
 // API 基础路径
-import { GATEWAY_URL } from '../config/ip_address';
-const API_BASE = `${GATEWAY_URL}/api/operationLogs`;
+import { gatewayUrl } from '../config/ip_address';
 
 /**
  * 添加操作记录
@@ -24,7 +23,7 @@ export async function addOperationLog(log: Omit<OperationLog, 'id' | 'timestamp'
     // 从 sessionStorage 获取 authToken
     const authToken = sessionStorage.getItem('authToken');
 
-    const response = await fetch(API_BASE, {
+    const response = await fetch(`${gatewayUrl()}/api/operationLogs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -61,7 +60,7 @@ export async function addOperationLog(log: Omit<OperationLog, 'id' | 'timestamp'
  */
 export async function getOperationLogs(): Promise<OperationLog[]> {
   try {
-    const response = await fetch(API_BASE);
+    const response = await fetch(`${gatewayUrl()}/api/operationLogs`);
 
     if (!response.ok) {
       console.error('获取操作记录失败:', response.statusText);
@@ -81,7 +80,7 @@ export async function getOperationLogs(): Promise<OperationLog[]> {
  */
 export async function getRecentOperationLogs(limit: number = 5): Promise<OperationLog[]> {
   try {
-    const response = await fetch(`${API_BASE}?limit=${limit}`);
+    const response = await fetch(`${gatewayUrl()}/api/operationLogs?limit=${limit}`);
 
     if (!response.ok) {
       console.error('获取操作记录失败:', response.statusText);
@@ -110,7 +109,7 @@ export async function cleanupOldOperationLogs(daysToKeep: number = 90): Promise<
  */
 export async function clearAllOperationLogs(): Promise<void> {
   try {
-    const response = await fetch(API_BASE, {
+    const response = await fetch(`${gatewayUrl()}/api/operationLogs`, {
       method: 'DELETE',
     });
 

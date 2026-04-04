@@ -4,7 +4,7 @@ import { useAuth } from "../contexts/authContext";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { getRecentOperationLogs, getOperationLogs, clearAllOperationLogs, OperationLog } from "../lib/operationLog";
-import { GATEWAY_URL } from "../config/ip_address";
+import { gatewayUrl } from "../config/ip_address";
 
 const Dashboard = () => {
   const [supportedBinCount, setSupportedBinCount] = useState(0);
@@ -37,7 +37,7 @@ const Dashboard = () => {
     const fetchStats = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch(`${GATEWAY_URL}/api/dashboard/stats`);
+        const response = await fetch(`${gatewayUrl()}/api/dashboard/stats`);
         if (response.ok) {
           const result = await response.json();
           if (result.code === 200 && result.data) {
@@ -63,7 +63,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchMonthlyInventoryData = async () => {
       try {
-        const response = await fetch(`${GATEWAY_URL}/api/history/monthly-count`);
+        const response = await fetch(`${gatewayUrl()}/api/history/monthly-count`);
         if (response.ok) {
           const result = await response.json();
           if (result.code === 200 && result.data) {
