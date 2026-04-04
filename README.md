@@ -73,6 +73,16 @@ LeafDepot/
 
 ### 3. 编译相机驱动（如需真实相机）
 
+编辑 `hardware/cam_sys/CMakeLists.txt`，修改 Python 路径为本地 conda 环境路径（第 106-107 行）：
+
+```cmake
+# 根据您的 conda 环境修改以下两行
+set (Python_ROOT_DIR     "/your/conda/env/tobacco_env/bin/python3.10")
+set(pybind11_DIR        "/your/conda/env/tobacco_env/lib/python3.10/site-packages/pybind11/share/cmake/pybind11")
+```
+
+然后编译：
+
 ```bash
 cd hardware/cam_sys/build
 cmake ..
