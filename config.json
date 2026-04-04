@@ -2,11 +2,11 @@
   "is_sim": true,
   "enable_debug": true,
   "enable_visualization": true,
-  "with_camera": true,
+  "with_camera": false,
   "rcs_prefix": "/rcs/rtas",
   "lms_prefix": "/lms/srm",
   "rcs_real": {
-    "host": "10.16.82.90",
+    "host": "10.16.82.95",
     "port": 443,
     "use_ssl": true,
     "task_type": "PF-CTU-HS-H-DETECT-NOTIFY-2",

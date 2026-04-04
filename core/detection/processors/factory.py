@@ -1,10 +1,13 @@
 """堆垛处理器工厂：根据满层判断结果自动选择对应的处理模块"""
 
+import logging
 from typing import Dict, List, Optional, Union, Tuple
 from pathlib import Path
 from ultralytics import YOLO
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from .full_layer_detector import (
     FullLayerDetector, 
@@ -146,6 +149,13 @@ class StackProcessorFactory:
         :param depth_image_path: 深度图路径（可选，预留参数）
         :return: 总箱数（烟箱数）
         """
+        # 确保 logging 配置了 handler（避免子模块 logger 无输出）
+        if not logging.getLogger().handlers:
+            logging.basicConfig(level=logging.INFO)
+
+        logger.info(f"[Detection] ===== count_boxes 被调用 =====")
+        logger.info(f"[Detection] image_path={image_path}, pile_id={pile_id}, depth_image_path={depth_image_path}")
+
         # 验证和初始化
         image_path = self._validate_inputs(image_path, depth_image_path)
         vis_output_dir = self._prepare_visualization_dir()
@@ -154,56 +164,63 @@ class StackProcessorFactory:
         rotated_image_path = self._rotate_and_save_image(image_path, vis_output_dir)
         # 使用旋转后的图像进行后续处理
         processing_image_path = rotated_image_path if rotated_image_path else image_path
-        
+
         # Step 1: YOLO检测（使用旋转后的图像）
         detections = self._run_yolo_detection(processing_image_path)
         if not detections:
+            logger.warning("[Detection] YOLO未检测到任何目标")
             return 0
-        
+
+        logger.info(f"[Detection] YOLO检测到 {len(detections)} 个目标, 类别: {set(d.get('cls') for d in detections)}")
+
+        # Step 1.5: 深度图处理（在 pile 检测之前，以便生成 depth_color.jpg）
+        self._process_depth_image(processing_image_path, vis_output_dir)
+
         # Step 2: 场景准备（使用旋转后的图像）
         prepared = self._prepare_scene(detections, processing_image_path, vis_output_dir)
         if not prepared:
+            logger.warning("[Detection] 场景准备失败，未检测到有效pile区域")
             return 0
         boxes, pile_roi = prepared["boxes"], prepared["pile_roi"]
-        
+        logger.info(f"[Detection] 场景准备成功: pile_roi={pile_roi}, pile内box数={len(boxes)}")
+
         # 添加图像尺寸信息到pile_roi（用于深度处理，使用旋转后的图像）
         img = cv2.imread(str(processing_image_path))
         if img is not None:
             pile_roi["image_width"] = img.shape[1]
             pile_roi["image_height"] = img.shape[0]
-        
+
         # Step 3: 分层聚类（使用旋转后的图像）
         layers = self._cluster_layers(boxes, pile_roi, processing_image_path, vis_output_dir)
         if not layers:
+            logger.warning("[Detection] 分层聚类失败，未提取到有效层")
             return 0
-        
+
+        logger.info(f"[Detection] 分层聚类完成: 层数={len(layers)}, 每层箱数={[len(l.get('boxes',[])) for l in layers]}")
+
         # Step 4: 处理层（去误层、重新索引）
         layers = self._process_layers(layers)
-        
+
         # Step 5: 获取模板配置
         template_layers = self._get_template_config(pile_id, layers)
-        
+        pile_name = self.pile_db.get_pile(pile_id).get("name", str(pile_id)) if self.pile_db else str(pile_id)
+        logger.info(f"[Detection] 使用垛型: pile_id={pile_id}({pile_name}), 期望层配置={template_layers}")
+
         # 可视化：处理后的分层结果（使用旋转后的图像）
         if self.enable_visualization:
             self._save_layer_visualization(processing_image_path, boxes, pile_roi, layers, vis_output_dir)
-        
-        # Step 5.5: 处理深度图（在满层判断之前）
-        # 深度图处理移到顶层，在满层判断之前完成
-        if self.enable_debug:
-            print("\n" + "=" * 50)
-            print("📍 准备调用深度图处理（Step 5.5）...")
-        self._process_depth_image(processing_image_path, vis_output_dir)
-        if self.enable_debug:
-            print("📍 深度图处理调用完成（Step 5.5）")
-            print("=" * 50 + "\n")
-        
+
         # Step 6: 处理堆垛（满层判断和计数）
         # 传递原始YOLO检测结果，供单层处理器提取top类使用
-        total_count = self.process(layers, template_layers, pile_roi, 
-                                  yolo_detections=detections, 
+        total_count = self.process(layers, template_layers, pile_roi,
+                                  yolo_detections=detections,
                                   image_path=image_path,
                                   output_dir=vis_output_dir)
-        
+
+        logger.info(f"[Detection] ===== 识别结果汇总 =====")
+        logger.info(f"[Detection] 最终计数: {total_count} 箱")
+        logger.info(f"[Detection] 垛型: {pile_name}(pile_id={pile_id}), 期望层数={len(template_layers)}, 实际层数={len(layers)}")
+
         # 可视化：最终结果（使用旋转后的图像）
         if self.enable_visualization:
             self._save_final_visualization(processing_image_path, pile_roi, layers, vis_output_dir)
@@ -556,46 +573,51 @@ class StackProcessorFactory:
             detection_result["yolo_detections"] = yolo_detections
         status = detection_result.get("status", "partial")  # 获取状态：'full', 'partial', 'single_layer'
         is_full = detection_result.get("full", False)  # 向后兼容
+        reason = detection_result.get("reason", "")
+        top_layer = detection_result.get("top_layer") or {}
 
-        # 深度矩阵缓存已经在满层判断之前生成（在count方法的Step 5.5中）
+        # 深度矩阵缓存已经在满层判断之前生成（在count方法的Step 1.5中）
         # 这里只需要将深度数据传递给检测结果
         if self.depth_matrix_csv_path:
             detection_result["depth_matrix_csv_path"] = self.depth_matrix_csv_path
 
+        # 打印满层判断详情
+        status_emoji = {"full": "✅ 满层", "partial": "❌ 非满层", "single_layer": "🔵 单层"}
+        status_text = status_emoji.get(status, "❓ 未知")
+        expected = top_layer.get("expected", "?")
+        observed = top_layer.get("observed", "?")
+        logger.info(f"[Detection] 满层判断: {status_text}, 依据={reason}, 顶层期望={expected}箱, 顶层实际={observed}箱")
+        if status == "partial":
+            metrics = detection_result.get("metrics", {})
+            logger.info(f"[Detection] 覆盖率指标: coverage={metrics.get('coverage', 0):.3f}, cv_gap={metrics.get('cv_gap', 0):.3f}, cv_width={metrics.get('cv_width', 0):.3f}")
+
         # Step 2: 根据判断结果选择处理模块
         if status == "single_layer":
-            if self.enable_debug:
-                print("🔵 进入单层处理模块")
+            logger.info("[Detection] 进入单层处理模块")
             processing_result = self.single_layer_processor.process(
                 layers, template_layers, detection_result, depth_image=self.depth_image
             )
         elif status == "full" or is_full:
-            if self.enable_debug:
-                print("🟢 进入满层处理模块")
+            logger.info("[Detection] 进入满层处理模块")
             processing_result = self.full_processor.process(
-                layers, template_layers, detection_result, 
+                layers, template_layers, detection_result,
                 depth_image=self.depth_image,
                 depth_matrix_csv_path=self.depth_matrix_csv_path
             )
         else:  # status == "partial"
-            if self.enable_debug:
-                print("🟡 进入非满层处理模块")
+            logger.info("[Detection] 进入非满层处理模块")
             # 非满层处理时，传递图像路径和输出目录，让非满层处理器自己处理深度图
             processing_result = self.partial_processor.process(
-                layers, template_layers, detection_result, 
+                layers, template_layers, detection_result,
                 depth_image=self.depth_image,
                 depth_matrix_csv_path=self.depth_matrix_csv_path,
                 image_path=image_path,
                 output_dir=output_dir
             )
-        
+
         # Step 3: 返回总箱数
         total_count = processing_result["total"]
-        
-        if self.enable_debug:
-            status_emoji = {"full": "✅", "partial": "❌", "single_layer": "🔵"}
-            status_text = status_emoji.get(status, "❓")
-            print(f"🎯 处理完成: 总箱数={total_count}, 状态={status} {status_text}")
+        logger.info(f"[Detection] 处理模块返回: total={total_count}, status={status}")
         
         return total_count
     

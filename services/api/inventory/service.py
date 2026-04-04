@@ -505,7 +505,8 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[s
 async def run_barcode_and_detect(
     task_no: str,
     bin_location: str,
-    image_dir: Path,
+    scan_dirs: list[Path],
+    detect_dir: Path,
     pile_id: int = 1,
     code_type: str = "ucc128"
 ) -> Dict[str, Any]:
@@ -516,18 +517,22 @@ async def run_barcode_and_detect(
         "photos": []
     }
 
-    # 条码识别
+    # 条码识别：处理 scan_camera_1 和 scan_camera_2 目录
     if ENABLE_BARCODE and BARCODE_MODULE_AVAILABLE:
         try:
             from core.vision.barcode_recognizer import BarcodeRecognizer
             from services.api.shared.tobacco_resolver import get_tobacco_case_resolver
 
             recognizer = BarcodeRecognizer(code_type=code_type)
-            barcode_results = recognizer.process_folder(input_dir=str(image_dir))
+            all_barcode_results = []
+            for scan_dir in scan_dirs:
+                if scan_dir.exists():
+                    barcode_results = recognizer.process_folder(input_dir=str(scan_dir))
+                    all_barcode_results.extend(barcode_results)
             resolver = get_tobacco_case_resolver()
 
             resolved_info = None
-            for br in barcode_results:
+            for br in all_barcode_results:
                 barcode_text = br.get('output') or br.get('text')
                 if barcode_text:
                     resolved_info = resolver.resolve(barcode_text)
@@ -558,7 +563,7 @@ async def run_barcode_and_detect(
     else:
         result["barcode_result"] = {"status": "disabled"}
 
-    # 数量检测
+    # 数量检测：处理 3d_camera 目录
     if DETECT_MODULE_AVAILABLE:
         try:
             from core.detection import count_boxes
@@ -568,7 +573,7 @@ async def run_barcode_and_detect(
 
             for name in ['main', 'raw', 'image']:
                 for ext in image_extensions:
-                    common_file = image_dir / f"{name}{ext}"
+                    common_file = detect_dir / f"{name}{ext}"
                     if common_file.exists():
                         image_files.append(common_file)
                         break
@@ -577,12 +582,12 @@ async def run_barcode_and_detect(
 
             if not image_files:
                 for ext in image_extensions:
-                    image_files.extend(list(image_dir.glob(f"*{ext}")))
+                    image_files.extend(list(detect_dir.glob(f"*{ext}")))
                     if image_files:
                         break
 
             if image_files:
-                depth_path = image_dir / "depth.jpg"
+                depth_path = detect_dir / "depth.jpg"
                 total_count = count_boxes(
                     image_path=str(image_files[0]),
                     pile_id=pile_id,
@@ -653,15 +658,19 @@ async def process_single_bin_location(
                     return result
 
                 result["captureResults"] = capture_results
-                result["photo3dPath"] = capture_results.get("photo3dPath")
-                result["photoDepthPath"] = capture_results.get("photoDepthPath")
+                # 识别完成后使用计算后的图片路径（主图旋转后、深度计算后的彩色图）
+                result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
+                result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
+                result["photoScan1Path"] = f"/{task_no}/{bin_location}/scan_camera_1/main.jpg"
+                result["photoScan2Path"] = f"/{task_no}/{bin_location}/scan_camera_2/main.jpg"
 
                 # 执行识别
-                image_dir = project_root / "capture_img" / task_no / bin_location / "3d_camera"
+                capture_img_dir = project_root / "capture_img" / task_no / bin_location
                 recognition_result = await run_barcode_and_detect(
                     task_no=task_no,
                     bin_location=bin_location,
-                    image_dir=image_dir,
+                    scan_dirs=[capture_img_dir / "scan_camera_1", capture_img_dir / "scan_camera_2"],
+                    detect_dir=capture_img_dir / "3d_camera",
                     pile_id=1,
                     code_type="ucc128"
                 )
@@ -732,7 +741,6 @@ async def process_single_bin_location(
                 image_mapping = [
                     ("1.jpg", "3d_camera", "main.jpg"),
                     ("2.jpg", "3d_camera", "depth.jpg"),
-                    ("2.jpg", "3d_camera", "depth_color.jpg"),
                     ("3.jpg", "scan_camera_1", "main.jpg"),
                     ("4.jpg", "scan_camera_2", "main.jpg")
                 ]
@@ -757,11 +765,11 @@ async def process_single_bin_location(
             logger.info(f"模拟模式：抓图成功: {bin_location}")
 
             # 执行识别
-            image_dir = capture_img_dir / "3d_camera"
             recognition_result = await run_barcode_and_detect(
                 task_no=task_no,
                 bin_location=bin_location,
-                image_dir=image_dir,
+                scan_dirs=[capture_img_dir / "scan_camera_1", capture_img_dir / "scan_camera_2"],
+                detect_dir=capture_img_dir / "3d_camera",
                 pile_id=1,
                 code_type="ucc128"
             )
@@ -858,16 +866,18 @@ async def process_single_bin_location(
 
                     logger.info(f"抓图成功: {bin_location}")
 
-                    result["photo3dPath"] = capture_results.get("photo3dPath")
-                    result["photoDepthPath"] = capture_results.get("photoDepthPath")
+                    result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
+                    result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
+                    result["photoScan1Path"] = f"/{task_no}/{bin_location}/scan_camera_1/main.jpg"
+                    result["photoScan2Path"] = f"/{task_no}/{bin_location}/scan_camera_2/main.jpg"
 
                     capture_img_dir = project_root / "capture_img" / task_no / bin_location
-                    image_dir = capture_img_dir / "3d_camera"
 
                     recognition_result = await run_barcode_and_detect(
                         task_no=task_no,
                         bin_location=bin_location,
-                        image_dir=image_dir,
+                        scan_dirs=[capture_img_dir / "scan_camera_1", capture_img_dir / "scan_camera_2"],
+                        detect_dir=capture_img_dir / "3d_camera",
                         pile_id=1,
                         code_type="ucc128"
                     )

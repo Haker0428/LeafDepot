@@ -1,8 +1,11 @@
 """满层判断模块：可独立调试的满层判定逻辑"""
 
+import logging
 import numpy as np
 from typing import Dict, List, Optional
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
 
 
 class FullLayerDetector(ABC):
@@ -87,8 +90,7 @@ class CoverageBasedDetector(FullLayerDetector):
         
         # 调试信息
         if self.enable_debug and len(filtered_boxes) != len(boxes):
-            print(f"🔍 顶层箱子过滤: {len(boxes)} -> {len(filtered_boxes)} "
-                  f"(最大高度: {max_height:.2f}, 阈值: {height_threshold:.2f})")
+            logger.debug(f"[Detection] 顶层箱子高度过滤: {len(boxes)} -> {len(filtered_boxes)} (最大高度: {max_height:.2f}, 阈值: {height_threshold:.2f})")
         
         return filtered_boxes
     
@@ -198,7 +200,7 @@ class CoverageBasedDetector(FullLayerDetector):
         # 如果提供了深度图，可以在这里使用深度信息进行辅助判断
         if depth_image is not None:
             if self.enable_debug:
-                print(f"📊 满层判断接收到深度图，尺寸: {depth_image.shape}")
+                logger.debug(f"[Detection] 满层判断接收到深度图，尺寸: {depth_image.shape}")
             # TODO: 后续可以在这里使用深度图进行更精确的满层判断
         
         # 计算关键指标（使用过滤后的箱子）
@@ -235,7 +237,7 @@ class CoverageBasedDetector(FullLayerDetector):
         if self.enable_debug:
             status_emoji = {"full": "✅ 满层", "partial": "❌ 非满层", "single_layer": "🔵 单层"}
             status_text = status_emoji.get(status, "❓ 未知")
-            print(f"🔍 满层判断: {status_text} (顶层: {O_top}/{C_top}, 依据: {reason})")
+            logger.debug(f"[Detection] 满层判断: {status_text} (顶层: {O_top}/{C_top}, 依据: {reason})")
         
         return result
 

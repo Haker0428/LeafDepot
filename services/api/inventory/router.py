@@ -385,16 +385,22 @@ async def scan_and_recognize(request: ScanAndRecognizeRequest = Body(...)):
             logger.error(f"查找照片路径失败: {str(e)}")
             results["photos"] = []
 
-        # Barcode 模块
+        # Barcode 模块（处理 scan_camera_1 和 scan_camera_2）
         detected_pile_id = request.pile_id
+        scan_dir_1 = image_dir.parent / "scan_camera_1"
+        scan_dir_2 = image_dir.parent / "scan_camera_2"
         if ENABLE_BARCODE and BARCODE_MODULE_AVAILABLE and BarcodeRecognizer:
             try:
                 recognizer = BarcodeRecognizer(code_type=request.code_type)
-                barcode_results = recognizer.process_folder(input_dir=str(image_dir))
+                all_barcode_results = []
+                for scan_dir in [scan_dir_1, scan_dir_2]:
+                    if scan_dir.exists():
+                        barcode_results = recognizer.process_folder(input_dir=str(scan_dir))
+                        all_barcode_results.extend(barcode_results)
                 resolver = get_tobacco_case_resolver()
 
                 resolved_info = None
-                for result in barcode_results:
+                for result in all_barcode_results:
                     barcode_text = result.get('output') or result.get('text')
                     if barcode_text:
                         resolved_info = resolver.resolve(barcode_text)
@@ -404,19 +410,19 @@ async def scan_and_recognize(request: ScanAndRecognizeRequest = Body(...)):
                 if resolved_info and resolved_info['success']:
                     detected_pile_id = resolved_info['pile_id']
                     results["barcode_result"] = {
-                        "image_path": str(image_dir),
+                        "image_path": str(scan_dir_1),
                         "code_type": request.code_type,
                         "six_digit_code": resolved_info['six_digit_code'],
                         "stack_type_1": resolved_info['stack_type_1'],
                         "product_name": resolved_info['product_name'],
                         "tobacco_code": resolved_info['tobacco_code'],
                         "mapped_pile_id": detected_pile_id,
-                        "total_images": len(barcode_results),
+                        "total_images": len(all_barcode_results),
                         "status": "success"
                     }
                 else:
                     results["barcode_result"] = {
-                        "image_path": str(image_dir),
+                        "image_path": str(scan_dir_1),
                         "status": "no_match",
                         "message": "条码识别成功但未匹配到烟箱信息"
                     }

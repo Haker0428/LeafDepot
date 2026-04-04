@@ -79,10 +79,25 @@ class BarcodeRecognizer:
 
         return self.results
 
+    # 排除中间生成文件（深度处理、检测处理产生）
+    EXCLUDED_BASENAMES = {
+        'depth_color', 'depth', 'raw', 'main_rotated',
+        'main_yolo_detection', 'main_step1_scene_prepare',
+        'main_step2_layers', 'main_step2_layers_roi',
+        'main_step3_layers_boxes', 'main_step4_final_result',
+        'depth_loaded_original', 'depth_rotated_for_debug',
+        'disparity_visual_gray', 'disparity_visual_color',
+    }
+
     def _is_image_file(self, filename: str) -> bool:
-        """检查文件是否为图片格式"""
+        """检查文件是否为图片格式，且非中间生成文件"""
         image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.gif'}
-        return os.path.splitext(filename.lower())[1] in image_extensions
+        ext = os.path.splitext(filename.lower())[1]
+        if ext not in image_extensions:
+            return False
+        # 排除中间生成文件（不含扩展名的 basename）
+        name_without_ext = os.path.splitext(filename)[0].lower()
+        return name_without_ext not in self.EXCLUDED_BASENAMES
 
     def preprocess_image(self, image_path: str) -> str:
         """

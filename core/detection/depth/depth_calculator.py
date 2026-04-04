@@ -203,7 +203,7 @@ class DepthCalculator:
         os.makedirs(output_dir, exist_ok=True)
         
         # 旋转视差数据90度（顺时针）
-        disparity_rotated = cv2.rotate(disparity, cv2.ROTATE_90_CLOCKWISE)
+        disparity_rotated = cv2.rotate(disparity, cv2.ROTATE_90_COUNTERCLOCKWISE)
         if self.enable_debug:
             print(f"原始视差图尺寸: {disparity.shape[1]}x{disparity.shape[0]}")
             print(f"旋转后视差图尺寸: {disparity_rotated.shape[1]}x{disparity_rotated.shape[0]}")
@@ -382,9 +382,9 @@ class DepthCalculator:
             print(f"分割图目录: {split_output_dir}")
         
         # 2. 提取左上和右上图像（左右图）
-        # 注意：左图用右上象限，右图用左上象限（对调）
-        left_path = quadrants[1]  # 右上象限作为左图
-        right_path = quadrants[0]  # 左上象限作为右图
+        # 注意：左图用左上象限，右图用右上象限
+        left_path = quadrants[0]  # 左上象限作为左图
+        right_path = quadrants[1]  # 右上象限作为右图
         if self.enable_debug:
             print(f"\n📸 深度处理使用的左右图:")
             print(f"   ✅ 左图（左眼图像）: {os.path.basename(left_path)} - 左上象限 (quadrants[0])")
