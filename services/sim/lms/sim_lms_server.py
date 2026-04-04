@@ -21,6 +21,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import custom_utils
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from services.api.shared.config import CORS_ORIGINS
 
 # LMS模拟服务配置
 # 移除硬编码的用户名密码
@@ -29,13 +32,8 @@ PASSWORD = "admin"   # 保留作为默认值，但主要从Excel读取
 AUTH_TOKEN = "d7e8d8fe17fbfcdb6e41efbfbd6d6befbfbd7aefbfbd53634fefbfbd1a7e050c16e3b"
 
 app = FastAPI(title="LMS Mock Service", version="1.0.0")
-# 定义允许的源列表
-origins = [
-    "http://10.16.82.95",
-    "http://10.16.82.95:8000",
-    "http://localhost",
-    "http://localhost:8000",  # 内部网关端口
-]
+# 允许的源（从共享配置读取）
+origins = CORS_ORIGINS
 
 # 将 CORS 中间件添加到应用
 app.add_middleware(

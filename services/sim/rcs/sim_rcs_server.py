@@ -24,10 +24,15 @@ import hashlib
 import hmac
 import json
 import aiohttp
+from pathlib import Path
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from services.api.shared.config import _HOST, GATEWAY_PORT, CAMSYS_PORT, CORS_ORIGINS
 
 app = FastAPI(
     title="RCS-2000",
@@ -35,18 +40,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
-GATEWAY_URL = "http://10.16.82.95:8000"
+GATEWAY_URL = f"http://{_HOST}:{GATEWAY_PORT}"
 
 
-# 定义允许的源列表
-origins = [
-    "http://10.16.82.95",
-    "http://10.16.82.95:8000",
-    "http://10.16.82.95:5000",
-    "http://localhost",
-    "http://localhost:8000",  # 内部网关端口
-    "http://localhost:5000",  # CamSys
-]
+# 允许的源（从共享配置读取）
+origins = CORS_ORIGINS
 
 # 将 CORS 中间件添加到应用
 app.add_middleware(
@@ -71,7 +69,7 @@ class RobotTaskSimulator:
     paused_tasks: Dict[str, dict] = {}
 
     # 回调地址（假设您的系统地址）
-    callback_url = "http://10.16.82.95:8000/api/robot/reporter/task"
+    callback_url = f"http://{_HOST}:{GATEWAY_PORT}/api/robot/reporter/task"
 
     @classmethod
     async def simulate_task_execution(cls, robot_task_code: str, target_route: List[dict], task_type: str):

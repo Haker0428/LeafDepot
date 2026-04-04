@@ -20,6 +20,7 @@ from services.api.robot.router import router as robot_router
 from services.api.log.router import router as log_router
 from services.api.history.router import router as history_router
 from services.api.common.router import router as common_router
+from services.api.config.router import router as config_router
 
 # 条形码路由（可选）
 ENABLE_BARCODE = os.getenv("ENABLE_BARCODE", "true").lower() in ("true", "1", "yes")
@@ -61,6 +62,7 @@ app.include_router(robot_router)
 app.include_router(log_router)
 app.include_router(history_router)
 app.include_router(common_router)
+app.include_router(config_router)
 
 # 注册条形码路由（可选）
 if ENABLE_BARCODE and BARCODE_ROUTER_AVAILABLE:

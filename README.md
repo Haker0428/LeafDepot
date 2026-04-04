@@ -2,11 +2,11 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-12-14 15:55:40
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2025-12-14 16:15:05
+ * @LastEditTime: 2026-04-04
  * @FilePath: /gateway/home/ubuntu/Projects/LeafDepot/README.md
- * @Description: 
- * 
- * Copyright (c) 2025 by lizh, All Rights Reserved. 
+ * @Description:
+ *
+ * Copyright (c) 2025 by lizh, All Rights Reserved.
 -->
 # LeafDepot
 
@@ -34,21 +34,54 @@ LeafDepot/
 └── scripts/           # 启动脚本
 ```
 
-## 快速开始
+## 首次部署配置
 
-### 1. 环境准备
+**所有服务地址统一从 `config.json` 管理，只需修改 `host` 字段即可全局生效。**
 
-```bash
-# 创建并激活 Conda 环境
-conda env create -f environment.yml
-conda activate tobacco_env
+### 1. 修改主机地址
 
-# 安装 Python 依赖
-pip install fastapi uvicorn requests python-multipart
-pip install ultralytics opencv-python
+编辑 `config.json`，将 `host` 改为您部署服务器的 IP：
+
+```json
+{
+  "host": "10.16.82.95",   ← 修改这里，其他地址自动派生
+  "ports": {
+    "gateway": 8000,
+    "lms": 6000,
+    "rcs": 4001,
+    "camsys": 5000
+  },
+  "frontend_port": 5173,
+  ...
+}
 ```
 
-### 2. 启动服务
+修改后，Gateway、LMS、RCS 的 URL 全部自动派生：
+- Gateway: `http://{host}:8000`
+- LMS: `http://{host}:6000`
+- RCS: `http://{host}:4001`
+- CamSys: `http://{host}:5000`
+
+### 2. 修改运行模式
+
+```json
+{
+  "is_sim": true,      // true = 模拟模式（不连真实机器人），false = 真实模式
+  "with_camera": false // 模拟模式下是否执行真实相机脚本（跳过等待机器人）
+}
+```
+
+### 3. 编译相机驱动（如需真实相机）
+
+```bash
+cd hardware/cam_sys/build
+cmake ..
+make -j$(nproc)
+```
+
+如不编译，盘点将使用模拟图片数据。
+
+### 4. 启动服务
 
 ```bash
 # 启动 LMS 模拟服务（端口 6000）
@@ -57,25 +90,37 @@ pip install ultralytics opencv-python
 # 启动网关服务（端口 8000）- 新终端
 ./scripts/start_gateway.sh
 
-# 启动前端服务（端口 3000）- 新终端
+# 启动前端服务（端口 5173）- 新终端
 cd web && pnpm install && pnpm run dev
 ```
 
-### 3. 验证
+### 5. 验证
 
 ```bash
-# 运行验证脚本
 ./scripts/verify.sh
 ```
 
 访问：
-- 前端界面：http://localhost:3000
-- 网关 API 文档：http://localhost:8000/docs
-- LMS API 文档：http://localhost:6000/docs
+- 前端界面：`http://{host}:5173`
+- 网关 API 文档：`http://{host}:8000/docs`
+- LMS API 文档：`http://{host}:6000/docs`
 
 默认登录信息：
 - 用户名：`admin`
 - 密码：`admin`
+
+## 快速开始（本地开发）
+
+如在本地机器直接运行（不连接真实机器人），服务均以 localhost 运行：
+
+```bash
+# 1. config.json 中 host 保持默认，is_sim 设为 true
+# 2. 启动服务
+./scripts/start_lms_sim.sh
+./scripts/start_gateway.sh
+cd web && pnpm install && pnpm run dev
+# 3. 浏览器访问 http://localhost:5173
+```
 
 ## 详细文档
 

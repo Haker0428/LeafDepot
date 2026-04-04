@@ -56,9 +56,17 @@ if _config_file.exists():
     except Exception as e:
         logger.error(f"加载配置文件失败: {e}")
 
-# 服务地址配置
-LMS_BASE_URL = os.getenv("LMS_BASE_URL", "http://10.16.82.95:6000")
-RCS_BASE_URL = os.getenv("RCS_BASE_URL", "http://10.16.82.95:4001")
+# 服务地址统一从 config.json 派生（修改 host 即可全局生效）
+_HOST = _config.get("host", "10.16.82.95")
+_PORTS = _config.get("ports", {})
+LMS_PORT = _PORTS.get("lms", 6000)
+RCS_PORT = _PORTS.get("rcs", 4001)
+GATEWAY_PORT = _PORTS.get("gateway", 8000)
+CAMSYS_PORT = _PORTS.get("camsys", 5000)
+FRONTEND_PORT = _config.get("frontend_port", 5173)
+
+LMS_BASE_URL = os.getenv("LMS_BASE_URL", f"http://{_HOST}:{LMS_PORT}")
+RCS_BASE_URL = os.getenv("RCS_BASE_URL", f"http://{_HOST}:{RCS_PORT}")
 RCS_PREFIX = os.getenv("RCS_PREFIX") or _config.get("rcs_prefix", "/rcs/rtas")
 LMS_PREFIX = os.getenv("LMS_PREFIX") or _config.get("lms_prefix", "/lms/srm")
 
@@ -69,9 +77,10 @@ RCS_FULL_URL = RCS_BASE_URL.rstrip("/") + RCS_PREFIX
 RCS_REAL = _config.get("rcs_real", {})
 
 # RCS 回调地址（真实模式由 RCS 回调此地址通知任务状态）
-RCS_CALLBACK_URL = RCS_REAL.get("callback_url", f"http://10.16.82.95:8000/api/robot/reporter/task")
+# 优先使用 config.json 中 rcs_real.callback_url，否则从 host + gateway_port 派生
+RCS_CALLBACK_URL = RCS_REAL.get("callback_url", f"http://{_HOST}:{GATEWAY_PORT}/api/robot/reporter/task")
 
-logger.info(f"[{datetime.now().isoformat()}] RCS_BASE_URL={RCS_BASE_URL}, RCS_PREFIX={RCS_PREFIX}, RCS_FULL_URL={RCS_FULL_URL}, RCS_REAL={RCS_REAL}")
+logger.info(f"[{datetime.now().isoformat()}] HOST={_HOST}, LMS_BASE_URL={LMS_BASE_URL}, RCS_BASE_URL={RCS_BASE_URL}, RCS_FULL_URL={RCS_FULL_URL}")
 
 # 模拟模式配置（从 JSON 文件读取）
 IS_SIM = _config.get("is_sim", True)
@@ -85,14 +94,10 @@ ENABLE_VISUALIZATION = _config.get("enable_visualization", False)
 
 # CORS 配置（从 JSON 文件读取）
 CORS_ORIGINS = _config.get("cors_origins", [
-    "http://10.16.82.95",
-    "http://10.16.82.95:8000",
-    "http://10.16.82.95:5173",
-    "http://localhost",
-    "http://localhost:8000",
-    "http://localhost:5173",
-    "http://127.0.0.1:8000",
-    "http://127.0.0.1:5173",
+    f"http://{_HOST}", f"http://{_HOST}:{GATEWAY_PORT}",
+    f"http://{_HOST}:{FRONTEND_PORT}", "http://localhost", f"http://localhost:{GATEWAY_PORT}",
+    f"http://localhost:{FRONTEND_PORT}", "http://127.0.0.1", f"http://127.0.0.1:{GATEWAY_PORT}",
+    f"http://127.0.0.1:{FRONTEND_PORT}",
 ])
 
 # 模拟用户配置（LMS 不可用时使用）
