@@ -36,9 +36,16 @@ LeafDepot/
 
 ## 首次部署配置
 
-**所有服务地址统一从 `config.json` 管理，只需修改 `host` 字段即可全局生效。**
+**后端服务地址从 `config.json` 管理，前端开发代理从 `web/.env.local` 管理。**
 
-### 1. 修改主机地址
+### 1. 修改前端代理地址
+
+复制 `.env.local.example` 为 `.env.local`，修改 `VITE_GATEWAY_URL` 为实际 Gateway 地址：
+
+```bash
+cp web/.env.local.example web/.env.local
+# 编辑 web/.env.local，修改 VITE_GATEWAY_URL
+```
 
 编辑 `config.json`，将 `host` 改为您部署服务器的 IP：
 
