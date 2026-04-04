@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../contexts/authContext";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { gatewayUrl } from "../config/ip_address";
+import { GATEWAY_URL } from "../config/ip_address";
 import * as XLSX from "xlsx";
 import { useNavigate } from "react-router-dom";
 import { addOperationLog } from "../lib/operationLog";
@@ -131,7 +131,7 @@ export default function History() {
   const loadHistoryTasks = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${gatewayUrl()}/api/history/tasks`);
+      const response = await fetch(`${GATEWAY_URL}/api/history/tasks`);
       const result = await response.json();
 
       if (result.code === 200) {
@@ -174,7 +174,7 @@ export default function History() {
   const loadTaskDetails = async (task: HistoryTask) => {
     try {
       const response = await fetch(
-        `${gatewayUrl()}/api/history/task/${task.taskId}`,
+        `${GATEWAY_URL}/api/history/task/${task.taskId}`,
       );
       const result = await response.json();
 
@@ -255,7 +255,7 @@ export default function History() {
         const filename = fullFilename.split(".")[0]; // 移除扩展名
 
         // 构建URL - 使用传入的taskId
-        return `${gatewayUrl()}/api/history/image?taskNo=${taskId}&binLocation=${detail.储位名称}&cameraType=${cameraType}&filename=${filename}`;
+        return `${GATEWAY_URL}/api/history/image?taskNo=${taskId}&binLocation=${detail.储位名称}&cameraType=${cameraType}&filename=${filename}`;
       } catch (error) {
         console.error(`解析照片路径失败: ${photoPath}`, error);
         return "";
@@ -392,7 +392,7 @@ export default function History() {
         expectedCount = selectedTaskIds.length;
         for (const taskId of selectedTaskIds) {
           const response = await fetch(
-            `${gatewayUrl()}/api/history/task/${taskId}`,
+            `${GATEWAY_URL}/api/history/task/${taskId}`,
             {
               method: "DELETE",
               headers: {
@@ -431,7 +431,7 @@ export default function History() {
           `[清理] 最早选中任务日期: ${minDate.toLocaleDateString()}, 截止日期: ${cutoffDateStr}（不包含当天）`,
         );
 
-        const response = await fetch(`${gatewayUrl()}/api/history/cleanup`, {
+        const response = await fetch(`${GATEWAY_URL}/api/history/cleanup`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

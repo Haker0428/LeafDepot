@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
   // 读取 .env.local（优先级最高），其次 .env
   const env = loadEnv(mode, process.cwd(), "");
   // VITE_GATEWAY_URL 格式：http://192.168.91.128:8000
-  const gatewayUrl = env.VITE_GATEWAY_URL || "http://localhost:8000";
+  const gatewayTarget = env.VITE_GATEWAY_URL || "http://localhost:8000";
 
   return {
     plugins: getPlugins(),
@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
       // 在 .env.local 中设置 VITE_GATEWAY_URL 指向实际 Gateway 地址
       proxy: {
         "/api": {
-          target: gatewayUrl,
+          target: gatewayTarget,
           changeOrigin: true,
           secure: false,
         },

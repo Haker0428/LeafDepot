@@ -3,7 +3,7 @@
  * 将前端日志发送到后端保存到 debug 目录
  */
 
-import { gatewayUrl } from '../config/ip_address';
+import { GATEWAY_URL } from '../config/ip_address';
 
 interface LogOptions {
   level: 'log' | 'info' | 'warn' | 'error';
@@ -34,7 +34,7 @@ class Logger {
     }
 
     try {
-      await fetch(`${gatewayUrl()}/api/log/frontend`, {
+      await fetch(`${GATEWAY_URL}/api/log/frontend`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
