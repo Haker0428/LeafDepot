@@ -100,7 +100,7 @@ def _get_local_bins_data():
                 "binDesc": row_dict.get("储位名称", ""),
                 "maxQty": row_dict.get("最大数量", 0),
                 "binStatus": row_dict.get("储位状态", ""),
-                "tobaccoQty": row_dict.get("数量(万支)", 0) or 0,
+                "tobaccoQty": int(row_dict.get("数量(万支)", 0) or 0),
                 "tobaccoCode": row_dict.get("烟草编码", ""),
                 "tobaccoName": row_dict.get("品规名称", ""),
                 "rcsCode": row_dict.get("RCS编码", ""),

@@ -788,7 +788,7 @@ async def process_single_bin_location(
                         if item.get("locationName") == bin_location:
                             inventory_item = item
                             break
-                result["actualQuantity"] = inventory_item.get("systemQuantity", 0) if inventory_item else 0
+                result["actualQuantity"] = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
 
             # 获取品规
             if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
@@ -894,7 +894,7 @@ async def process_single_bin_location(
                                 if item.get("locationName") == bin_location:
                                     inventory_item = item
                                     break
-                        result["actualQuantity"] = inventory_item.get("systemQuantity", 0) if inventory_item else 0
+                        result["actualQuantity"] = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
 
                     if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
                         result["actualSpec"] = barcode_result["product_name"]
@@ -1129,8 +1129,8 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         break
 
             # 计算差异
-            actual_qty = result.get("actualQuantity", 0)
-            system_qty = inventory_item.get("systemQuantity", 0) if inventory_item else 0
+            actual_qty = int(result.get("actualQuantity", 0) or 0)
+            system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
             difference = actual_qty - system_qty
 
             # 收集盘点结果
