@@ -103,15 +103,17 @@ export default function InventoryStart() {
     whCode: string,
     areaCode: string,
     binCode: string,
+    binDesc: string,
   ): string => {
-    return `${whCode}_${areaCode}_${binCode}`;
+    // 优先用 binDesc（如 "01-01-01"），其次用 binCode
+    return `${whCode}_${areaCode}_${binDesc || binCode}`;
   };
 
   // 为储位数据添加唯一ID
   const addUniqueIdsToBins = (bins: BinItem[]): BinItem[] => {
     return bins.map((bin) => ({
       ...bin,
-      id: generateBinId(bin.whCode, bin.areaCode, bin.binCode),
+      id: generateBinId(bin.whCode, bin.areaCode, bin.binCode, bin.binDesc),
     }));
   };
 
