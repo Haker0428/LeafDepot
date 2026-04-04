@@ -8,7 +8,9 @@
  *
  * Copyright (c) 2025 by lizh, All Rights Reserved.
  */
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+import { getGatewayUrl } from "./config/ip_address";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import InventoryStart from "./pages/InventoryStart";
@@ -30,7 +32,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 export default function App() {
-  // 注意：现在认证状态由 AuthProvider 管理，所以这里不再需要本地状态
+  // 页面加载时预加载网关地址，确保后续所有请求都能使用正确的地址
+  useEffect(() => {
+    getGatewayUrl();
+  }, []);
 
   return (
     // 移除本地的 AuthContext.Provider，应该在 main.tsx 或 index.tsx 中使用 AuthProvider 包装整个应用

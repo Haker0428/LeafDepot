@@ -52,17 +52,9 @@ export async function getGatewayUrl(): Promise<string> {
 }
 
 /**
- * 同步获取缓存的网关地址。
- * 在 getGatewayUrl() 首次完成前返回 null。
- */
-export function getCachedGatewayUrl(): string | null {
-  return cachedGatewayUrl;
-}
-
-/**
  * 同步获取网关地址。
- * 如果动态地址已缓存则返回缓存值，否则返回默认值。
- * 适合在已调用过 getGatewayUrl() 后同步使用。
+ * 缓存未就绪时直接返回默认值，保证 URL 永不为 null。
+ * 实际动态地址会在后台加载完成后替换缓存。
  */
 export function gatewayUrl(): string {
   return cachedGatewayUrl ?? DEFAULT_GATEWAY_URL;
