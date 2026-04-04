@@ -23,15 +23,14 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 5173,
       allowedHosts: true,
-      // 代理所有请求到 Gateway（解决跨域问题）
+      // 代理所有 Gateway API 路径到后端（解决跨域问题）
       // 在 .env.local 中设置 VITE_GATEWAY_URL 指向实际 Gateway 地址
       proxy: {
-        "^/": {
-          target: gatewayTarget,
-          changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path,
-        },
+        "^/login$": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
+        "^/auth": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
+        "^/lms": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
+        "^/api": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
+        "^/config": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
       },
     },
   };
