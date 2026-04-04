@@ -2,7 +2,7 @@
 /** WARNING: DON'T EDIT THIS FILE */
 /** WARNING: DON'T EDIT THIS FILE */
 
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 
@@ -11,27 +11,11 @@ function getPlugins() {
   return plugins;
 }
 
-export default defineConfig(({ mode }) => {
-  // 读取 .env.local（优先级最高），其次 .env
-  const env = loadEnv(mode, process.cwd(), "");
-  // VITE_GATEWAY_URL 格式：http://10.16.82.95:8000
-  const gatewayTarget = env.VITE_GATEWAY_URL || "http://localhost:8000";
-
-  return {
-    plugins: getPlugins(),
-    server: {
-      host: "0.0.0.0",
-      port: 5173,
-      allowedHosts: true,
-      // 代理所有 Gateway API 路径到后端（解决跨域问题）
-      // 在 .env.local 中设置 VITE_GATEWAY_URL 指向实际 Gateway 地址
-      proxy: {
-        "^/login$": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
-        "^/auth": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
-        "^/lms": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
-        "^/api": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
-        "^/config": { target: gatewayTarget, changeOrigin: true, secure: false, rewrite: (p) => p },
-      },
-    },
-  };
+export default defineConfig({
+  plugins: getPlugins(),
+  server: {
+    host: "0.0.0.0",
+    port: 5173,
+    allowedHosts: true,
+  },
 });

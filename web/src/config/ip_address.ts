@@ -9,6 +9,4 @@
  * Copyright (c) 2025 by lizh, All Rights Reserved.
  */
 
-// 前端开发时：Vite 代理 /api/* 到 Gateway
-// 构建后：走同源，不需要修改此常量
-export const GATEWAY_URL = "http://localhost:8000";
+export const GATEWAY_URL = "http://10.16.82.95:8000";
