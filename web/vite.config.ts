@@ -14,7 +14,7 @@ function getPlugins() {
 export default defineConfig(({ mode }) => {
   // 读取 .env.local（优先级最高），其次 .env
   const env = loadEnv(mode, process.cwd(), "");
-  // VITE_GATEWAY_URL 格式：http://192.168.91.128:8000
+  // VITE_GATEWAY_URL 格式：http://10.16.82.95:8000
   const gatewayTarget = env.VITE_GATEWAY_URL || "http://localhost:8000";
 
   return {
