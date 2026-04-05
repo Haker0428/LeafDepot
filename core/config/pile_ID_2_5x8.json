@@ -1,0 +1,566 @@
+[
+  {
+    "pattern_id": "single_l_4",
+    "visible_count": 1,
+    "match": {
+      "width_ranges": [
+        [
+          0.4412,
+          0.5441
+        ]
+      ],
+      "depth_ranges": [
+        [
+          7550,
+          10450
+        ]
+      ]
+    },
+    "result_ids": [
+      0
+    ]
+  },
+  {
+    "pattern_id": "single_l_3",
+    "visible_count": 1,
+    "match": {
+      "width_ranges": [
+        [
+          0.3676,
+          0.4412
+        ]
+      ],
+      "depth_ranges": [
+        [
+          10450,
+          13350
+        ]
+      ]
+    },
+    "result_ids": [
+      1
+    ]
+  },
+  {
+    "pattern_id": "single_l_2",
+    "visible_count": 1,
+    "match": {
+      "width_ranges": [
+        [
+          0.3088,
+          0.3676
+        ]
+      ],
+      "depth_ranges": [
+        [
+          13350,
+          16250
+        ]
+      ]
+    },
+    "result_ids": [
+      2
+    ]
+  },
+  {
+    "pattern_id": "single_l_1",
+    "visible_count": 1,
+    "match": {
+      "width_ranges": [
+        [
+          0.25,
+          0.3088
+        ]
+      ],
+      "depth_ranges": [
+        [
+          16250,
+          19150
+        ]
+      ]
+    },
+    "result_ids": [
+      3
+    ]
+  },
+  {
+    "pattern_id": "double_l_8",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.4412,
+          0.5441
+        ],
+        [
+          0.4412,
+          0.5441
+        ]
+      ],
+      "depth_ranges": [
+        [
+          7550,
+          10450
+        ],
+        [
+          7550,
+          10450
+        ]
+      ]
+    },
+    "result_ids": [
+      0,
+      7
+    ]
+  },
+  {
+    "pattern_id": "double_l_7",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.4412,
+          0.5441
+        ],
+        [
+          0.3676,
+          0.4412
+        ]
+      ],
+      "depth_ranges": [
+        [
+          7550,
+          10450
+        ],
+        [
+          10450,
+          13350
+        ]
+      ]
+    },
+    "result_ids": [
+      0,
+      6
+    ]
+  },
+  {
+    "pattern_id": "double_l_7_mir",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.3676,
+          0.4412
+        ],
+        [
+          0.4412,
+          0.5441
+        ]
+      ],
+      "depth_ranges": [
+        [
+          10450,
+          13350
+        ],
+        [
+          7550,
+          10450
+        ]
+      ]
+    },
+    "result_ids": [
+      1,
+      7
+    ]
+  },
+  {
+    "pattern_id": "double_l_6t",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.4412,
+          0.5441
+        ],
+        [
+          0.3088,
+          0.3676
+        ]
+      ],
+      "depth_ranges": [
+        [
+          7550,
+          10450
+        ],
+        [
+          13350,
+          16250
+        ]
+      ]
+    },
+    "result_ids": [
+      0,
+      5
+    ]
+  },
+  {
+    "pattern_id": "double_l_6t_mir",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.3088,
+          0.3676
+        ],
+        [
+          0.4412,
+          0.5441
+        ]
+      ],
+      "depth_ranges": [
+        [
+          13350,
+          16250
+        ],
+        [
+          7550,
+          10450
+        ]
+      ]
+    },
+    "result_ids": [
+      2,
+      7
+    ]
+  },
+  {
+    "pattern_id": "double_l_6d",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.3676,
+          0.4412
+        ],
+        [
+          0.3676,
+          0.4412
+        ]
+      ],
+      "depth_ranges": [
+        [
+          10450,
+          13350
+        ],
+        [
+          10450,
+          13350
+        ]
+      ]
+    },
+    "result_ids": [
+      1,
+      6
+    ]
+  },
+  {
+    "pattern_id": "double_l_5t",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.4412,
+          0.5441
+        ],
+        [
+          0.25,
+          0.3088
+        ]
+      ],
+      "depth_ranges": [
+        [
+          7550,
+          10450
+        ],
+        [
+          16250,
+          19150
+        ]
+      ]
+    },
+    "result_ids": [
+      0,
+      4
+    ]
+  },
+  {
+    "pattern_id": "double_l_5t_mir",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.25,
+          0.3088
+        ],
+        [
+          0.4412,
+          0.5441
+        ]
+      ],
+      "depth_ranges": [
+        [
+          16250,
+          19150
+        ],
+        [
+          7550,
+          10450
+        ]
+      ]
+    },
+    "result_ids": [
+      3,
+      7
+    ]
+  },
+  {
+    "pattern_id": "double_l_5d",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.3676,
+          0.4412
+        ],
+        [
+          0.3088,
+          0.3676
+        ]
+      ],
+      "depth_ranges": [
+        [
+          10450,
+          13350
+        ],
+        [
+          13350,
+          16250
+        ]
+      ]
+    },
+    "result_ids": [
+      1,
+      5
+    ]
+  },
+  {
+    "pattern_id": "double_l_5d_mir",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.3088,
+          0.3676
+        ],
+        [
+          0.3676,
+          0.4412
+        ]
+      ],
+      "depth_ranges": [
+        [
+          13350,
+          16250
+        ],
+        [
+          10450,
+          13350
+        ]
+      ]
+    },
+    "result_ids": [
+      2,
+      6
+    ]
+  },
+  {
+    "pattern_id": "double_l_4d",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.3088,
+          0.3676
+        ],
+        [
+          0.3088,
+          0.3676
+        ]
+      ],
+      "depth_ranges": [
+        [
+          13350,
+          16250
+        ],
+        [
+          13350,
+          16250
+        ]
+      ]
+    },
+    "result_ids": [
+      2,
+      5
+    ]
+  },
+  {
+    "pattern_id": "double_l_4t",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.3676,
+          0.4412
+        ],
+        [
+          0.25,
+          0.3088
+        ]
+      ],
+      "depth_ranges": [
+        [
+          10450,
+          13350
+        ],
+        [
+          16250,
+          19150
+        ]
+      ]
+    },
+    "result_ids": [
+      1,
+      4
+    ]
+  },
+  {
+    "pattern_id": "double_l_4t_mir",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.25,
+          0.3088
+        ],
+        [
+          0.3676,
+          0.4412
+        ]
+      ],
+      "depth_ranges": [
+        [
+          16250,
+          19150
+        ],
+        [
+          10450,
+          13350
+        ]
+      ]
+    },
+    "result_ids": [
+      3,
+      6
+    ]
+  },
+  {
+    "pattern_id": "double_l_3",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.3088,
+          0.3676
+        ],
+        [
+          0.25,
+          0.3088
+        ]
+      ],
+      "depth_ranges": [
+        [
+          13350,
+          16250
+        ],
+        [
+          16250,
+          19150
+        ]
+      ]
+    },
+    "result_ids": [
+      2,
+      4
+    ]
+  },
+  {
+    "pattern_id": "double_l_3_mir",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.25,
+          0.3088
+        ],
+        [
+          0.3088,
+          0.3676
+        ]
+      ],
+      "depth_ranges": [
+        [
+          16250,
+          19150
+        ],
+        [
+          13350,
+          16250
+        ]
+      ]
+    },
+    "result_ids": [
+      3,
+      5
+    ]
+  },
+  {
+    "pattern_id": "double_l_2",
+    "visible_count": 2,
+    "match": {
+      "width_ranges": [
+        [
+          0.25,
+          0.3088
+        ],
+        [
+          0.25,
+          0.3088
+        ]
+      ],
+      "depth_ranges": [
+        [
+          16250,
+          19150
+        ],
+        [
+          16250,
+          19150
+        ]
+      ]
+    },
+    "result_ids": [
+      3,
+      4
+    ]
+  }
+]

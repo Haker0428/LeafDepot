@@ -9,6 +9,16 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
+class ImageNotFoundError(Exception):
+    """图片文件未找到（相机抓图失败）"""
+    pass
+
+
+class PileNotFoundError(Exception):
+    """图片存在但未检测到有效pile区域"""
+    pass
+
 from .full_layer_detector import (
     FullLayerDetector, 
     CoverageBasedDetector
@@ -168,10 +178,12 @@ class StackProcessorFactory:
         # Step 1: YOLO检测（使用旋转后的图像）
         detections = self._run_yolo_detection(processing_image_path)
         if not detections:
-            logger.warning("[Detection] YOLO未检测到任何目标")
+            logger.warning("[Detection] YOLO未检测到任何目标（pile可能为空或不可见）")
             return 0
 
         logger.info(f"[Detection] YOLO检测到 {len(detections)} 个目标, 类别: {set(d.get('cls') for d in detections)}")
+        for i, det in enumerate(detections):
+            logger.info(f"[Detection]   YOLO[{i}]: cls={det.get('cls')}, roi=({det.get('x1', 0):.0f},{det.get('y1', 0):.0f},{det.get('x2', 0):.0f},{det.get('y2', 0):.0f}), conf={det.get('conf', 0):.4f}")
 
         # Step 1.5: 深度图处理（在 pile 检测之前，以便生成 depth_color.jpg）
         self._process_depth_image(processing_image_path, vis_output_dir)
@@ -183,6 +195,9 @@ class StackProcessorFactory:
             return 0
         boxes, pile_roi = prepared["boxes"], prepared["pile_roi"]
         logger.info(f"[Detection] 场景准备成功: pile_roi={pile_roi}, pile内box数={len(boxes)}")
+        for i, b in enumerate(boxes):
+            x1, y1, x2, y2 = b.get("x1", 0), b.get("y1", 0), b.get("x2", 0), b.get("y2", 0)
+            logger.info(f"[Detection]   提取box[{i}]: roi=({x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}), 中心=({(x1+x2)/2:.0f},{(y1+y2)/2:.0f}), 宽高=({x2-x1:.0f}x{y2-y1:.0f})")
 
         # 添加图像尺寸信息到pile_roi（用于深度处理，使用旋转后的图像）
         img = cv2.imread(str(processing_image_path))
@@ -213,6 +228,7 @@ class StackProcessorFactory:
         # Step 6: 处理堆垛（满层判断和计数）
         # 传递原始YOLO检测结果，供单层处理器提取top类使用
         total_count = self.process(layers, template_layers, pile_roi,
+                                  pile_id=pile_id,
                                   yolo_detections=detections,
                                   image_path=image_path,
                                   output_dir=vis_output_dir)
@@ -548,8 +564,9 @@ class StackProcessorFactory:
         if self.enable_debug:
             print(f"💾 已保存最终结果图")
     
-    def process(self, layers: List[Dict], template_layers: List[int], 
-                pile_roi: Dict[str, float], 
+    def process(self, layers: List[Dict], template_layers: List[int],
+                pile_roi: Dict[str, float],
+                pile_id: Optional[int] = None,
                 yolo_detections: Optional[List[Dict]] = None,
                 image_path: Optional[Union[str, Path]] = None,
                 output_dir: Optional[Union[str, Path]] = None) -> int:
@@ -595,7 +612,10 @@ class StackProcessorFactory:
         if status == "single_layer":
             logger.info("[Detection] 进入单层处理模块")
             processing_result = self.single_layer_processor.process(
-                layers, template_layers, detection_result, depth_image=self.depth_image
+                layers, template_layers, detection_result,
+                pile_id=pile_id,
+                depth_image=self.depth_image,
+                depth_matrix_csv_path=self.depth_matrix_csv_path
             )
         elif status == "full" or is_full:
             logger.info("[Detection] 进入满层处理模块")
@@ -609,6 +629,7 @@ class StackProcessorFactory:
             # 非满层处理时，传递图像路径和输出目录，让非满层处理器自己处理深度图
             processing_result = self.partial_processor.process(
                 layers, template_layers, detection_result,
+                pile_id=pile_id,
                 depth_image=self.depth_image,
                 depth_matrix_csv_path=self.depth_matrix_csv_path,
                 image_path=image_path,

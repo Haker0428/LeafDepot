@@ -114,7 +114,7 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "10.16.82.90")
+                    host = real_cfg.get("host", "192.168.91.128")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     url = f"{base_url}{RCS_PREFIX}/api/robot/controller/task/submit"
@@ -227,7 +227,7 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "10.16.82.90")
+                    host = real_cfg.get("host", "192.168.91.128")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     continue_path = real_cfg.get("continue_url", "/rcs/rtas/api/robot/controller/task/extend/continue")
@@ -322,7 +322,7 @@ async def check_systems_online(is_sim: bool, with_camera: bool) -> Dict[str, Any
     :param with_camera: 是否使用真实相机
     :return: {"online": bool, "details": {...}}
     """
-    from services.api.shared.config import RCS_BASE_URL, CAPTURE_SCRIPTS
+    from services.api.shared.config import RCS_BASE_URL, CAPTURE_SCRIPTS, CAMERA_TEST_DIR
     import re
 
     results = {"rcs": {}, "cameras": {}}
@@ -337,9 +337,12 @@ async def check_systems_online(is_sim: bool, with_camera: bool) -> Dict[str, Any
     else:
         results["rcs"] = {"host": RCS_BASE_URL, "online": False, "error": "无法解析地址"}
 
-    # 模拟模式且不启用相机 → RCS 在线即可
-    if is_sim and not with_camera:
-        results["cameras"] = {"status": "跳过（模拟模式）", "online": True}
+    # 模拟模式且不启用相机，或使用本地测试图片目录 → 跳过相机检查
+    if is_sim and (not with_camera or CAMERA_TEST_DIR):
+        results["cameras"] = {
+            "status": "跳过（本地测试图片）" if CAMERA_TEST_DIR else "跳过（模拟模式）",
+            "online": True
+        }
         all_online = results["rcs"].get("online", False)
         return {"online": all_online, "details": results}
 
@@ -440,67 +443,208 @@ def _ping_camera(host: str, timeout: int = 3) -> bool:
         return False
 
 
-async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[str, Any]:
-    """使用脚本抓取图片（带重试机制）"""
-    from services.api.shared.config import CAPTURE_SCRIPTS
+async def _capture_from_test_dir(task_no: str, bin_location: str, test_dir: str) -> Dict[str, Any]:
+    """从本地测试目录复制图片到 capture_img，用于无相机环境调试"""
+    import shutil
+    import os
 
-    max_retries = 5  # 增加重试次数
+    CAMERA_NAMES = ["scan_1", "scan_2", "3d"]
+    CAMERA_DIRS = ["scan_camera_1", "scan_camera_2", "3d_camera"]
+
+    # 支持 ~ 展开为用户 home 目录
+    base_src = Path(os.path.expanduser(test_dir))
+    dest_base = project_root / "capture_img" / task_no / bin_location
+
+    camera_results = {}
+
+    for i, cam_dir in enumerate(CAMERA_DIRS):
+        cam_name = CAMERA_NAMES[i]
+        src_cam_dir = base_src / cam_dir
+        dest_cam_dir = dest_base / cam_dir
+
+        try:
+            dest_cam_dir.mkdir(parents=True, exist_ok=True)
+
+            if not src_cam_dir.exists():
+                camera_results[cam_name] = {"success": False, "error": f"源目录不存在: {src_cam_dir}"}
+                continue
+
+            # 查找并复制目录中所有图片
+            copied = False
+            for ext in ["*.jpg", "*.png", "*.jpeg", "*.JPG", "*.PNG", "*.JPEG"]:
+                for src_file in src_cam_dir.glob(ext):
+                    shutil.copy2(src_file, dest_cam_dir / src_file.name)
+                    copied = True
+
+            if copied:
+                logger.info(f"从测试目录复制 {cam_dir} 图片到: {dest_cam_dir}")
+                camera_results[cam_name] = {"success": True, "image_count": len(list(dest_cam_dir.glob("*.jpg")) + list(dest_cam_dir.glob("*.png")))}
+            else:
+                camera_results[cam_name] = {"success": False, "error": f"目录 {cam_dir} 中未找到图片"}
+
+        except Exception as e:
+            camera_results[cam_name] = {"success": False, "error": str(e)}
+
+    any_success = any(r.get("success") for r in camera_results.values())
+    failed_cameras = [name for name, r in camera_results.items() if not r.get("success")]
+    all_errors = [f"{name}: {r.get('error')}" for name, r in camera_results.items() if not r.get("success")]
+
+    if any_success:
+        logger.info(f"从测试目录复制图片完成: {task_no}/{bin_location}, 成功: {[n for n,r in camera_results.items() if r.get('success')]}, 失败: {failed_cameras}")
+        return {
+            "success": True,
+            "partial": len(failed_cameras) > 0,
+            "cameras": camera_results,
+            "errors": all_errors,
+            "photo3dPath": f"/{task_no}/{bin_location}/3d_camera/main.jpg" if camera_results.get("3d", {}).get("success") else None,
+            "photoDepthPath": f"/{task_no}/{bin_location}/3d_camera/depth.jpg" if camera_results.get("3d", {}).get("success") else None,
+            "photoScan1Path": f"/{task_no}/{bin_location}/scan_camera_1/main.jpg" if camera_results.get("scan_1", {}).get("success") else None,
+            "photoScan2Path": f"/{task_no}/{bin_location}/scan_camera_2/main.jpg" if camera_results.get("scan_2", {}).get("success") else None,
+            "image_count": camera_results.get("3d", {}).get("image_count", 0)
+        }
+    else:
+        return {"success": False, "cameras": camera_results, "errors": all_errors}
+
+
+async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[str, Any]:
+    """使用脚本抓取图片（带重试机制）
+
+    如果配置了 CAMERA_TEST_DIR，则从本地目录复制图片用于测试；
+    否则执行真实相机脚本。
+
+    返回值包含:
+    - success: bool, 至少有一个相机成功抓图
+    - cameras: dict, 每个相机的成功/失败状态
+    - errors: list, 失败的相机错误信息
+    - photo3dPath / photoDepthPath / photoScan1Path / photoScan2Path: str, 已捕获的图片路径（可能为空）
+    - image_count: int, 3d_camera 目录下的图片数量
+    """
+    from services.api.shared.config import CAPTURE_SCRIPTS, CAMERA_TEST_DIR
+
+    # 如果配置了本地测试图片目录，直接从该目录复制
+    if CAMERA_TEST_DIR:
+        import os
+        expanded = os.path.expanduser(CAMERA_TEST_DIR)
+        logger.info(f"使用本地测试图片目录: {expanded}")
+        return await _capture_from_test_dir(task_no, bin_location, CAMERA_TEST_DIR)
+
+    # 相机名称映射: 脚本索引 → 名称/目录
+    CAMERA_NAMES = ["scan_1", "scan_2", "3d"]
+    CAMERA_DIRS = ["scan_camera_1", "scan_camera_2", "3d_camera"]
+
+    max_retries = 5
     retry_count = 0
 
     while retry_count < max_retries:
         try:
-            # 抓图前检测相机网络是否可达（检测3D相机IP）
             if not _ping_camera("10.16.82.180"):
                 logger.warning(f"相机 10.16.82.180 不可达，等待重试...")
-                await asyncio.sleep(5)  # 等待网络恢复
+                await asyncio.sleep(5)
 
             logger.info(f"开始抓图: {task_no}/{bin_location}, 第 {retry_count + 1} 次尝试")
 
-            # 执行所有抓图脚本
-            for script_path in CAPTURE_SCRIPTS:
+            camera_results = {}
+
+            # 逐个执行抓图脚本，记录每个相机的成功/失败
+            for i, script_path in enumerate(CAPTURE_SCRIPTS):
+                cam_name = CAMERA_NAMES[i]
                 if not os.path.exists(script_path):
                     logger.warning(f"抓图脚本不存在: {script_path}")
+                    camera_results[cam_name] = {"success": False, "error": "脚本不存在"}
                     continue
 
-                result = await execute_capture_script(script_path, task_no, bin_location)
-                if not result["success"]:
-                    raise Exception(f"抓图脚本执行失败: {result.get('error')}")
+                try:
+                    result = await execute_capture_script(script_path, task_no, bin_location)
+                    if result.get("success"):
+                        camera_results[cam_name] = {"success": True}
+                        logger.info(f"相机 {cam_name} 抓图成功")
+                    else:
+                        camera_results[cam_name] = {"success": False, "error": result.get("error", "未知错误")}
+                        logger.warning(f"相机 {cam_name} 抓图失败: {result.get('error')}")
+                except Exception as cam_err:
+                    camera_results[cam_name] = {"success": False, "error": str(cam_err)}
+                    logger.warning(f"相机 {cam_name} 抓图异常: {cam_err}")
 
             # 等待图片生成
             await asyncio.sleep(2)
 
-            # 检查图片是否存在
-            image_dir = project_root / "capture_img" / task_no / bin_location / "3d_camera"
-            if not image_dir.exists():
-                raise Exception(f"图片目录不存在: {image_dir}")
+            # 检查各目录下的图片
+            for i, cam_name in enumerate(CAMERA_NAMES):
+                cam_dir = project_root / "capture_img" / task_no / bin_location / CAMERA_DIRS[i]
+                if cam_dir.exists():
+                    image_files = list(cam_dir.glob("*.jpg")) + list(cam_dir.glob("*.png"))
+                    if image_files:
+                        camera_results.setdefault(cam_name, {})["image_count"] = len(image_files)
+                    else:
+                        camera_results.setdefault(cam_name, {})["success"] = False
+                        camera_results.setdefault(cam_name, {})["error"] = "未生成图片文件"
 
-            # 查找图片文件
-            image_files = list(image_dir.glob("*.jpg")) + list(image_dir.glob("*.png"))
-            if not image_files:
-                raise Exception(f"未找到图片文件: {image_dir}")
+            # 判断是否有至少一个相机成功
+            any_success = any(r.get("success") for r in camera_results.values())
+            failed_cameras = [name for name, r in camera_results.items() if not r.get("success")]
+            all_errors = [f"{name}: {r.get('error', '未知错误')}" for name, r in camera_results.items() if not r.get("success")]
 
-            logger.info(f"抓图成功: {task_no}/{bin_location}")
-
-            return {
-                "success": True,
-                "photo3dPath": f"/{task_no}/{bin_location}/3d_camera/main.jpg",
-                "photoDepthPath": f"/{task_no}/{bin_location}/3d_camera/depth.jpg",
-                "image_count": len(image_files)
-            }
+            if any_success:
+                logger.info(f"抓图完成（部分成功）: {task_no}/{bin_location}, 成功: {[n for n,r in camera_results.items() if r.get('success')]}, 失败: {failed_cameras}")
+                return {
+                    "success": True,
+                    "partial": len(failed_cameras) > 0,
+                    "cameras": camera_results,
+                    "errors": all_errors,
+                    "photo3dPath": f"/{task_no}/{bin_location}/3d_camera/main.jpg" if camera_results.get("3d", {}).get("success") else None,
+                    "photoDepthPath": f"/{task_no}/{bin_location}/3d_camera/depth.jpg" if camera_results.get("3d", {}).get("success") else None,
+                    "photoScan1Path": f"/{task_no}/{bin_location}/scan_camera_1/main.jpg" if camera_results.get("scan_1", {}).get("success") else None,
+                    "photoScan2Path": f"/{task_no}/{bin_location}/scan_camera_2/main.jpg" if camera_results.get("scan_2", {}).get("success") else None,
+                    "image_count": camera_results.get("3d", {}).get("image_count", 0)
+                }
+            else:
+                # 全部失败，重试
+                logger.warning(f"所有相机抓图失败 (尝试 {retry_count + 1}/{max_retries}): {all_errors}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    await asyncio.sleep(5)
+                else:
+                    return {"success": False, "cameras": camera_results, "errors": all_errors}
 
         except Exception as e:
             retry_count += 1
             logger.error(f"抓图失败 (尝试 {retry_count}/{max_retries}): {str(e)}")
 
             if retry_count < max_retries:
-                await asyncio.sleep(5)  # 等待后重试
-            else:
-                return {"success": False, "error": str(e)}
+                await asyncio.sleep(5)
 
-    return {"success": False, "error": "超过最大重试次数"}
+    return {"success": False, "errors": ["超过最大重试次数"]}
 
 
 # ==================== 识别函数 ====================
+
+def _extract_barcode_text_from_recognizer_result(br: dict) -> str | None:
+    """从 barcode recognizer 返回的结果中提取真正的条码字符串
+
+    BarcodeReaderCLI 返回的 output 是原始 JSON 字符串，形如：
+    {"sessions": [{"barcodes": [{"text": "912503...", ...}]}]}
+    需要先解析 JSON，再取 sessions[0].barcodes[0].text 才是真正的条码。
+    """
+    import json
+
+    raw = br.get('output')
+    if not raw:
+        return br.get('text')
+
+    try:
+        data = json.loads(raw)
+        sessions = data.get('sessions', [])
+        for session in sessions:
+            barcodes = session.get('barcodes', [])
+            for bc in barcodes:
+                text = bc.get('text')
+                if text:
+                    return text
+    except Exception:
+        pass
+
+    return br.get('text')
+
 
 async def run_barcode_and_detect(
     task_no: str,
@@ -516,6 +660,49 @@ async def run_barcode_and_detect(
         "detect_result": None,
         "photos": []
     }
+
+    # 前置检查：相机拍照目录不能为空
+    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+
+    # 检查 3d_camera 目录：必须同时有 main.jpg 和 depth.jpg 才算抓图成功
+    has_main = False
+    has_depth = False
+    if detect_dir is not None and detect_dir.exists():
+        has_main = (detect_dir / "main.jpg").exists()
+        has_depth = (detect_dir / "depth.jpg").exists()
+        # 兜底：也接受 main_rotated.jpg 和 raw.jpg
+        if not has_main:
+            for name in ['main_rotated', 'raw', 'image']:
+                for ext in image_extensions:
+                    if (detect_dir / f"{name}{ext}").exists():
+                        has_main = True
+                        break
+                if has_main:
+                    break
+    if not has_main:
+        result["detect_result"] = {"status": "failed", "error": "3D相机抓图失败：未找到main.jpg"}
+        return result
+    if not has_depth:
+        result["detect_result"] = {"status": "failed", "error": "3D相机抓图失败：未找到depth.jpg"}
+        return result
+
+    # 检查 scan_camera 目录（至少有一个有图片即可）
+    scan_ok = False
+    for sd in scan_dirs:
+        if sd is None or not sd.exists():
+            continue
+        try:
+            for f in sd.iterdir():
+                if f.is_file() and f.suffix.lower().lstrip('.') in [e.lstrip('.') for e in image_extensions]:
+                    scan_ok = True
+                    break
+        except Exception:
+            continue
+        if scan_ok:
+            break
+    if not scan_ok:
+        result["detect_result"] = {"status": "failed", "error": "扫码相机拍照失败：未找到图片"}
+        return result
 
     # 条码识别：处理 scan_camera_1 和 scan_camera_2 目录
     if ENABLE_BARCODE and BARCODE_MODULE_AVAILABLE:
@@ -533,7 +720,7 @@ async def run_barcode_and_detect(
 
             resolved_info = None
             for br in all_barcode_results:
-                barcode_text = br.get('output') or br.get('text')
+                barcode_text = _extract_barcode_text_from_recognizer_result(br)
                 if barcode_text:
                     resolved_info = resolver.resolve(barcode_text)
                     if resolved_info['success']:
@@ -569,7 +756,6 @@ async def run_barcode_and_detect(
             from core.detection import count_boxes
 
             image_files = []
-            image_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
 
             for name in ['main', 'raw', 'image']:
                 for ext in image_extensions:
@@ -588,12 +774,15 @@ async def run_barcode_and_detect(
 
             if image_files:
                 depth_path = detect_dir / "depth.jpg"
+                debug_output_dir = project_root / "debug" / task_no / bin_location
+                debug_output_dir.mkdir(parents=True, exist_ok=True)
                 total_count = count_boxes(
                     image_path=str(image_files[0]),
                     pile_id=pile_id,
                     depth_image_path=str(depth_path) if depth_path.exists() else None,
                     enable_debug=ENABLE_DEBUG,
-                    enable_visualization=ENABLE_VISUALIZATION
+                    enable_visualization=ENABLE_VISUALIZATION,
+                    output_dir=str(debug_output_dir)
                 )
 
                 result["detect_result"] = {
@@ -611,6 +800,18 @@ async def run_barcode_and_detect(
         result["detect_result"] = {"status": "disabled"}
 
     return result
+
+
+def _get_actual_spec(barcode_result: dict, inventory_item: dict | None) -> str:
+    """根据扫码识别结果和系统库存决定实际品规
+
+    优先级：
+    1. 识别成功且有品名 → 用识别的品名
+    2. 其他情况（识别失败/无匹配/无识别模块）→ "未识别"
+    """
+    if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
+        return barcode_result["product_name"]
+    return "未识别"
 
 
 # ==================== 单个储位处理函数 ====================
@@ -649,20 +850,29 @@ async def process_single_bin_location(
                 # 不等待机器人，直接执行相机脚本
                 logger.info(f"模拟模式 with_camera：执行相机脚本 for {bin_location}")
                 capture_results = await capture_images_with_scripts(task_no, bin_location)
+
+                # 全部相机失败 → 直接返回错误
                 if not capture_results.get("success"):
                     result["status"] = "异常"
-                    result["error"] = f"抓图失败: {capture_results.get('error')}"
+                    result["error"] = f"抓图失败: {capture_results.get('error', '所有相机抓图失败')}"
                     result["actualQuantity"] = 0
-                    result["actualSpec"] = "未识别"
+                    result["actualSpec"] = "无"
                     result["endTime"] = datetime.now().isoformat()
                     return result
 
-                result["captureResults"] = capture_results
-                # 识别完成后使用计算后的图片路径（主图旋转后、深度计算后的彩色图）
-                result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
-                result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
+                # 部分相机失败 → 记录警告，继续处理
+                partial_errors = []
+                if capture_results.get("partial"):
+                    partial_errors = capture_results.get("errors", [])
+                    logger.warning(f"部分相机抓图失败: {partial_errors}")
+
+                # 先设置图片路径（即使后续识别失败，路径也已准备好）
+                result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main.jpg"
+                result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth.jpg"
                 result["photoScan1Path"] = f"/{task_no}/{bin_location}/scan_camera_1/main.jpg"
                 result["photoScan2Path"] = f"/{task_no}/{bin_location}/scan_camera_2/main.jpg"
+
+                result["captureResults"] = capture_results
 
                 # 执行识别
                 capture_img_dir = project_root / "capture_img" / task_no / bin_location
@@ -675,19 +885,40 @@ async def process_single_bin_location(
                     code_type="ucc128"
                 )
 
-                detect_result = recognition_result.get("detect_result", {})
-                barcode_result = recognition_result.get("barcode_result", {})
+                detect_result = (recognition_result or {}).get("detect_result")
+                barcode_result = (recognition_result or {}).get("barcode_result") or {}
 
-                if detect_result.get("status") == "success" and detect_result.get("total_count") is not None:
-                    result["actualQuantity"] = detect_result["total_count"]
-                else:
-                    result["actualQuantity"] = 0
+                # 识别成功 → 更新为旋转/彩色后的路径
+                if detect_result.get("status") == "success":
+                    result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
+                    result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
 
-                if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
-                    result["actualSpec"] = barcode_result["product_name"]
-                else:
-                    result["actualSpec"] = "未识别"
+                # 识别失败（3D相机主图没找到）→ 仍返回已拍到的照片，quantity回退
+                if detect_result.get("status") == "failed":
+                    result["status"] = "异常"
+                    # 优先报告部分抓图失败信息，其次报告检测失败信息
+                    if partial_errors:
+                        result["error"] = "相机抓图失败：" + "；".join(partial_errors)
+                    else:
+                        result["error"] = f"抓图失败：{detect_result.get('error', '未找到图片')}"
+                    inventory_item = None
+                    if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
+                        for item in _inventory_task_details[task_no]["inventoryItems"]:
+                            if item.get("locationName") == bin_location:
+                                inventory_item = item
+                                break
+                    result["actualSpec"] = _get_actual_spec(barcode_result, inventory_item)
+                    result["actualQuantity"] = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
+                    result["barcodeResult"] = barcode_result
+                    result["detectResult"] = detect_result
+                    result["photos"] = recognition_result.get("photos", [])
+                    result["endTime"] = datetime.now().isoformat()
+                    return result
 
+                result["actualSpec"] = _get_actual_spec(barcode_result, None)
+
+                result["status"] = "成功"
+                result["actualQuantity"] = detect_result.get("total_count", 0)
                 result["barcodeResult"] = barcode_result
                 result["detectResult"] = detect_result
                 result["photos"] = recognition_result.get("photos", [])
@@ -774,28 +1005,33 @@ async def process_single_bin_location(
                 code_type="ucc128"
             )
 
-            detect_result = recognition_result.get("detect_result", {})
-            barcode_result = recognition_result.get("barcode_result", {})
+            detect_result = (recognition_result or {}).get("detect_result") or {}
+            barcode_result = (recognition_result or {}).get("barcode_result") or {}
 
-            # 获取数量
-            if detect_result.get("status") == "success" and detect_result.get("total_count") is not None:
-                result["actualQuantity"] = detect_result["total_count"]
-            else:
-                # 从库存数据获取备用数量
+            # 抓图失败（未找到图片）或识别异常 → 报错，标记为异常
+            # 识别成功（即使数量为0）→ 成功，使用检测数量
+            if detect_result.get("status") == "failed":
+                result["status"] = "异常"
+                result["error"] = f"抓图失败：{detect_result.get('error', '未找到图片')}"
+                # 回退到系统数量作为备用
                 inventory_item = None
                 if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
                     for item in _inventory_task_details[task_no]["inventoryItems"]:
                         if item.get("locationName") == bin_location:
                             inventory_item = item
                             break
+                result["actualSpec"] = _get_actual_spec(barcode_result, inventory_item)
                 result["actualQuantity"] = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
+                result["barcodeResult"] = barcode_result
+                result["detectResult"] = detect_result
+                result["photos"] = recognition_result.get("photos", [])
+                result["endTime"] = datetime.now().isoformat()
+                return result
 
-            # 获取品规
-            if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
-                result["actualSpec"] = barcode_result["product_name"]
-            else:
-                result["actualSpec"] = "未识别"
+            result["actualSpec"] = _get_actual_spec(barcode_result, None)
 
+            result["status"] = "成功"
+            result["actualQuantity"] = detect_result.get("total_count", 0)
             result["barcodeResult"] = barcode_result
             result["detectResult"] = detect_result
             result["photos"] = recognition_result.get("photos", [])
@@ -857,17 +1093,21 @@ async def process_single_bin_location(
                     if not capture_results.get("success"):
                         logger.error(f"抓图失败，跳过储位: {bin_location}")
                         result["status"] = "异常"
-                        result["error"] = "抓图失败（重试3次后仍失败）"
+                        result["error"] = f"抓图失败: {capture_results.get('error', '所有相机抓图失败')}"
                         result["actualQuantity"] = 0
-                        result["actualSpec"] = "未识别"
+                        result["actualSpec"] = "无"
                         result["endTime"] = datetime.now().isoformat()
-
                         return result
+
+                    # 部分相机失败 → 记录警告，继续处理
+                    if capture_results.get("partial"):
+                        logger.warning(f"部分相机抓图失败: {capture_results.get('errors', [])}")
 
                     logger.info(f"抓图成功: {bin_location}")
 
-                    result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
-                    result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
+                    # 先用原始抓图路径；检测成功后会被旋转/彩色路径替代
+                    result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main.jpg"
+                    result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth.jpg"
                     result["photoScan1Path"] = f"/{task_no}/{bin_location}/scan_camera_1/main.jpg"
                     result["photoScan2Path"] = f"/{task_no}/{bin_location}/scan_camera_2/main.jpg"
 
@@ -882,25 +1122,39 @@ async def process_single_bin_location(
                         code_type="ucc128"
                     )
 
-                    detect_result = recognition_result.get("detect_result", {})
-                    barcode_result = recognition_result.get("barcode_result", {})
+                    detect_result = (recognition_result or {}).get("detect_result") or {}
+                    barcode_result = (recognition_result or {}).get("barcode_result") or {}
 
-                    if detect_result.get("status") == "success" and detect_result.get("total_count") is not None:
-                        result["actualQuantity"] = detect_result["total_count"]
-                    else:
+                    # 识别成功 → 更新为旋转/彩色后的路径
+                    if detect_result.get("status") == "success":
+                        result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
+                        result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
+
+                    # 识别失败（3D相机主图没找到）→ 仍返回已拍到的照片
+                    if detect_result.get("status") == "failed":
+                        result["status"] = "异常"
+                        if capture_results.get("partial"):
+                            result["error"] = "相机抓图失败：" + "；".join(capture_results.get("errors", []))
+                        else:
+                            result["error"] = f"抓图失败：{detect_result.get('error', '未找到图片')}"
                         inventory_item = None
                         if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
                             for item in _inventory_task_details[task_no]["inventoryItems"]:
                                 if item.get("locationName") == bin_location:
                                     inventory_item = item
                                     break
+                        result["actualSpec"] = _get_actual_spec(barcode_result, inventory_item)
                         result["actualQuantity"] = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
+                        result["barcodeResult"] = barcode_result
+                        result["detectResult"] = detect_result
+                        result["photos"] = recognition_result.get("photos", [])
+                        result["endTime"] = datetime.now().isoformat()
+                        return result
 
-                    if barcode_result.get("status") == "success" and barcode_result.get("product_name"):
-                        result["actualSpec"] = barcode_result["product_name"]
-                    else:
-                        result["actualSpec"] = "未识别"
+                    result["actualSpec"] = _get_actual_spec(barcode_result, None)
 
+                    result["status"] = "成功"
+                    result["actualQuantity"] = detect_result.get("total_count", 0)
                     result["barcodeResult"] = barcode_result
                     result["detectResult"] = detect_result
                     result["photos"] = recognition_result.get("photos", [])
@@ -946,7 +1200,7 @@ async def process_single_bin_location(
                 result["status"] = "异常"
                 result["error"] = "等待机器人结束状态超时"
                 result["actualQuantity"] = 0
-                result["actualSpec"] = "未识别"
+                result["actualSpec"] = "无"
                 result["endTime"] = datetime.now().isoformat()
 
                 return result
@@ -955,7 +1209,7 @@ async def process_single_bin_location(
         result["status"] = "异常"
         result["error"] = str(e)
         result["actualQuantity"] = 0
-        result["actualSpec"] = "未识别"
+        result["actualSpec"] = "无"
         result["endTime"] = datetime.now().isoformat()
         logger.error(f"处理储位失败 {bin_location}: {str(e)}")
 
@@ -1001,8 +1255,13 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
     check_result = await check_systems_online(is_sim, WITH_CAMERA)
     details = check_result.get("details", {})
 
-    logger.info(f"系统在线检查: RCS={'在线' if details.get('rcs',{}).get('online') else '离线'}, "
-                 f"相机={'在线' if details.get('cameras',{}).get('status') == '跳过（模拟模式）' else str(details.get('cameras',{}))}")
+    cam_status_str = details.get('cameras', {}).get('status', '')
+    cam_online = details.get('cameras', {}).get('online', False)
+    if '跳过' in cam_status_str:
+        cam_display = cam_status_str
+    else:
+        cam_display = f"在线" if cam_online else str(details.get('cameras', {}))
+    logger.info(f"系统在线检查: RCS={'在线' if details.get('rcs',{}).get('online') else '离线'}, 相机={cam_display}")
 
     if not check_result.get("online"):
         rcs_status = details.get("rcs", {})
@@ -1087,7 +1346,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     result = {
                         "status": "异常",
                         "actualQuantity": 0,
-                        "actualSpec": "未识别",
+                        "actualSpec": "无",
                         "error": submit_result.get("message", "下发失败")
                     }
                     inventory_results.append({
@@ -1099,25 +1358,41 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     })
                     continue
 
-            result = await process_single_bin_location(
-                task_no=task_no,
-                bin_location=bin_location,
-                index=i,
-                total=len(bin_locations),
-                is_sim=is_sim
-            )
+            try:
+                result = await process_single_bin_location(
+                    task_no=task_no,
+                    bin_location=bin_location,
+                    index=i,
+                    total=len(bin_locations),
+                    is_sim=is_sim
+                )
+            except Exception as e:
+                logger.error(f"处理库位 {bin_location} 时发生异常: {str(e)}")
+                result = {
+                    "status": "异常",
+                    "error": f"处理库位异常: {str(e)}",
+                    "actualQuantity": None,
+                    "actualSpec": "无",
+                    "photo3dPath": None,
+                    "photoDepthPath": None,
+                    "photoScan1Path": "",
+                    "photoScan2Path": "",
+                }
 
-            # 真实模式下，当前库位处理完成后，发送 continue（使用本库位的 robotTaskCode）
+            # 真实模式下，当前库位处理完成后，发送 continue（无论成功或失败都继续）
             if not is_sim:
                 logger.info(f"库位 {bin_location} 处理完成，发送 continue")
-                continue_result = await continue_inventory_task(is_sim=False, robot_task_code=robot_task_code)
-                logger.info(f"continue 接口调用结果: {continue_result}")
+                try:
+                    continue_result = await continue_inventory_task(is_sim=False, robot_task_code=robot_task_code)
+                    logger.info(f"continue 接口调用结果: {continue_result}")
+                except Exception as e:
+                    logger.error(f"发送 continue 失败: {str(e)}")
 
             # 更新 bin 状态
             if task_no in _inventory_task_bins:
                 for bin_status in _inventory_task_bins[task_no]:
                     if bin_status.bin_location == bin_location:
-                        bin_status.status = "completed" if result["status"] == "成功" else "failed"
+                        bin_status.status = "completed" if result.get("status") == "成功" else "failed"
                         break
 
             # 从原始盘点项中查找匹配的储位信息
@@ -1128,15 +1403,15 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         inventory_item = item
                         break
 
-            # 计算差异
+            # 计算差异（使用 int 强制转换避免类型错误）
             actual_qty = int(result.get("actualQuantity", 0) or 0)
             system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
             difference = actual_qty - system_qty
 
-            # 收集盘点结果
+            # 收集盘点结果（无论成功或失败都记录）
             inventory_results.append({
                 "binLocation": bin_location,
-                "status": result["status"],
+                "status": result.get("status"),
                 "actualQuantity": result.get("actualQuantity"),
                 "actualSpec": result.get("actualSpec"),
                 "photo3dPath": result.get("photo3dPath"),
@@ -1151,10 +1426,26 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
 
         logger.info(f"所有 {len(bin_locations)} 个储位处理完成")
 
-        # 更新任务状态为完成
-        _inventory_tasks[task_no].status = "completed"
+        # 判断任务整体状态：全部成功 / 部分失败 / 全部失败
+        success_count = sum(1 for r in inventory_results if r.get("status") == "成功")
+        failed_count = len(inventory_results) - success_count
+
+        if failed_count == 0:
+            task_status = "completed"
+        elif success_count == 0:
+            task_status = "failed"
+        else:
+            task_status = "partial"
+
+        _inventory_tasks[task_no].status = task_status
         _inventory_tasks[task_no].current_step = len(bin_locations)
         _inventory_tasks[task_no].end_time = datetime.now().isoformat()
+
+        # 全部失败时，聚合各库位错误原因
+        if task_status == "failed" and inventory_results:
+            failed_errors = [r.get("error") or "未知错误" for r in inventory_results if r.get("status") in ("异常", "失败")]
+            if failed_errors:
+                _inventory_tasks[task_no].error_message = "；".join(failed_errors)
 
         # 保存盘点结果到任务详情
         if task_no not in _inventory_task_details:
@@ -1162,7 +1453,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
 
         _inventory_task_details[task_no]["inventoryResults"] = inventory_results
 
-        logger.info(f"盘点任务完成: {task_no}, 成功处理 {len(bin_locations)} 个储位")
+        logger.info(f"盘点任务{task_status}: {task_no}, 成功 {success_count}/{len(bin_locations)} 个库位")
         logger.info(f"盘点结果: {inventory_results}")
 
         # 从任务详情中获取用户信息
@@ -1171,15 +1462,16 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
         # 记录任务完成
         log_operation(
             operation_type="inventory",
-            action="盘点任务完成",
+            action="盘点任务完成" if task_status == "completed" else ("盘点任务部分完成" if task_status == "partial" else "盘点任务失败"),
             user_id=user_info.get("userId"),
             user_name=user_info.get("userName"),
             target=task_no,
-            status="completed",
+            status=task_status,
             details={
                 "task_no": task_no,
                 "bin_locations": bin_locations,
-                "completed_count": len(bin_locations),
+                "completed_count": success_count,
+                "failed_count": failed_count,
             }
         )
 

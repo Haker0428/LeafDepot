@@ -57,7 +57,7 @@ if _config_file.exists():
         logger.error(f"加载配置文件失败: {e}")
 
 # 服务地址统一从 config.json 派生（修改 host 即可全局生效）
-_HOST = _config.get("host", "10.16.82.95")
+_HOST = _config.get("host", "192.168.91.128")
 _PORTS = _config.get("ports", {})
 LMS_PORT = _PORTS.get("lms", 6000)
 RCS_PORT = _PORTS.get("rcs", 4001)
@@ -87,6 +87,11 @@ IS_SIM = _config.get("is_sim", True)
 
 # 模拟模式下是否执行真实相机脚本
 WITH_CAMERA = _config.get("with_camera", False)
+
+# 本地测试图片目录（使用本地图片替代真实相机，用于无相机环境调试）
+# 格式：目录中放 3d_camera/main.jpg, 3d_camera/depth.jpg,
+#       scan_camera_1/main.jpg, scan_camera_2/main.jpg
+CAMERA_TEST_DIR = _config.get("camera_test_dir", "")
 
 # 检测调试配置（从 JSON 文件读取）
 ENABLE_DEBUG = _config.get("enable_debug", False)

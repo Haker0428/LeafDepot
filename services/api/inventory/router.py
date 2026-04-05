@@ -2,6 +2,7 @@
 盘点任务路由
 """
 import os
+import json
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -213,29 +214,14 @@ async def get_inventory_results(taskNo: str):
 
         task_status = inventory_tasks[taskNo]
 
-        if task_status.status != "completed":
-            # 任务失败时，携带错误信息返回
-            if task_status.status == "failed":
-                return JSONResponse(
-                    status_code=status.HTTP_200_OK,
-                    content={
-                        "code": 200,
-                        "message": task_status.error_message or "任务失败",
-                        "errorType": task_status.error_type or "other",
-                        "data": {
-                            "taskNo": taskNo,
-                            "status": task_status.status,
-                            "currentStep": task_status.current_step,
-                            "totalSteps": task_status.total_steps,
-                            "inventoryResults": []
-                        }
-                    }
-                )
+        if task_status.status == "failed":
+            # 全部库位失败时，携带错误信息返回
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={
                     "code": 200,
-                    "message": "任务尚未完成",
+                    "message": task_status.error_message or "任务失败",
+                    "errorType": task_status.error_type or "other",
                     "data": {
                         "taskNo": taskNo,
                         "status": task_status.status,
@@ -246,15 +232,17 @@ async def get_inventory_results(taskNo: str):
                 }
             )
 
+        # completed 或 partial：返回已收集到的结果
         inventory_results = []
         if taskNo in inventory_task_details and "inventoryResults" in inventory_task_details[taskNo]:
             inventory_results = inventory_task_details[taskNo]["inventoryResults"]
 
+        message = "获取盘点结果成功" if task_status.status == "completed" else "部分库位盘点完成"
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "code": 200,
-                "message": "获取盘点结果成功",
+                "message": message,
                 "data": {
                     "taskNo": taskNo,
                     "status": task_status.status,
@@ -400,8 +388,24 @@ async def scan_and_recognize(request: ScanAndRecognizeRequest = Body(...)):
                 resolver = get_tobacco_case_resolver()
 
                 resolved_info = None
-                for result in all_barcode_results:
-                    barcode_text = result.get('output') or result.get('text')
+                for br in all_barcode_results:
+                    # 从 recognizer 结果中提取真正的条码字符串
+                    raw = br.get('output')
+                    barcode_text = None
+                    if raw:
+                        try:
+                            data = json.loads(raw)
+                            for session in data.get('sessions', []):
+                                for bc in session.get('barcodes', []):
+                                    if bc.get('text'):
+                                        barcode_text = bc['text']
+                                        break
+                                if barcode_text:
+                                    break
+                        except Exception:
+                            pass
+                    if not barcode_text:
+                        barcode_text = br.get('text')
                     if barcode_text:
                         resolved_info = resolver.resolve(barcode_text)
                         if resolved_info['success']:
@@ -585,11 +589,10 @@ async def save_inventory_results(request: Request):
 
         excel_data = []
         for i, result in enumerate(inventory_results, 1):
-            spec_name = result.get("specName", "") or result.get("actualSpec", "")
             excel_data.append({
                 "任务编号": task_no,
                 "序号": i,
-                "品规名称": spec_name,
+                "品规名称": result.get("specName", ""),
                 "储位名称": result.get("binLocation", ""),
                 "实际品规": result.get("actualSpec", ""),
                 "库存数量": result.get("systemQuantity", 0),
@@ -689,9 +692,8 @@ async def update_bins_data(request: Request):
         for item in inventory_items:
             location_name = item.get("locationName") or item.get("binDesc")
             actual_quantity = item.get("actualQuantity")
-            actual_spec = item.get("actualSpec")
             if location_name and actual_quantity is not None:
-                location_to_data[location_name] = {"quantity": actual_quantity, "spec": actual_spec}
+                location_to_data[location_name] = {"quantity": actual_quantity}
 
         updated_count = 0
         for row in range(2, ws.max_row + 1):
@@ -699,8 +701,6 @@ async def update_bins_data(request: Request):
             if location_name in location_to_data:
                 item_data = location_to_data[location_name]
                 ws.cell(row, 8).value = item_data["quantity"]
-                if item_data["spec"]:
-                    ws.cell(row, 10).value = item_data["spec"]
                 updated_count += 1
 
         wb.save(bins_data_path)

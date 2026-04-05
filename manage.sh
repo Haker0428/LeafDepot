@@ -140,7 +140,27 @@ start_service() {
 
     # 启动服务
     nohup conda run -n tobacco_env uvicorn $service_config > "$PROJECT_ROOT/logs/${service}_${DATE}.log" 2>&1 &
-    local pid=$!
+    local nohup_pid=$!
+
+    # 等待子进程（uvicorn）启动
+    sleep 2
+
+    # 找到实际的 uvicorn 进程 PID（nohup 的子进程）
+    local pid=$(ps --ppid $nohup_pid -o pid= 2>/dev/null | tr -d ' ' | head -1)
+    if [ -z "$pid" ] || ! is_running "$pid"; then
+        # 兜底：用 pgrep 找
+        case "$service" in
+            gateway)  pid=$(pgrep -f "uvicorn.*gateway:app" | head -1) ;;
+            lms)      pid=$(pgrep -f "uvicorn.*sim_lms_server:app" | head -1) ;;
+            rcs)      pid=$(pgrep -f "uvicorn.*sim_rcs_server:app" | head -1) ;;
+        esac
+    fi
+
+    if [ -z "$pid" ]; then
+        log_error "$service 服务启动失败（无法找到进程）"
+        log_error "请查看日志文件: $PROJECT_ROOT/logs/${service}_${DATE}.log"
+        return 1
+    fi
 
     # 保存PID
     echo $pid > "$pid_file"
@@ -215,24 +235,7 @@ stop_service() {
 
     log_info "停止 $service 服务 (PID: $pid)..."
 
-    # 尝试杀死整个进程组（父进程+子进程）
-    kill -TERM -"$pid" 2>/dev/null
-
-    # 等待进程结束
-    local count=0
-    while is_running "$pid" && [ $count -lt 10 ]; do
-        sleep 1
-        count=$((count + 1))
-    done
-
-    # 如果还在运行，强制杀死进程组
-    if is_running "$pid"; then
-        log_warn "进程未正常退出，强制杀死进程组..."
-        kill -KILL -"$pid" 2>/dev/null
-        sleep 1
-    fi
-
-    # 额外清理：用 pkill 杀死所有残留的同名服务进程
+    # 直接用 pkill 杀死所有同名服务进程（比 PID 追踪更可靠）
     case "$service" in
         gateway)  pkill -f "uvicorn.*gateway:app" 2>/dev/null ;;
         lms)      pkill -f "uvicorn.*sim_lms_server:app" 2>/dev/null ;;
@@ -240,8 +243,28 @@ stop_service() {
         web)      pkill -f "npm.*dev" 2>/dev/null ;;
     esac
 
-    # 等待端口释放
+    # 等待进程退出
     sleep 1
+
+    # 同时发送 SIGTERM 给 PID 文件中的进程（兜底）
+    if is_running "$pid"; then
+        kill -TERM "$pid" 2>/dev/null
+        sleep 1
+    fi
+
+    # 强制杀死残留进程（兜底）
+    if is_running "$pid"; then
+        kill -KILL "$pid" 2>/dev/null
+        sleep 1
+    fi
+
+    # 再次 pkill 清理残留
+    case "$service" in
+        gateway)  pkill -9 -f "uvicorn.*gateway:app" 2>/dev/null ;;
+        lms)      pkill -9 -f "uvicorn.*sim_lms_server:app" 2>/dev/null ;;
+        rcs)      pkill -9 -f "uvicorn.*sim_rcs_server:app" 2>/dev/null ;;
+        web)      pkill -9 -f "npm.*dev" 2>/dev/null ;;
+    esac
 
     if ! is_running "$pid"; then
         log_info "$service 服务已停止"

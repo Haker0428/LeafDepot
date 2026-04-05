@@ -216,20 +216,16 @@ export default function InventoryProgress() {
     onOk: () => void;
   }>({ open: false, errorType: "other", message: "", onOk: () => {} });
 
-  // 照片组状态：4组图片对，每组2张（上、下）
-  // 组1: 3d_camera/main (上) + 3d_camera/depth (下)
-  // 组2: scan_camera_1/main (上) + scan_camera_2/main (下)
-  // 组3: scan_camera_1/main (上) + scan_camera_2/main (下) （备用）
-  // 组4: scan_camera_1/main (上) + scan_camera_2/main (下) （备用）
+  // 照片组状态：2组，每组2张（上、下）
+  // 组0: 3D相机 (上: main, 下: depth)
+  // 组1: 扫码相机 (上: scan1, 下: scan2)
   const [photoGroups, setPhotoGroups] = useState<
     Array<{ top: string; bottom: string }>
   >([
     { top: "", bottom: "" },
     { top: "", bottom: "" },
-    { top: "", bottom: "" },
-    { top: "", bottom: "" },
   ]);
-  const [currentGroupIndex, setCurrentGroupIndex] = useState(0); // 当前显示的图片组索引
+  const [currentGroupIndex, setCurrentGroupIndex] = useState(0); // 0=3D相机, 1=扫码相机
 
   // 用于跟踪是否已经加载过照片，避免重复加载
   const loadedPhotoKeysRef = useRef<Set<string>>(new Set());
@@ -524,7 +520,7 @@ export default function InventoryProgress() {
     }
   };
 
-  // 加载4组照片对（每组2张：上、下）
+  // 加载2组照片对（每组2张：上、下）
   const loadPhotoGroups = async (
     taskNo: string,
     binLocation: string,
@@ -544,23 +540,15 @@ export default function InventoryProgress() {
     setImageError(false);
 
     try {
-      // 定义4组图片对
+      // 定义2组图片对
       const groups = [
         {
-          top: photoPaths.photo3dPath, // 3d_camera/main
-          bottom: photoPaths.photoDepthPath, // 3d_camera/depth
+          top: photoPaths.photo3dPath,
+          bottom: photoPaths.photoDepthPath,
         },
         {
-          top: photoPaths.photoScan1Path, // scan_camera_1/main
-          bottom: photoPaths.photoScan2Path, // scan_camera_2/main
-        },
-        {
-          top: "", // 备用
-          bottom: "",
-        },
-        {
-          top: "", // 备用
-          bottom: "",
+          top: photoPaths.photoScan1Path,
+          bottom: photoPaths.photoScan2Path,
         },
       ];
 
@@ -1482,13 +1470,19 @@ export default function InventoryProgress() {
 
               if (
                 progressResult.code === 200 &&
-                progressResult.data.status === "completed"
+                (progressResult.data.status === "completed" ||
+                  progressResult.data.status === "partial")
               ) {
                 // 任务完成
                 clearInterval(pollIntervalId);
-                toast.success("盘点任务完成");
 
                 const inventoryResults = progressResult.data.inventoryResults;
+
+                toast.success(
+                  progressResult.data.status === "partial"
+                    ? `盘点完成（部分），成功 ${inventoryResults.filter((r: any) => r.status !== "异常").length}/${inventoryResults.length} 个库位`
+                    : "盘点任务完成",
+                );
 
                 // 收集失败的库位
                 const failedBins: Array<{ binLocation: string; error: string }> = [];
@@ -1533,12 +1527,9 @@ export default function InventoryProgress() {
                       const newItems = [...prevItems];
                       newItems[itemIndex].actualQuantity =
                         status === "异常" ? -1 : actualQuantity;
-                      // 更新品规（识别成功时才更新，避免"未识别"污染原始品规名）
-                      if (actualSpec && actualSpec !== "未识别") {
-                        newItems[itemIndex].productName = actualSpec;
-                      }
-                      // 保存识别品规（用于判断是否未识别）
-                      newItems[itemIndex].actualSpec = actualSpec || undefined;
+                      // 不覆盖 productName，保持系统品规名不变
+                      // 保存识别品规，空时显示"未识别"
+                      newItems[itemIndex].actualSpec = actualSpec || "未识别";
                       // 更新照片路径
                       newItems[itemIndex].photo3dPath = photo3dPath;
                       newItems[itemIndex].photoDepthPath = photoDepthPath;
@@ -2753,20 +2744,17 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
                           </div>
                         ) : photoGroups[currentGroupIndex]?.top ? (
-                          // 成功加载上方图片
+                          // 成功加载图片
                           <>
                             <img
                               src={photoGroups[currentGroupIndex].top}
-                              alt={`上方图片 ${currentGroupIndex + 1}`}
+                              alt={currentGroupIndex === 0 ? "3D相机-主图" : "扫码相机-扫码图1"}
                               className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700"
                               onLoad={handleImageLoad}
                               onError={handleImageError}
                             />
                             <div className="absolute top-2 left-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full">
-                              上方
-                            </div>
-                            <div className="absolute bottom-2 right-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full">
-                              <span>组 {currentGroupIndex + 1}</span>
+                              {currentGroupIndex === 0 ? "主图" : "扫码图1"}
                             </div>
                           </>
                         ) : (
@@ -2800,13 +2788,13 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                       <>
                         <img
                           src={photoGroups[currentGroupIndex].bottom}
-                          alt={`下方图片 ${currentGroupIndex + 1}`}
+                          alt={currentGroupIndex === 0 ? "3D相机-深度图" : "扫码相机-扫码图2"}
                           className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700"
                           onLoad={handleImageLoad}
                           onError={handleImageError}
                         />
                         <div className="absolute top-2 left-2 bg-blue-700 text-white text-xs font-bold px-2 py-1 rounded-full">
-                          下方
+                          {currentGroupIndex === 0 ? "深度图" : "扫码图2"}
                         </div>
                       </>
                     ) : (
@@ -2823,7 +2811,10 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
 
                 {/* 照片组切换按钮 */}
                 <div className="flex justify-center gap-2">
-                  {[0, 1, 2, 3].map((index) => {
+                  {[
+                    { index: 0, label: "3D相机", subLabel: "主图/深度图" },
+                    { index: 1, label: "扫码相机", subLabel: "扫码图1/图2" },
+                  ].map(({ index, label, subLabel }) => {
                     const group = photoGroups[index];
                     const hasPhoto = group.top || group.bottom;
                     return (
@@ -2839,7 +2830,12 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                               : "bg-gray-100 text-gray-400 cursor-not-allowed"
                         }`}
                       >
-                        组{index + 1}
+                        <span>{label}</span>
+                        {hasPhoto && (
+                          <span className="block text-xs opacity-75 font-normal">
+                            {subLabel}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
