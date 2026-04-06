@@ -114,7 +114,7 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "192.168.91.128")
+                    host = real_cfg.get("host", "localhost")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     url = f"{base_url}{RCS_PREFIX}/api/robot/controller/task/submit"
@@ -227,7 +227,7 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "192.168.91.128")
+                    host = real_cfg.get("host", "localhost")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     continue_path = real_cfg.get("continue_url", "/rcs/rtas/api/robot/controller/task/extend/continue")
@@ -446,7 +446,6 @@ def _ping_camera(host: str, timeout: int = 3) -> bool:
 async def _capture_from_test_dir(task_no: str, bin_location: str, test_dir: str) -> Dict[str, Any]:
     """从本地测试目录复制图片到 capture_img，用于无相机环境调试"""
     import shutil
-    import os
 
     CAMERA_NAMES = ["scan_1", "scan_2", "3d"]
     CAMERA_DIRS = ["scan_camera_1", "scan_camera_2", "3d_camera"]
@@ -523,7 +522,6 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[s
 
     # 如果配置了本地测试图片目录，直接从该目录复制
     if CAMERA_TEST_DIR:
-        import os
         expanded = os.path.expanduser(CAMERA_TEST_DIR)
         logger.info(f"使用本地测试图片目录: {expanded}")
         return await _capture_from_test_dir(task_no, bin_location, CAMERA_TEST_DIR)
@@ -535,22 +533,32 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[s
     max_retries = 5
     retry_count = 0
 
+    # 成功的相机状态跨重试保留，只重试仍然失败的相机
+    camera_results = {cam_name: {"success": False, "error": ""} for cam_name in CAMERA_NAMES}
+
     while retry_count < max_retries:
+        # 检查仍然失败的相机
+        failed_cameras = [name for name, r in camera_results.items() if not r.get("success")]
+        if not failed_cameras:
+            # 全部成功
+            break
+
         try:
             if not _ping_camera("10.16.82.180"):
                 logger.warning(f"相机 10.16.82.180 不可达，等待重试...")
                 await asyncio.sleep(5)
 
-            logger.info(f"开始抓图: {task_no}/{bin_location}, 第 {retry_count + 1} 次尝试")
+            logger.info(f"开始抓图: {task_no}/{bin_location}, 第 {retry_count + 1} 次尝试，失败相机: {failed_cameras}")
 
-            camera_results = {}
-
-            # 逐个执行抓图脚本，记录每个相机的成功/失败
+            # 只对仍未成功的相机执行脚本
             for i, script_path in enumerate(CAPTURE_SCRIPTS):
                 cam_name = CAMERA_NAMES[i]
+                if camera_results[cam_name].get("success"):
+                    # 已成功，跳过
+                    continue
                 if not os.path.exists(script_path):
-                    logger.warning(f"抓图脚本不存在: {script_path}")
                     camera_results[cam_name] = {"success": False, "error": "脚本不存在"}
+                    logger.warning(f"抓图脚本不存在: {script_path}")
                     continue
 
                 try:
@@ -568,52 +576,53 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[s
             # 等待图片生成
             await asyncio.sleep(2)
 
-            # 检查各目录下的图片
+            # 检查各目录下的图片（无论之前是否成功都检查，确保状态正确）
             for i, cam_name in enumerate(CAMERA_NAMES):
                 cam_dir = project_root / "capture_img" / task_no / bin_location / CAMERA_DIRS[i]
                 if cam_dir.exists():
                     image_files = list(cam_dir.glob("*.jpg")) + list(cam_dir.glob("*.png"))
                     if image_files:
-                        camera_results.setdefault(cam_name, {})["image_count"] = len(image_files)
-                    else:
-                        camera_results.setdefault(cam_name, {})["success"] = False
-                        camera_results.setdefault(cam_name, {})["error"] = "未生成图片文件"
+                        camera_results[cam_name] = {"success": True, "image_count": len(image_files)}
+                        logger.info(f"相机 {cam_name} 检测到图片文件 {len(image_files)} 张")
+                    elif not camera_results[cam_name].get("success"):
+                        camera_results[cam_name] = {"success": False, "error": "未生成图片文件"}
+                elif not camera_results[cam_name].get("success"):
+                    camera_results[cam_name] = {"success": False, "error": "目录不存在"}
 
-            # 判断是否有至少一个相机成功
+            # 判断是否全部成功
             any_success = any(r.get("success") for r in camera_results.values())
-            failed_cameras = [name for name, r in camera_results.items() if not r.get("success")]
-            all_errors = [f"{name}: {r.get('error', '未知错误')}" for name, r in camera_results.items() if not r.get("success")]
-
             if any_success:
-                logger.info(f"抓图完成（部分成功）: {task_no}/{bin_location}, 成功: {[n for n,r in camera_results.items() if r.get('success')]}, 失败: {failed_cameras}")
-                return {
-                    "success": True,
-                    "partial": len(failed_cameras) > 0,
-                    "cameras": camera_results,
-                    "errors": all_errors,
-                    "photo3dPath": f"/{task_no}/{bin_location}/3d_camera/main.jpg" if camera_results.get("3d", {}).get("success") else None,
-                    "photoDepthPath": f"/{task_no}/{bin_location}/3d_camera/depth.jpg" if camera_results.get("3d", {}).get("success") else None,
-                    "photoScan1Path": f"/{task_no}/{bin_location}/scan_camera_1/main.jpg" if camera_results.get("scan_1", {}).get("success") else None,
-                    "photoScan2Path": f"/{task_no}/{bin_location}/scan_camera_2/main.jpg" if camera_results.get("scan_2", {}).get("success") else None,
-                    "image_count": camera_results.get("3d", {}).get("image_count", 0)
-                }
-            else:
-                # 全部失败，重试
-                logger.warning(f"所有相机抓图失败 (尝试 {retry_count + 1}/{max_retries}): {all_errors}")
-                retry_count += 1
-                if retry_count < max_retries:
-                    await asyncio.sleep(5)
-                else:
-                    return {"success": False, "cameras": camera_results, "errors": all_errors}
+                logger.info(f"抓图完成: {task_no}/{bin_location}, 状态: {[n + ':' + ('成功' if r.get('success') else '失败:' + r.get('error', '')) for n, r in camera_results.items()]}")
+
+            retry_count += 1
+            if not any_success and retry_count < max_retries:
+                await asyncio.sleep(5)
 
         except Exception as e:
             retry_count += 1
             logger.error(f"抓图失败 (尝试 {retry_count}/{max_retries}): {str(e)}")
-
             if retry_count < max_retries:
                 await asyncio.sleep(5)
 
-    return {"success": False, "errors": ["超过最大重试次数"]}
+    # 组装返回结果
+    any_success = any(r.get("success") for r in camera_results.values())
+    failed_cameras = [name for name, r in camera_results.items() if not r.get("success")]
+    all_errors = [f"{name}: {r.get('error', '未知错误')}" for name, r in camera_results.items() if not r.get("success")]
+
+    if any_success:
+        return {
+            "success": True,
+            "partial": len(failed_cameras) > 0,
+            "cameras": camera_results,
+            "errors": all_errors,
+            "photo3dPath": f"/{task_no}/{bin_location}/3d_camera/main.jpg" if camera_results.get("3d", {}).get("success") else None,
+            "photoDepthPath": f"/{task_no}/{bin_location}/3d_camera/depth.jpg" if camera_results.get("3d", {}).get("success") else None,
+            "photoScan1Path": f"/{task_no}/{bin_location}/scan_camera_1/main.jpg" if camera_results.get("scan_1", {}).get("success") else None,
+            "photoScan2Path": f"/{task_no}/{bin_location}/scan_camera_2/main.jpg" if camera_results.get("scan_2", {}).get("success") else None,
+            "image_count": camera_results.get("3d", {}).get("image_count", 0)
+        }
+    else:
+        return {"success": False, "cameras": camera_results, "errors": all_errors}
 
 
 # ==================== 识别函数 ====================
@@ -1314,6 +1323,8 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
         # 顺序执行所有 bin 的处理
         for i, bin_location in enumerate(bin_locations):
             logger.info(f"下发第 {i+1}/{len(bin_locations)} 个库位: {bin_location}")
+            # 更新下发进度，前端据此计算进度条
+            _inventory_tasks[task_no].current_step = i + 1
 
             if is_sim:
                 # 模拟模式：只在第一个库位一次性下发所有库位
@@ -1387,6 +1398,8 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     logger.info(f"continue 接口调用结果: {continue_result}")
                 except Exception as e:
                     logger.error(f"发送 continue 失败: {str(e)}")
+                # continue 发送后，等待 10 秒再下发下一个库位
+                await asyncio.sleep(10)
 
             # 更新 bin 状态
             if task_no in _inventory_task_bins:

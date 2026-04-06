@@ -9,4 +9,4 @@
  * Copyright (c) 2025 by lizh, All Rights Reserved.
  */
 
-export const GATEWAY_URL = "http://192.168.91.128:8000";
+export const GATEWAY_URL = "http://localhost:8000";

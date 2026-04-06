@@ -1,5 +1,5 @@
 {
-  "host": "192.168.91.128",
+  "host": "localhost",
   "ports": {
     "gateway": 8000,
     "lms": 6000,
@@ -8,14 +8,14 @@
   },
   "frontend_port": 5173,
   "is_sim": true,
-  "enable_debug": true,
-  "enable_visualization": true,
+  "enable_debug": false,
+  "enable_visualization": false,
   "with_camera": true,
   "camera_test_dir": "/home/zihui-lang/code/20-01-02",
   "rcs_prefix": "/rcs/rtas",
   "lms_prefix": "/lms/srm",
   "rcs_real": {
-    "host": "192.168.91.128",
+    "host": "localhost",
     "port": 443,
     "use_ssl": true,
     "task_type": "PF-CTU-HS-H-DETECT-NOTIFY-2",

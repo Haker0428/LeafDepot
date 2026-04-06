@@ -1449,211 +1449,218 @@ export default function InventoryProgress() {
         if (result.message === "盘点任务已启动") {
           toast.success(`任务启动成功，正在执行盘点...`);
 
-          // 轮询获取盘点结果
-          let pollCount = 0;
-          const maxPollCount = 600; // 最多轮询10分钟（每秒一次）
-          const pollInterval = 1000; // 1秒轮询一次
-
           const pollIntervalId = setInterval(async () => {
-            pollCount++;
             try {
               const progressResponse = await fetch(
-                `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(currentTaskNo)}`,
+                `${GATEWAY_URL}/api/inventory/progress?taskNo=${encodeURIComponent(currentTaskNo)}`,
               );
 
               if (!progressResponse.ok) {
-                console.error("获取盘点结果失败");
+                console.error("获取盘点进度失败");
                 return;
               }
 
               const progressResult = await progressResponse.json();
 
-              if (
-                progressResult.code === 200 &&
-                (progressResult.data.status === "completed" ||
-                  progressResult.data.status === "partial")
-              ) {
-                // 任务完成
+              if (progressResult.code !== 200) {
+                return;
+              }
+
+              const taskStatus = progressResult.data?.status;
+
+              // 进度 = 已下发库位数 / 总库位数
+              const currentStep = progressResult.data?.current_step || 0;
+              const totalSteps = progressResult.data?.total_steps || 1;
+              setProgress(Math.round((currentStep / totalSteps) * 100));
+
+              // 任务完成或部分完成 → 切换到 /results 获取完整结果
+              if (taskStatus === "completed" || taskStatus === "partial") {
                 clearInterval(pollIntervalId);
 
-                const inventoryResults = progressResult.data.inventoryResults;
+                const resultsResponse = await fetch(
+                  `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(currentTaskNo)}`,
+                );
+                const resultsData = await resultsResponse.json();
+                const inventoryResults = resultsData.data?.inventoryResults || [];
 
+                const successCount = inventoryResults.filter((r: any) => r.status !== "异常").length;
                 toast.success(
-                  progressResult.data.status === "partial"
-                    ? `盘点完成（部分），成功 ${inventoryResults.filter((r: any) => r.status !== "异常").length}/${inventoryResults.length} 个库位`
+                  taskStatus === "partial"
+                    ? `盘点完成（部分），成功 ${successCount}/${inventoryResults.length} 个库位`
                     : "盘点任务完成",
                 );
 
                 // 收集失败的库位
                 const failedBins: Array<{ binLocation: string; error: string }> = [];
 
-                // 更新每个储位的盘点结果和照片
-                for (const inventoryResult of inventoryResults) {
-                  const {
-                    binLocation,
-                    actualQuantity,
-                    actualSpec,
-                    photo3dPath,
-                    photoDepthPath,
-                    photoScan1Path,
-                    photoScan2Path,
-                    status,
-                    error,
-                  } = inventoryResult;
+                // 一次性合并所有结果，避免闭包捕获的 inventoryItems 快照导致 findIndex 失败
+                setInventoryItems((prevItems) => {
+                  const newItems = prevItems.map((item) => {
+                    const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
+                    if (!ir) return item;
 
-                  if (status === "异常") {
-                    failedBins.push({ binLocation, error: error || "未知错误" });
-                  }
+                    if (ir.status === "异常") {
+                      failedBins.push({ binLocation: ir.binLocation, error: ir.error || "未知错误" });
+                    }
 
-                  // 找到对应的 inventory item
-                  const itemIndex = inventoryItems.findIndex(
-                    (item) => item.locationName === binLocation,
-                  );
+                    return {
+                      ...item,
+                      actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
+                      actualSpec: ir.actualSpec || "未识别",
+                      photo3dPath: ir.photo3dPath,
+                      photoDepthPath: ir.photoDepthPath,
+                      photoScan1Path: ir.photoScan1Path,
+                      photoScan2Path: ir.photoScan2Path,
+                    };
+                  });
+                  return newItems;
+                });
 
-                  if (itemIndex !== -1) {
-                    // 获取更新前的照片路径，用于判断是否是新照片
-                    const oldItem = inventoryItems[itemIndex];
-                    const hasNewPhotos =
-                      (photo3dPath && photo3dPath !== oldItem.photo3dPath) ||
-                      (photoDepthPath &&
-                        photoDepthPath !== oldItem.photoDepthPath) ||
-                      (photoScan1Path &&
-                        photoScan1Path !== oldItem.photoScan1Path) ||
-                      (photoScan2Path &&
-                        photoScan2Path !== oldItem.photoScan2Path);
-
-                    // 更新实际数量、品规和照片路径
-                    setInventoryItems((prevItems) => {
-                      const newItems = [...prevItems];
-                      newItems[itemIndex].actualQuantity =
-                        status === "异常" ? -1 : actualQuantity;
-                      // 不覆盖 productName，保持系统品规名不变
-                      // 保存识别品规，空时显示"未识别"
-                      newItems[itemIndex].actualSpec = actualSpec || "未识别";
-                      // 更新照片路径
-                      newItems[itemIndex].photo3dPath = photo3dPath;
-                      newItems[itemIndex].photoDepthPath = photoDepthPath;
-                      newItems[itemIndex].photoScan1Path = photoScan1Path;
-                      newItems[itemIndex].photoScan2Path = photoScan2Path;
-                      return newItems;
-                    });
-                  }
-                }
-
-                toast.success(
-                  `盘点完成，共处理 ${inventoryResults.length} 个储位`,
-                );
                 setIsTaskCompleted(true);
-                setIsStartingTask(false);
+                // isStartingTask 保持 true，按钮由 isTaskCompleted 控制禁用状态
 
-                // 如果有库位盘点失败，弹出提示
                 if (failedBins.length > 0) {
-                  const binList = failedBins
-                    .map((b) => `${b.binLocation}（${b.error}）`)
-                    .join("\n");
                   setFailedBinsModal({
                     open: true,
                     bins: failedBins,
-                    onOk: () => {
-                      setFailedBinsModal((prev) => ({ ...prev, open: false }));
-                    },
+                    onOk: () => setFailedBinsModal((prev) => ({ ...prev, open: false })),
                   });
-                  toast.error(
-                    `${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`,
-                  );
+                  toast.error(`${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`);
                 }
 
-                // 任务完成后，清除已加载照片的记录，允许重新加载
                 loadedPhotoKeysRef.current.clear();
                 photoPathsRef.current.clear();
                 photoLoadingKeyRef.current = null;
 
-                // 任务完成后，如果还没有选中行，自动选中第一个有照片的储位
                 if (selectedRowIndex === null) {
                   const firstItemWithPhotos = inventoryItems.find(
-                    (item) =>
-                      item.photo3dPath ||
-                      item.photoDepthPath ||
-                      item.photoScan1Path ||
-                      item.photoScan2Path,
+                    (item) => item.photo3dPath || item.photoDepthPath || item.photoScan1Path || item.photoScan2Path,
                   );
-
                   if (firstItemWithPhotos) {
-                    const index = inventoryItems.indexOf(firstItemWithPhotos);
-                    setSelectedRowIndex(index);
+                    setSelectedRowIndex(inventoryItems.indexOf(firstItemWithPhotos));
                   }
                 }
-              } else if (progressResult.data.status === "failed") {
-                // 预检或下发失败
+
+                return;
+              }
+
+              // 任务失败
+              if (taskStatus === "failed") {
                 clearInterval(pollIntervalId);
                 const errorType: "rcs" | "camera" | "other" =
-                  (progressResult.errorType as "rcs" | "camera" | "other") || "other";
+                  (progressResult.data?.error_type as "rcs" | "camera" | "other") || "other";
                 if (errorType === "rcs") {
                   setTaskErrorModal({
                     open: true,
                     errorType: "rcs",
-                    message: progressResult.message || "RCS 连接失败",
-                    onOk: () => {
-                      setTaskErrorModal((prev) => ({ ...prev, open: false }));
-                    },
+                    message: progressResult.data?.message || "RCS 连接失败",
+                    onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
                   });
                 } else if (errorType === "camera") {
                   setTaskErrorModal({
                     open: true,
                     errorType: "camera",
-                    message: progressResult.message || "相机连接失败",
-                    onOk: () => {
-                      setTaskErrorModal((prev) => ({ ...prev, open: false }));
-                    },
+                    message: progressResult.data?.message || "相机连接失败",
+                    onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
                   });
                 } else {
                   setTaskErrorModal({
                     open: true,
                     errorType: "other",
-                    message: progressResult.message || "盘点任务下发失败",
-                    onOk: () => {
-                      setTaskErrorModal((prev) => ({ ...prev, open: false }));
-                    },
+                    message: progressResult.data?.message || "盘点任务下发失败",
+                    onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
                   });
                 }
                 setIsStartingTask(false);
-              } else if (pollCount >= maxPollCount) {
-                // 超时
-                clearInterval(pollIntervalId);
-                toast.error("盘点任务超时");
-                setIsStartingTask(false);
+                return;
               }
             } catch (error) {
-              console.error("轮询盘点结果失败:", error);
+              console.error("轮询盘点进度失败:", error);
             }
-          }, pollInterval);
+          }, 1000);
         } else if (result.message === "任务已在执行中") {
-          toast.success(`任务已在执行中`);
+          toast.success(`任务已在执行中，实时监控中...`);
+
+          const pollIntervalId = setInterval(async () => {
+            try {
+              const progressResponse = await fetch(
+                `${GATEWAY_URL}/api/inventory/progress?taskNo=${encodeURIComponent(currentTaskNo)}`,
+              );
+              if (!progressResponse.ok) return;
+
+              const progressResult = await progressResponse.json();
+              if (progressResult.code !== 200) return;
+
+              const taskStatus = progressResult.data?.status;
+
+              // 进度 = 已下发库位数 / 总库位数
+              const currentStep = progressResult.data?.current_step || 0;
+              const totalSteps = progressResult.data?.total_steps || 1;
+              setProgress(Math.round((currentStep / totalSteps) * 100));
+
+              if (taskStatus === "completed" || taskStatus === "partial") {
+                clearInterval(pollIntervalId);
+                const resultsResponse = await fetch(
+                  `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(currentTaskNo)}`,
+                );
+                const resultsData = await resultsResponse.json();
+                const inventoryResults = resultsData.data?.inventoryResults || [];
+
+                toast.success("盘点任务完成");
+                setIsTaskCompleted(true);
+
+                setInventoryItems((prevItems) =>
+                  prevItems.map((item) => {
+                    const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
+                    if (!ir) return item;
+                    return {
+                      ...item,
+                      actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
+                      actualSpec: ir.actualSpec || "未识别",
+                      photo3dPath: ir.photo3dPath,
+                      photoDepthPath: ir.photoDepthPath,
+                      photoScan1Path: ir.photoScan1Path,
+                      photoScan2Path: ir.photoScan2Path,
+                    };
+                  }),
+                );
+                return;
+              }
+
+              if (taskStatus === "failed") {
+                clearInterval(pollIntervalId);
+                setTaskErrorModal({
+                  open: true,
+                  errorType: (progressResult.data?.error_type as "rcs" | "camera" | "other") || "other",
+                  message: progressResult.data?.message || "盘点任务失败",
+                  onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
+                });
+                setIsStartingTask(false);
+                return;
+              }
+            } catch (error) {
+              console.error("轮询盘点进度失败:", error);
+            }
+          }, 1000);
         }
       } else {
-        // API 返回了业务逻辑错误
+        // API 返回了业务逻辑错误（未进入轮询，直接失败）
         if (result.message && result.message.startsWith("系统离线")) {
-          // 系统离线弹窗
           setSystemOfflineModal({
             open: true,
             message: result.message,
-            onOk: () => {
-              setSystemOfflineModal((prev) => ({ ...prev, open: false }));
-            },
+            onOk: () => setSystemOfflineModal((prev) => ({ ...prev, open: false })),
           });
           setIsStartingTask(false);
           return;
         } else {
-          // 下发失败弹窗，根据错误类型展示不同提示
           const errorType: "rcs" | "camera" | "other" =
             result.errorType || "other";
           setTaskErrorModal({
             open: true,
             errorType,
             message: result.message || "未知错误",
-            onOk: () => {
-              setTaskErrorModal((prev) => ({ ...prev, open: false }));
-            },
+            onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
           });
           setIsStartingTask(false);
           return;

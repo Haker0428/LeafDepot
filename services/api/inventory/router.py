@@ -182,12 +182,18 @@ async def get_inventory_progress(taskNo: str):
             end_time=task_status.end_time
         )
 
+        # 任务失败时附带错误类型，便于前端展示错误弹窗
+        response_data = progress_data.dict()
+        if task_status.status == "failed":
+            response_data["error_type"] = task_status.error_type or "other"
+            response_data["message"] = task_status.error_message or "任务失败"
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "code": 200,
                 "message": "获取进度成功",
-                "data": progress_data.dict()
+                "data": response_data
             }
         )
     except Exception as e:
