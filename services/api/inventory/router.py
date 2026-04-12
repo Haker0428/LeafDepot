@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Set
 
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, status, Body
 from fastapi.responses import JSONResponse, Response
@@ -30,6 +30,7 @@ from services.api.shared.models import (
 )
 from services.api.shared.operation_log import log_operation
 from services.api.shared.tobacco_resolver import get_tobacco_case_resolver
+from services.api.shared.excel_writer import build_excel_data, write_excel
 
 # 从 service.py 导入核心函数和状态存储
 from services.api.inventory.service import (
@@ -68,6 +69,9 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
         bin_locations = data.get("binLocations", [])
         is_sim = IS_SIM  # 使用配置文件中的值
         inventory_items = data.get("inventoryItems", [])
+        # 重新盘点时使用独立的临时任务号，避免覆盖原任务状态
+        recount_task_id = data.get("recountTaskId")
+        storage_key = recount_task_id if recount_task_id else task_no
 
         if not task_no or not bin_locations:
             raise HTTPException(
@@ -75,28 +79,30 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
                 detail="任务编号和储位名称列表不能为空"
             )
 
-        logger.info(f"启动盘点任务: {task_no}, 包含 {len(bin_locations)} 个储位, 模拟模式: {is_sim}")
+        logger.info(f"启动盘点任务: {task_no}, 包含 {len(bin_locations)} 个储位, 模拟模式: {is_sim}, 存储键: {storage_key}")
 
-        # 检查任务是否已存在
-        if task_no in inventory_tasks:
-            existing_task = inventory_tasks[task_no]
-            if existing_task.status in ["running", "init"]:
-                return JSONResponse(
-                    status_code=status.HTTP_200_OK,
-                    content={
-                        "code": 200,
-                        "message": "任务已在执行中",
-                        "data": {
-                            "taskNo": existing_task.task_no,
-                            "status": existing_task.status,
+        # 重新盘点的独立任务号不受"任务已在执行中"检查影响
+        if not recount_task_id:
+            # 检查任务是否已存在
+            if task_no in inventory_tasks:
+                existing_task = inventory_tasks[task_no]
+                if existing_task.status in ["running", "init"]:
+                    return JSONResponse(
+                        status_code=status.HTTP_200_OK,
+                        content={
+                            "code": 200,
+                            "message": "任务已在执行中",
+                            "data": {
+                                "taskNo": existing_task.task_no,
+                                "status": existing_task.status,
+                            }
                         }
-                    }
-                )
+                    )
 
-        # 保存原始盘点项信息
-        if task_no not in inventory_task_details:
-            inventory_task_details[task_no] = {}
-        inventory_task_details[task_no]["inventoryItems"] = inventory_items
+        # 保存原始盘点项信息（使用存储键）
+        if storage_key not in inventory_task_details:
+            inventory_task_details[storage_key] = {}
+        inventory_task_details[storage_key]["inventoryItems"] = inventory_items
 
         # 记录盘点任务启动
         auth_token = request.headers.get("authToken")
@@ -105,7 +111,9 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"获取到的 user_info: {user_info}")
 
         # 保存用户信息到任务详情，供后台任务使用
-        inventory_task_details[task_no]["userInfo"] = user_info
+        inventory_task_details[storage_key]["userInfo"] = user_info
+        # 同时记录原始任务号（用于合并保存）
+        inventory_task_details[storage_key]["originalTaskNo"] = task_no
 
         log_operation(
             operation_type="inventory",
@@ -125,7 +133,7 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
         # 在后台异步执行盘点任务
         background_tasks.add_task(
             execute_inventory_workflow,
-            task_no=task_no,
+            task_no=storage_key,  # 使用存储键，避免与原任务冲突
             bin_locations=bin_locations,
             is_sim=is_sim
         )
@@ -137,6 +145,7 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
                 "message": "盘点任务已启动",
                 "data": {
                     "taskNo": task_no,
+                    "actualTaskNo": storage_key,  # 返回实际用于轮询的任务号
                     "bin_locations": bin_locations,
                     "is_sim": is_sim
                 }
@@ -593,37 +602,85 @@ async def save_inventory_results(request: Request):
 
         logger.info(f"保存盘点结果: {task_no}, 共 {len(inventory_results)} 个储位")
 
-        excel_data = []
-        for i, result in enumerate(inventory_results, 1):
-            excel_data.append({
-                "任务编号": task_no,
-                "序号": i,
-                "品规名称": result.get("specName", ""),
-                "储位名称": result.get("binLocation", ""),
-                "实际品规": result.get("actualSpec", ""),
-                "库存数量": result.get("systemQuantity", 0),
-                "实际数量": result.get("actualQuantity", 1),
-                "差异": result.get("difference", 1),
-                "照片1路径": result.get("photo3dPath", ""),
-                "照片2路径": result.get("photoDepthPath", ""),
-                "照片3路径": result.get("photoScan1Path", ""),
-                "照片4路径": result.get("photoScan2Path", ""),
-            })
+        # 获取操作员信息
+        user_info = data.get("userInfo", {})
+        operator_name = user_info.get("userName", "")
 
-        df = pd.DataFrame(excel_data)
+        # 获取人工校准过的储位列表（点击对勾才记录，与品规检测结果无关）
+        manual_calibrated: Set[str] = set(data.get("manualCalibratedLocations", []))
+        # 兼容旧版 calibrationRecords（保留向后兼容）
+        calibration_records: Dict[str, Dict[str, Any]] = data.get("calibrationRecords", {})
+
+        # 定义输出目录（merge 和非 merge 路径都需要）
         output_dir = project_root / "output" / "history_data"
         output_dir.mkdir(parents=True, exist_ok=True)
         xlsx_file = output_dir / f"{task_no}.xlsx"
 
-        with pd.ExcelWriter(xlsx_file, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='盘点结果')
-            workbook = writer.book
-            worksheet = writer.sheets['盘点结果']
-            for idx, col in enumerate(df.columns, 1):
-                max_length = max(df[col].astype(str).apply(len).max(), len(col))
-                worksheet.column_dimensions[chr(64 + idx)].width = min(max_length + 2, 50)
+        # 是否为合并模式：merge=true 时读取现有文件，只更新传入的储位结果
+        merge_mode = data.get("merge", False)
 
-        logger.info(f"成功生成Excel文件: {xlsx_file}")
+        if merge_mode and xlsx_file.exists():
+            # 合并模式：读取现有数据，只更新传入的储位
+            existing_df = pd.read_excel(xlsx_file, sheet_name='盘点结果')
+            # 建立新结果映射：key=储位名称
+            new_results_map = {}
+            for result in inventory_results:
+                bin_loc = result.get("binLocation", "")
+                if bin_loc:
+                    new_results_map[bin_loc] = result
+
+            # 更新对应的行
+            updated_rows = 0
+            for idx, row in existing_df.iterrows():
+                bin_loc = str(row.get("储位名称", ""))
+                if bin_loc in new_results_map:
+                    result = new_results_map[bin_loc]
+                    is_manually_calibrated = (
+                        bin_loc in manual_calibrated or
+                        bool(calibration_records.get(bin_loc, {}).get("specModified")) or
+                        bool(calibration_records.get(bin_loc, {}).get("quantityModified"))
+                    )
+                    mod_record = "人工修改" if is_manually_calibrated else ""
+                    spec_name = result.get("specName", "")
+                    actual_spec = result.get("actualSpec", "")
+                    quantity_diff = result.get("difference", 0)
+                    if actual_spec and actual_spec != spec_name and actual_spec != "未识别":
+                        diff_desc = "品规不一致"
+                    elif actual_spec == "未识别":
+                        diff_desc = "品规不一致"
+                    elif quantity_diff != 0:
+                        diff_desc = quantity_diff
+                    else:
+                        diff_desc = "一致"
+                    existing_df.at[idx, "实际品规"] = result.get("actualSpec", "")
+                    existing_df.at[idx, "库存数量"] = result.get("systemQuantity", 0)
+                    existing_df.at[idx, "实际数量"] = result.get("actualQuantity", 1)
+                    existing_df.at[idx, "差异"] = diff_desc
+                    existing_df.at[idx, "修改记录"] = mod_record
+                    # 手动保存时将有效状态提升为"有效"
+                    existing_df.at[idx, "有效状态"] = "有效"
+                    existing_df.at[idx, "照片1路径"] = result.get("photo3dPath", "")
+                    existing_df.at[idx, "照片2路径"] = result.get("photoDepthPath", "")
+                    existing_df.at[idx, "照片3路径"] = result.get("photoScan1Path", "")
+                    existing_df.at[idx, "照片4路径"] = result.get("photoScan2Path", "")
+                    updated_rows += 1
+            # 手动合并确认：将所有行的有效状态提升为"有效"
+            if "有效状态" in existing_df.columns:
+                existing_df["有效状态"] = "有效"
+            df = existing_df
+            logger.info(f"合并保存：更新了 {updated_rows} 个储位")
+        else:
+            # 全新保存模式：使用共享工具函数构建 DataFrame
+            df = build_excel_data(
+                task_no=task_no,
+                inventory_results=inventory_results,
+                operator_name=operator_name,
+                manual_calibrated=manual_calibrated,
+                calibration_records=calibration_records,
+            )
+
+        # 写入 Excel 文件
+        write_excel(task_no, df, output_dir)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -686,33 +743,60 @@ async def update_bins_data(request: Request):
             return {"code": 400, "message": "没有盘点数据"}
 
         bins_data_path = project_root / "services" / "sim" / "lms" / "bins_data.xlsx"
+        category_file = project_root / "shared" / "data" / "烟箱信息汇总完整版.xlsx"
 
         if not bins_data_path.exists():
             return {"code": 500, "message": "bins_data.xlsx 文件不存在"}
+
+        # 建立 品名→品规代码 的映射表（从品类汇总文件读取）
+        name_to_code = {}
+        if category_file.exists():
+            try:
+                import openpyxl
+                cat_wb = openpyxl.load_workbook(category_file, read_only=True)
+                cat_ws = cat_wb.active
+                for row in cat_ws.iter_rows(min_row=2, values_only=True):
+                    if row and row[0] and row[1]:
+                        name_to_code[str(row[0]).strip()] = str(row[1]).strip()
+                cat_wb.close()
+            except Exception as ex:
+                logger.warning(f"读取品类汇总文件失败，使用现有品规代码: {ex}")
 
         from openpyxl import load_workbook
         wb = load_workbook(bins_data_path)
         ws = wb.active
 
+        # 准备待更新数据：key=储位名称, value={数量, 品规名称, 品规代码}
         location_to_data = {}
         for item in inventory_items:
             location_name = item.get("locationName") or item.get("binDesc")
             actual_quantity = item.get("actualQuantity")
+            actual_spec = item.get("actualSpec") or item.get("tobaccoName") or item.get("productName")
             if location_name and actual_quantity is not None:
-                location_to_data[location_name] = {"quantity": actual_quantity}
+                # 查找对应品规代码
+                spec_code = name_to_code.get(actual_spec, "") if actual_spec else ""
+                location_to_data[location_name] = {
+                    "quantity": actual_quantity,
+                    "specName": actual_spec,
+                    "specCode": spec_code,
+                }
 
         updated_count = 0
         for row in range(2, ws.max_row + 1):
-            location_name = ws.cell(row, 5).value
-            if location_name in location_to_data:
+            location_name = ws.cell(row, 5).value  # Column E: 储位名称
+            if location_name and location_name in location_to_data:
                 item_data = location_to_data[location_name]
-                ws.cell(row, 8).value = item_data["quantity"]
+                ws.cell(row, 8).value = item_data["quantity"]  # Column H: 数量(万支)
+                if item_data["specName"]:
+                    ws.cell(row, 10).value = item_data["specName"]  # Column J: 品规名称
+                    if item_data["specCode"]:
+                        ws.cell(row, 9).value = item_data["specCode"]  # Column I: 品规代码
                 updated_count += 1
 
         wb.save(bins_data_path)
         wb.close()
 
-        return {"code": 200, "message": f"成功更新 {updated_count} 个储位", "data": {"updatedCount": updated_count}}
+        return {"code": 200, "message": f"成功更新 {updated_count} 个储位的数量和品规", "data": {"updatedCount": updated_count}}
 
     except Exception as e:
         logger.error(f"更新 bins_data.xlsx 失败: {str(e)}")

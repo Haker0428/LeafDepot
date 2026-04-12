@@ -7,7 +7,7 @@ import logging
 import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from fastapi import APIRouter, Request, HTTPException, status
 from fastapi.responses import JSONResponse, Response
 
@@ -48,8 +48,43 @@ def is_task_expired(task_date: datetime) -> bool:
     return task_date < six_months_ago
 
 
+@router.get("/available-dates")
+async def get_available_dates():
+    """获取所有有盘点数据的日期列表"""
+    try:
+        history_tasks_dir = OUTPUT_ROOT / "history_data"
+        history_tasks_dir.mkdir(parents=True, exist_ok=True)
+
+        xlsx_files = list(history_tasks_dir.glob("*.xlsx"))
+        dates: Set[str] = set()
+
+        for xlsx_file in xlsx_files:
+            try:
+                task_id = xlsx_file.stem
+                task_date = parse_task_date_from_filename(task_id)
+                if task_date:
+                    dates.add(task_date.strftime("%Y-%m-%d"))
+            except Exception:
+                continue
+
+        # 按日期降序排列
+        sorted_dates = sorted(dates, reverse=True)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"code": 200, "message": "获取可用日期成功", "data": {"dates": sorted_dates}}
+        )
+
+    except Exception as e:
+        logger.error(f"获取可用日期失败: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"获取可用日期失败: {str(e)}")
+
+
 @router.get("/tasks")
-async def get_history_tasks():
+async def get_history_tasks(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
     """获取历史任务列表"""
     try:
         history_tasks_dir = OUTPUT_ROOT / "history_data"
@@ -61,19 +96,95 @@ async def get_history_tasks():
         for xlsx_file in xlsx_files:
             try:
                 task_id = xlsx_file.stem
-                task_date = parse_task_date_from_filename(task_id)
-                is_expired = is_task_expired(task_date) if task_date else False
+                dispatch_time = None
+
+                # 尝试从 Excel 文件读取下发时间（优先使用实际保存时间）
+                try:
+                    import openpyxl
+                    wb = openpyxl.load_workbook(str(xlsx_file), data_only=True)
+                    ws = wb.active
+                    headers = [str(cell.value) for cell in ws[1] if cell.value]
+                    if "下发时间" in headers:
+                        dispatch_col_idx = headers.index("下发时间") + 1
+                        dispatch_val = ws.cell(row=2, column=dispatch_col_idx).value
+                        if dispatch_val:
+                            # 支持 datetime 对象或字符串
+                            if isinstance(dispatch_val, datetime):
+                                dispatch_time = dispatch_val
+                            else:
+                                dispatch_time = datetime.strptime(str(dispatch_val), "%Y-%m-%d %H:%M:%S")
+                    wb.close()
+                except Exception as ex:
+                    logger.warning(f"读取Excel下发时间失败 {xlsx_file.name}: {ex}")
+
+                # 如果 Excel 中没有下发时间，则从任务编号解析
+                if dispatch_time is None:
+                    dispatch_time = parse_task_date_from_filename(task_id)
+
+                is_expired = is_task_expired(dispatch_time) if dispatch_time else False
+
+                # 从 Excel 读取操作员、修改记录和有效状态（用于任务列表显示）
+                task_operator = ""
+                task_has_modified = False
+                task_is_valid = True  # 默认为有效（兼容没有有效状态列的旧文件）
+                try:
+                    import openpyxl
+                    wb2 = openpyxl.load_workbook(str(xlsx_file), data_only=True)
+                    ws2 = wb2.active
+                    headers2 = [str(cell.value) for cell in ws2[1] if cell.value]
+                    # 操作员在第一行数据中
+                    if "操作员" in headers2 and ws2.max_row >= 2:
+                        op_val = ws2.cell(row=2, column=headers2.index("操作员") + 1).value
+                        if op_val:
+                            task_operator = str(op_val)
+                    # 修改记录：检查所有数据行，任一有非空值则标记为已修改
+                    if "修改记录" in headers2 and ws2.max_row >= 2:
+                        mod_col_idx = headers2.index("修改记录") + 1
+                        for row_idx in range(2, ws2.max_row + 1):
+                            mod_val = ws2.cell(row=row_idx, column=mod_col_idx).value
+                            mod_str = str(mod_val or "")
+                            if mod_str and mod_str != "None":
+                                task_has_modified = True
+                                break
+                    # 有效状态：读取第一行数据的有效状态列（有效/无效）
+                    if "有效状态" in headers2 and ws2.max_row >= 2:
+                        valid_val = ws2.cell(row=2, column=headers2.index("有效状态") + 1).value
+                        valid_str = str(valid_val or "").strip()
+                        task_is_valid = (valid_str == "有效")
+                    wb2.close()
+                except Exception as ex:
+                    logger.warning(f"读取Excel元信息失败 {xlsx_file.name}: {ex}")
 
                 tasks.append({
                     "taskId": task_id,
-                    "taskDate": task_date.isoformat() if task_date else None,
+                    "taskDate": dispatch_time.isoformat() if dispatch_time else None,
                     "fileName": xlsx_file.name,
                     "isExpired": is_expired,
-                    "filePath": str(xlsx_file.relative_to(OUTPUT_ROOT))
+                    "filePath": str(xlsx_file.relative_to(OUTPUT_ROOT)),
+                    "operator": task_operator,
+                    "hasModified": task_has_modified,
+                    "isValid": task_is_valid,
                 })
             except Exception as e:
                 logger.error(f"解析历史任务文件失败 {xlsx_file.name}: {str(e)}")
                 continue
+
+        # 按下发时间范围过滤
+        if start_date:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                tasks = [t for t in tasks if t.get("taskDate") and datetime.fromisoformat(t["taskDate"]) >= start_dt]
+            except ValueError:
+                pass  # 日期格式错误时忽略过滤
+
+        if end_date:
+            try:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                # 包含结束日期当天
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                tasks = [t for t in tasks if t.get("taskDate") and datetime.fromisoformat(t["taskDate"]) <= end_dt]
+            except ValueError:
+                pass
 
         tasks.sort(key=lambda x: x.get("taskDate") or "", reverse=True)
 
@@ -111,11 +222,24 @@ async def get_history_task_details(task_id: str):
         logger.info(f"Excel表头: {headers}")
 
         details = []
+        has_modified = False
+        modified_bins: List[str] = []
+        operator = ""
         for row_index, row in enumerate(worksheet.iter_rows(min_row=2, values_only=True), 1):
             if all(cell is None for cell in row):
                 continue
 
             row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+            # 操作员只取第一条记录的值（enumerate 从 1 开始计数，第一条数据行 row_index=1）
+            if row_index == 1 and row_dict.get("操作员"):
+                operator = str(row_dict.get("操作员", ""))
+            mod_record = str(row_dict.get("修改记录", "") or "")
+            # 排除空字符串和字符串 "None"（旧版 Excel 遗留值）
+            if mod_record and mod_record != "None":
+                has_modified = True
+                bin_name = str(row_dict.get("储位名称", ""))
+                if bin_name not in modified_bins:
+                    modified_bins.append(bin_name)
             detail = {
                 "序号": row_dict.get("序号") or row_index,
                 "品规名称": str(row_dict.get("品规名称", "")),
@@ -124,12 +248,19 @@ async def get_history_task_details(task_id: str):
                 "库存数量": int(row_dict.get("库存数量", 0) or 0),
                 "实际数量": int(row_dict.get("实际数量", 0) or 0),
                 "差异": str(row_dict.get("差异", "一致")),
+                "修改记录": mod_record,
+                "照片1路径": str(row_dict.get("照片1路径") or ""),
+                "照片2路径": str(row_dict.get("照片2路径") or ""),
+                "照片3路径": str(row_dict.get("照片3路径") or ""),
+                "照片4路径": str(row_dict.get("照片4路径") or ""),
             }
             details.append(detail)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"code": 200, "message": "获取历史任务详情成功", "data": {"taskId": task_id, "details": details, "total": len(details)}}
+            content={"code": 200, "message": "获取历史任务详情成功",
+                     "data": {"taskId": task_id, "details": details, "total": len(details),
+                              "operator": operator, "hasModified": has_modified, "modifiedBins": modified_bins}}
         )
 
     except HTTPException:

@@ -36,6 +36,7 @@ from services.api.shared.config import (
     ENABLE_DEBUG,
     ENABLE_VISUALIZATION,
 )
+from services.api.shared.excel_writer import build_excel_data, write_excel
 
 # 从 robot/router 导入状态管理（避免与 services.api.state 混淆）
 from services.api.robot.router import (
@@ -1487,6 +1488,25 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 "failed_count": failed_count,
             }
         )
+
+        # 自动保存：只要相机拍了照片（capture_img 目录存在），就将结果写入历史 Excel
+        capture_img_dir = project_root / "capture_img" / task_no
+        if capture_img_dir.exists() and inventory_results:
+            try:
+                # 从任务详情中获取操作员信息
+                user_info = _inventory_task_details.get(task_no, {}).get("userInfo", {})
+                operator_name = user_info.get("userName", "")
+
+                df = build_excel_data(
+                    task_no=task_no,
+                    inventory_results=inventory_results,
+                    operator_name=operator_name,
+                    is_valid=False,
+                )
+                write_excel(task_no, df)
+                logger.info(f"自动保存盘点结果到历史: {task_no}")
+            except Exception as save_err:
+                logger.error(f"自动保存失败 {task_no}: {save_err}")
 
     except Exception as e:
         if task_no in _inventory_tasks:

@@ -14,6 +14,9 @@ interface HistoryTask {
   fileName: string;
   isExpired: boolean;
   createdAt?: string;
+  operator?: string;
+  hasModified?: boolean;
+  isValid?: boolean;
 }
 
 // 盘点详情类型定义
@@ -25,10 +28,18 @@ interface InventoryDetail {
   库存数量: number;
   实际数量: number;
   差异: string;
+  修改记录: string;
   照片1路径: string;
   照片2路径: string;
   照片3路径: string;
   照片4路径: string;
+}
+
+// 历史任务详情元信息
+interface TaskMeta {
+  operator: string;
+  hasModified: boolean;
+  modifiedBins: string[];
 }
 
 export default function History() {
@@ -38,8 +49,20 @@ export default function History() {
   const [selectedTask, setSelectedTask] = useState<HistoryTask | null>(null);
   const [taskDetails, setTaskDetails] = useState<InventoryDetail[]>([]);
   const [selectedPosition, setSelectedPosition] = useState<string>("");
+  const [taskMeta, setTaskMeta] = useState<TaskMeta>({ operator: "", hasModified: false, modifiedBins: [] });
   const [currentImages, setCurrentImages] = useState<string[]>([]);
+  const today = new Date().toISOString().split("T")[0];
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>(today);
   const [imagesLoading, setImagesLoading] = useState(false);
+  // 日历选择相关
+  const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [selectingEnd, setSelectingEnd] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -127,11 +150,28 @@ export default function History() {
     return taskDate < sixMonthsAgo;
   };
 
+  // 加载有数据的日期列表
+  const loadAvailableDates = async () => {
+    try {
+      const response = await fetch(`${GATEWAY_URL}/api/history/available-dates`);
+      const result = await response.json();
+      if (result.code === 200 && result.data?.dates) {
+        setAvailableDates(new Set(result.data.dates as string[]));
+      }
+    } catch (error) {
+      console.error("加载可用日期失败:", error);
+    }
+  };
+
   // 1. 修改 loadHistoryTasks 函数：
   const loadHistoryTasks = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${GATEWAY_URL}/api/history/tasks`);
+      const params = new URLSearchParams();
+      if (startDate) params.append("start_date", startDate);
+      if (endDate) params.append("end_date", endDate);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const response = await fetch(`${GATEWAY_URL}/api/history/tasks${query}`);
       const result = await response.json();
 
       if (result.code === 200) {
@@ -149,6 +189,9 @@ export default function History() {
             isExpired: task.isExpired,
             createdAt:
               task.createdAt || task.taskDate || new Date().toISOString(),
+            operator: task.operator || "",
+            hasModified: task.hasModified || false,
+            isValid: task.isValid !== false,
           }));
 
         console.log("加载的历史任务:", validTasks);
@@ -188,6 +231,7 @@ export default function History() {
             库存数量: item.库存数量,
             实际数量: item.实际数量,
             差异: item.差异,
+            修改记录: item.修改记录 || "",
             照片1路径: item.照片1路径,
             照片2路径: item.照片2路径,
             照片3路径: item.照片3路径,
@@ -196,6 +240,11 @@ export default function History() {
         );
 
         setTaskDetails(details);
+        setTaskMeta({
+          operator: result.data.operator || "",
+          hasModified: result.data.hasModified || false,
+          modifiedBins: result.data.modifiedBins || [],
+        });
 
         // 默认选中第一个储位
         if (details.length > 0) {
@@ -233,7 +282,7 @@ export default function History() {
       }
 
       try {
-        // 解析照片路径，格式如：/3D_CAMERA/MAIN.JPEG
+        // 解析照片路径，格式如：/taskNo/binLocation/cameraType/filename.jpg
         // 去除开头的斜杠并分割路径
         const normalizedPath = photoPath.startsWith("/")
           ? photoPath.substring(1)
@@ -241,21 +290,20 @@ export default function History() {
 
         const parts = normalizedPath.split("/");
 
-        // 确保路径至少有两部分
-        if (parts.length < 2) {
+        // 确保路径至少有4部分
+        if (parts.length < 4) {
           console.warn(`无效的照片路径格式: ${photoPath}`);
           return "";
         }
 
-        // cameraType是第一部分，转为小写（例如：3D_CAMERA -> 3d_camera）
-        const cameraType = parts[0].toLowerCase();
+        // parts[0]=taskNo, parts[1]=binLocation, parts[2]=cameraType, parts[3]=filename
+        // cameraType转为小写（例如：3D_CAMERA -> 3d_camera）
+        const cameraType = parts[2].toLowerCase();
+        // 去除文件扩展名（例如：main_rotated.jpg -> main_rotated）
+        const filename = parts[3].split(".")[0];
 
-        // filename是第二部分，去除文件扩展名（例如：MAIN.JPEG -> MAIN）
-        const fullFilename = parts[1];
-        const filename = fullFilename.split(".")[0]; // 移除扩展名
-
-        // 构建URL - 使用传入的taskId
-        return `${GATEWAY_URL}/api/history/image?taskNo=${taskId}&binLocation=${detail.储位名称}&cameraType=${cameraType}&filename=${filename}`;
+        // 构建URL，source=capture_img 指向实际图片目录
+        return `${GATEWAY_URL}/api/history/image?taskNo=${parts[0]}&binLocation=${parts[1]}&cameraType=${cameraType}&filename=${filename}&source=capture_img`;
       } catch (error) {
         console.error(`解析照片路径失败: ${photoPath}`, error);
         return "";
@@ -357,8 +405,22 @@ export default function History() {
 
   // 组件加载时获取历史任务
   useEffect(() => {
+    loadAvailableDates();
     loadHistoryTasks();
   }, []);
+
+  // 点击外部关闭日历
+  useEffect(() => {
+    if (!calendarOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".calendar-dropdown")) {
+        setCalendarOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [calendarOpen]);
 
   // 获取差异标签样式
   const getDifferenceBadgeStyle = (difference: string) => {
@@ -606,6 +668,157 @@ export default function History() {
           </div>
         </div>
 
+        {/* 日期筛选 — 日历选择器 */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 mb-6">
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="text-sm font-medium text-gray-700">选择盘点日期：</span>
+
+            {/* 当前筛选条件显示 */}
+            <button
+              onClick={() => setCalendarOpen(!calendarOpen)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors text-sm"
+            >
+              <i className="fa-solid fa-calendar text-green-600"></i>
+              <span className="text-green-800">
+                {startDate && endDate
+                  ? `${startDate} ~ ${endDate}`
+                  : startDate
+                    ? `从 ${startDate} 起`
+                    : endDate
+                      ? `至 ${endDate}`
+                      : "全部日期"}
+              </span>
+              <i className={`fa-solid fa-chevron-down text-xs text-green-600 transition-transform ${calendarOpen ? "rotate-180" : ""}`}></i>
+            </button>
+
+            {(startDate || endDate) && (
+              <button
+                onClick={() => {
+                  setStartDate("");
+                  setEndDate("");
+                  loadHistoryTasks();
+                }}
+                className="px-3 py-2 text-gray-500 hover:text-gray-700 text-sm"
+              >
+                清除筛选
+              </button>
+            )}
+            <button
+              onClick={() => loadHistoryTasks()}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors"
+            >
+              刷新
+            </button>
+
+            {/* 日历下拉 */}
+            {calendarOpen && (
+              <div className="relative">
+                <div className="calendar-dropdown absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 z-50 p-4 w-80">
+                  {/* 月份导航 */}
+                  <div className="flex items-center justify-between mb-4">
+                    <button
+                      onClick={() => {
+                        const [y, m] = calendarMonth.split("-").map(Number);
+                        const d = new Date(y, m - 2, 1);
+                        setCalendarMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+                      }}
+                      className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-600"
+                    >
+                      <i className="fa-solid fa-chevron-left"></i>
+                    </button>
+                    <span className="font-medium text-gray-800">
+                      {calendarMonth.split("-")[0]}年 {parseInt(calendarMonth.split("-")[1])}月
+                    </span>
+                    <button
+                      onClick={() => {
+                        const [y, m] = calendarMonth.split("-").map(Number);
+                        const d = new Date(y, m, 1);
+                        setCalendarMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+                      }}
+                      className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-600"
+                    >
+                      <i className="fa-solid fa-chevron-right"></i>
+                    </button>
+                  </div>
+
+                  {/* 星期标题 */}
+                  <div className="grid grid-cols-7 mb-1">
+                    {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
+                      <div key={d} className="text-center text-xs text-gray-400 py-1">{d}</div>
+                    ))}
+                  </div>
+
+                  {/* 日期格子 */}
+                  <div className="grid grid-cols-7 gap-0.5">
+                    {/* 填充上月末尾日期 */}
+                    {(() => {
+                      const [y, m] = calendarMonth.split("-").map(Number);
+                      const firstDay = new Date(y, m - 1, 1).getDay();
+                      return Array.from({ length: firstDay }, (_, i) => (
+                        <div key={`pad-${i}`} className="h-8"></div>
+                      ));
+                    })()}
+
+                    {/* 当月日期 */}
+                    {(() => {
+                      const [y, m] = calendarMonth.split("-").map(Number);
+                      const daysInMonth = new Date(y, m, 0).getDate();
+                      const todayStr = today;
+                      return Array.from({ length: daysInMonth }, (_, i) => {
+                        const day = i + 1;
+                        const dateStr = `${calendarMonth}-${String(day).padStart(2, "0")}`;
+                        const hasData = availableDates.has(dateStr);
+                        const isStart = dateStr === startDate;
+                        const isEnd = dateStr === endDate;
+                        const isInRange = startDate && endDate && dateStr > startDate && dateStr < endDate;
+                        const isSelected = isStart || isEnd;
+                        return (
+                          <button
+                            key={day}
+                            onClick={() => {
+                              if (!startDate || (startDate && endDate) || selectingEnd) {
+                                setStartDate(dateStr);
+                                setEndDate("");
+                                setSelectingEnd(true);
+                              } else {
+                                if (dateStr < startDate) {
+                                  setEndDate(startDate);
+                                  setStartDate(dateStr);
+                                } else {
+                                  setEndDate(dateStr);
+                                }
+                                setSelectingEnd(false);
+                                setCalendarOpen(false);
+                                loadHistoryTasks();
+                              }
+                            }}
+                            disabled={!hasData}
+                            className={`h-8 rounded-lg text-sm flex flex-col items-center justify-center relative transition-colors
+                              ${hasData ? "hover:bg-green-50 cursor-pointer" : "text-gray-300 cursor-not-allowed"}
+                              ${isSelected ? "bg-green-600 text-white hover:bg-green-700" : ""}
+                              ${isInRange ? "bg-green-100 text-green-800" : ""}
+                            `}
+                          >
+                            {day}
+                            {hasData && !isSelected && (
+                              <span className="w-1 h-1 rounded-full bg-green-500 absolute bottom-0.5"></span>
+                            )}
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+
+                  {/* 提示 */}
+                  <p className="text-xs text-gray-400 mt-3 text-center">
+                    点击日期选择开始日期，再点击选择结束日期。绿色圆点表示有盘点数据。
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* 主要内容区域：左右布局 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* 左侧：历史任务列表 */}
@@ -714,13 +927,26 @@ export default function History() {
                           <h5 className="font-medium text-gray-900">
                             {task.taskId}
                           </h5>
-                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800">
-                            有效
+                          <span className={`text-xs px-2 py-1 rounded-full font-bold ${
+                            task.isValid === false
+                              ? "bg-red-100 text-red-700"
+                              : task.hasModified
+                                ? "bg-yellow-100 text-yellow-700"
+                                : "bg-green-100 text-green-800"
+                          }`}>
+                            {task.isValid === false ? "无效" : task.hasModified ? "订正" : "有效"}
                           </span>
                         </div>
                         <p className="text-sm text-gray-500 mt-1">
                           <i className="fa-solid fa-calendar mr-1"></i>
                           {formatDate(task.taskDate)}
+                          {task.operator && (
+                            <>
+                              <span className="mx-1">|</span>
+                              <i className="fa-solid fa-user mr-1"></i>
+                              {task.operator}
+                            </>
+                          )}
                         </p>
                         <div className="flex items-center mt-2">
                           <span className="text-xs text-gray-400">
@@ -751,7 +977,26 @@ export default function History() {
                         <p className="text-gray-600">
                           <i className="fa-solid fa-calendar mr-1"></i>
                           盘点时间: {formatDate(selectedTask.taskDate)}
+                          {taskMeta.operator && (
+                            <>
+                              <span className="mx-2">|</span>
+                              <i className="fa-solid fa-user mr-1"></i>
+                              操作员: {taskMeta.operator}
+                            </>
+                          )}
                         </p>
+                        {taskMeta.hasModified && (
+                          <p className="text-red-600 text-base font-bold mt-1">
+                            <i className="fa-solid fa-pen-to-square mr-1"></i>
+                            存在人工修改：{taskMeta.modifiedBins.join("、")}
+                          </p>
+                        )}
+                        {!taskMeta.hasModified && taskMeta.operator && (
+                          <p className="text-green-600 text-sm mt-1">
+                            <i className="fa-solid fa-circle-check mr-1"></i>
+                            无人工修改
+                          </p>
+                        )}
                       </div>
                       <div className="mt-2 md:mt-0">
                         <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">

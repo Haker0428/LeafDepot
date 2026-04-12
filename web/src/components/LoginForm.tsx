@@ -45,7 +45,7 @@ export default function LoginForm({ className }: { className?: string }) {
       <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-2xl p-8 border border-gray-200">
         <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">用户登录</h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
           <div>
             <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
             <div className="relative">
@@ -60,6 +60,7 @@ export default function LoginForm({ className }: { className?: string }) {
                 className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                 placeholder="请输入用户名"
                 disabled={isLoading}
+                autoComplete="off"
               />
             </div>
           </div>
@@ -78,6 +79,7 @@ export default function LoginForm({ className }: { className?: string }) {
                 className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                 placeholder="请输入密码"
                 disabled={isLoading}
+                autoComplete="new-password"
               />
             </div>
           </div>

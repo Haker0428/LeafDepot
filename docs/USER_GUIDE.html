@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智慧仓库盘点系统 — 用户操作手册</title>
+<style>
+body { font-family: "Noto Sans CJK SC", "Source Han Sans CN", "WenQuanYi Micro Hei", sans-serif; font-size: 12pt; line-height: 1.6; margin: 2cm; }
+h1 { font-size: 20pt; border-bottom: 2px solid #333; padding-bottom: 8px; }
+h2 { font-size: 16pt; color: #2c5aa0; margin-top: 24px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+h3 { font-size: 13pt; color: #444; margin-top: 16px; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 11pt; }
+th, td { border: 1px solid #aaa; padding: 6px 8px; }
+th { background: #2c5aa0; color: white; }
+tr:nth-child(even) { background: #f5f5f5; }
+img { max-width: 100%; height: auto; margin: 8px 0; border: 1px solid #ddd; }
+blockquote { background: #f0f0f0; border-left: 4px solid #2c5aa0; padding: 8px 12px; margin: 10px 0; }
+code { background: #f5f5f5; padding: 2px 4px; border-radius: 3px; }
+pre { background: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto; }
+strong { color: #c00; }
+</style>
+</head>
+<body>
+<h1>智慧仓库盘点系统 — 用户操作手册</h1>
+<blockquote>
+<p>适用版本：v2.0 | 最后更新：2026-04-06</p>
+</blockquote>
+<hr />
+<h2>重要说明</h2>
+<blockquote>
+<p><strong>请在使用前仔细阅读以下内容。</strong></p>
+</blockquote>
+<h3>识别原理与限制</h3>
+<p>本系统的盘点识别依赖<strong>计算机视觉算法</strong>，识别效果受以下因素影响：</p>
+<ul>
+<li><strong>垛堆条件</strong>：箱子必须按照正常的堆放和拿取方式进行堆叠，垛型需符合系统预设的类型（如 5×8、5×6、5×5、3×10、4×7+2 等）。若货物堆放方式与预设垛型不符，识别准确率将显著下降。</li>
+<li><strong>光线条件</strong>：识别效果与光照情况强相关。若物件表面<strong>反光严重</strong>（如塑料薄膜包装）、<strong>环境光过强</strong>（直射强光）或<strong>环境光过弱</strong>（昏暗），均可能导致相机无法正常识别，需调整光源或清洁镜头后再试。</li>
+<li><strong>识别规律</strong>：盘点次数越多、样本越丰富，算法的识别准确率越高。</li>
+<li><strong>盘点数量依赖</strong>：实际盘点数量与视觉检测数量之间的差异，需要通过多次盘点来逐步校准和缩小。</li>
+</ul>
+<h3>网络依赖</h3>
+<p>本系统对机器人调度和相机控制的指令均通过<strong>网络传输</strong>实现，对现场网络环境有较高依赖。网络不稳定时可能出现指令延迟、抓图失败等问题。</p>
+<h3>服务状态</h3>
+<p>若发现系统页面无法打开或无法登录，请首先确认服务是否已启动。重启服务器后需同步重启 Gateway 服务（执行 <code>./manage.sh restart</code> 或手动重启），服务方可正常访问。</p>
+<hr />
+<h2>一、登录</h2>
+<p>打开系统首页，输入用户名和密码，点击<strong>登录</strong>按钮提交。</p>
+<p><img alt="登录页面" src="01-login.png" /></p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用户名 / 密码输入框</td>
+<td>由系统管理员分配，连续 3 次输错锁定 5 分钟</td>
+</tr>
+<tr>
+<td>登录按钮</td>
+<td>提交认证请求，过程中显示加载状态</td>
+</tr>
+</tbody>
+</table>
+<h3>登录页面附加功能</h3>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>位置</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>登录帮助</strong></td>
+<td>登录表单下方</td>
+<td>弹出权限说明，介绍操作员和管理员的可操作范围</td>
+</tr>
+<tr>
+<td><strong>忘记密码</strong></td>
+<td>登录表单下方</td>
+<td>弹出管理员联系方式，需联系管理员重置密码</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>二、系统首页（Dashboard）</h2>
+<p>登录成功后自动进入首页，显示系统运行状态和快捷入口。</p>
+<p><img alt="系统首页" src="02-dashboard.png" /></p>
+<h3>2.1 顶部导航栏</h3>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用户欢迎语</td>
+<td>显示当前登录用户名，如"欢迎，张三"</td>
+</tr>
+<tr>
+<td>角色徽章</td>
+<td>紫色圆形 = <strong>管理员</strong>，蓝色圆形 = <strong>操作员</strong></td>
+</tr>
+<tr>
+<td><strong>退出登录</strong> 按钮</td>
+<td>红色按钮，点击后退出当前会话，返回登录页</td>
+</tr>
+</tbody>
+</table>
+<h3>2.2 统计卡片（4 栏）</h3>
+<table>
+<thead>
+<tr>
+<th>卡片</th>
+<th>数据来源</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>支持储位数</td>
+<td>后端实时统计</td>
+<td>系统已接入的库位总数量</td>
+</tr>
+<tr>
+<td>支持品类数</td>
+<td>后端实时统计</td>
+<td>系统已录入的烟品类别数</td>
+</tr>
+<tr>
+<td>本月盘点</td>
+<td>历史记录统计</td>
+<td>当月已完成的盘点任务累计次数</td>
+</tr>
+<tr>
+<td>准确率</td>
+<td>历史记录统计</td>
+<td>本月盘点中"实际数量 = 库存数量"的库位占比</td>
+</tr>
+</tbody>
+</table>
+<h3>2.3 功能导航卡片（3 栏）</h3>
+<p>点击任意卡片跳转到对应功能页面。</p>
+<table>
+<thead>
+<tr>
+<th>卡片</th>
+<th>跳转目标</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>开始盘点</strong></td>
+<td><code>/inventory/start</code></td>
+<td>创建并下发新的盘点任务</td>
+</tr>
+<tr>
+<td><strong>历史盘点</strong></td>
+<td><code>/inventory/history</code></td>
+<td>查看近 6 个月的盘点记录</td>
+</tr>
+<tr>
+<td><strong>人员权限</strong></td>
+<td><code>/user_manage</code></td>
+<td>管理用户账户（管理员专有）</td>
+</tr>
+</tbody>
+</table>
+<h3>2.4 最近操作记录</h3>
+<p>展示当前用户最近的 10 条操作流水。</p>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>位置</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>查看全部 / 收起</strong></td>
+<td>表格右上</td>
+<td>切换显示最近 5 条和全部记录</td>
+</tr>
+<tr>
+<td><strong>刷新</strong></td>
+<td>"查看全部"右侧</td>
+<td>重新加载操作记录（页面整体刷新）</td>
+</tr>
+<tr>
+<td><strong>清空记录</strong></td>
+<td>"刷新"右侧（仅管理员可见）</td>
+<td>清空当前用户全部操作日志，需浏览器确认</td>
+</tr>
+</tbody>
+</table>
+<p><strong>状态标签颜色</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>颜色</th>
+<th>标签文字</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>🟢 绿色</td>
+<td>成功</td>
+<td>操作正常完成</td>
+</tr>
+<tr>
+<td>🟡 黄色</td>
+<td>部分成功</td>
+<td>部分完成，存在异常</td>
+</tr>
+<tr>
+<td>🔵 蓝色</td>
+<td>进行中</td>
+<td>任务执行中</td>
+</tr>
+<tr>
+<td>🔴 红色</td>
+<td>失败</td>
+<td>操作失败</td>
+</tr>
+</tbody>
+</table>
+<h3>2.5 系统公告</h3>
+<p>展示当前公告信息，包括运维联系方式和历史数据保留说明。</p>
+<hr />
+<h2>三、创建盘点任务</h2>
+<p>点击首页<strong>开始盘点</strong>卡片，进入任务创建页面。</p>
+<h3>3.1 任务编号</h3>
+<p><img alt="开始盘点页面 — 初始状态" src="03-create-task-inital.png" /></p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务编号输入框</td>
+<td>系统自动按格式 <code>HS + 年月日 + 当日序号</code> 生成（如 <code>HS2026040601</code>），可手动覆盖修改</td>
+</tr>
+</tbody>
+</table>
+<h3>3.2 库位筛选区</h3>
+<p>通过下拉条件缩小库位范围，再在结果表格中勾选。</p>
+<table>
+<thead>
+<tr>
+<th>控件</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>仓库</strong> 下拉框</td>
+<td>按仓库筛选（可多仓库数据时使用）</td>
+</tr>
+<tr>
+<td><strong>储区</strong> 下拉框</td>
+<td>按储区（区域）筛选</td>
+</tr>
+<tr>
+<td><strong>位号</strong> 下拉框</td>
+<td>按位号前缀筛选（如选 <code>01</code> 则匹配 <code>01-01-01</code>、<code>01-02-03</code> 等），支持多选</td>
+</tr>
+<tr>
+<td><strong>搜索</strong> 按钮</td>
+<td>根据以上条件查询库位，结果显示在下方表格</td>
+</tr>
+</tbody>
+</table>
+<p>下拉选项数据从系统 <code>bins_data.xlsx</code> 动态加载，初次进入页面时自动获取。</p>
+<h3>3.3 库位结果表格</h3>
+<p><img alt="开始盘点页面 — 库位筛选中" src="03-create-task-loading.png" /></p>
+<table>
+<thead>
+<tr>
+<th>列名</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>复选框</td>
+<td>勾选该行库位，可多选</td>
+</tr>
+<tr>
+<td>仓库 / 储区 / 储位</td>
+<td>库位层级信息</td>
+</tr>
+<tr>
+<td>品规名称</td>
+<td>系统录入的该库位存储品规</td>
+</tr>
+<tr>
+<td>库存数量</td>
+<td>系统记录的当前库存件数</td>
+</tr>
+<tr>
+<td>库位状态</td>
+<td>正常 / 停用 / 仅移入 / 仅移出 / 冻结</td>
+</tr>
+<tr>
+<td><strong>操作</strong> 列</td>
+<td><strong>删除</strong> 按钮：移除该条库位</td>
+</tr>
+</tbody>
+</table>
+<p><strong>表格操作</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>位置</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>全选</strong> 复选框</td>
+<td>表头第一列</td>
+<td>选中当前筛选结果中的全部库位</td>
+</tr>
+<tr>
+<td><strong>取消全选</strong> 复选框</td>
+<td>同上</td>
+<td>取消全部选择</td>
+</tr>
+<tr>
+<td><strong>已选 N 个储位</strong> 按钮</td>
+<td>表格上方右侧</td>
+<td>展示已勾选库位列表，点击可查看或逐个移除</td>
+</tr>
+<tr>
+<td><strong>删除</strong></td>
+<td>每行操作列</td>
+<td>从任务清单中移除该条库位</td>
+</tr>
+</tbody>
+</table>
+<h3>3.4 添加库位到任务</h3>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>位置</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>添加选中库位 →</strong></td>
+<td>库位表格与任务清单之间</td>
+<td>将已勾选的库位添加到下方任务清单中，自动过滤已在清单中的库位</td>
+</tr>
+</tbody>
+</table>
+<h3>3.5 任务清单</h3>
+<p><img alt="开始盘点页面 — 任务已创建" src="03-create-task-final.png" /></p>
+<p>已添加的库位以可拖拽排序的列表展示，顺序即为机器人执行顺序。</p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务清单卡片</td>
+<td>显示已添加的库位列表</td>
+</tr>
+<tr>
+<td>拖拽手柄</td>
+<td>每行左侧的 ⋮⋮ 图标，拖拽可调整执行顺序</td>
+</tr>
+<tr>
+<td><strong>删除</strong> 按钮</td>
+<td>从任务清单中移除该条</td>
+</tr>
+<tr>
+<td>库位信息展示</td>
+<td>仓库 / 储区 / 储位 / 品规名称 / 库存数量</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>提示</strong>：同一库位不会重复添加。若所选库位已在清单中，系统会跳过并提示"已跳过 N 个已存在的库位"。</p>
+</blockquote>
+<h3>3.6 下发任务</h3>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>开始盘点</strong></td>
+<td>验证任务清单非空后，将任务下发至机器人调度系统（RCS），成功后自动跳转到盘点进度页面</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>四、监控盘点进度</h2>
+<p>下发成功后自动跳转至盘点进度页面，实时展示任务状态。</p>
+<h3>4.1 顶部进度面板</h3>
+<p><img alt="盘点进度页面 — 进行中" src="04-progress-start.png" /></p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务编号徽章</td>
+<td>绿色标签，显示当前任务号</td>
+</tr>
+<tr>
+<td>百分比数字</td>
+<td>加粗大字，如 "67%"</td>
+</tr>
+<tr>
+<td>进度条</td>
+<td>绿色渐变动画条，实时反映已下发库位数 / 总库位数</td>
+</tr>
+<tr>
+<td><strong>下发盘点任务</strong> 按钮</td>
+<td>橙色（初始）→ 橙色禁用"进行中..."（下发中）→ 绿色"任务已完成"（完成）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>注意</strong>：任务进行中按钮始终禁用，不可重复点击。</p>
+</blockquote>
+<h3>4.2 盘点数据表格</h3>
+<p><img alt="盘点进度页面 — 任务完成" src="04-progress-end.png" /></p>
+<table>
+<thead>
+<tr>
+<th>列名</th>
+<th>数据来源</th>
+<th>展示逻辑</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>序号</td>
+<td>自动编号</td>
+<td>行号</td>
+</tr>
+<tr>
+<td>品规名称</td>
+<td>系统录入</td>
+<td>不随识别结果改变</td>
+</tr>
+<tr>
+<td>储位名称</td>
+<td>系统录入</td>
+<td>库位编号</td>
+</tr>
+<tr>
+<td>实际品规</td>
+<td>扫码识别</td>
+<td><strong>红色"未识别"</strong> = 未识别到条码；绿色品名 = 识别成功</td>
+</tr>
+<tr>
+<td>品规校准</td>
+<td>手动修正</td>
+<td>点击按钮切换为输入框，绿色 ✅ 确认，红色 ❌ 取消</td>
+</tr>
+<tr>
+<td>库存数量</td>
+<td>系统录入</td>
+<td>标准库存件数</td>
+</tr>
+<tr>
+<td>实际数量</td>
+<td>AI 视觉检测</td>
+<td><strong>"待计算"</strong> = 尚未处理；绿色数字 = 已检测</td>
+</tr>
+<tr>
+<td>差异</td>
+<td>计算得出</td>
+<td><code>-N件</code>（红色，短少）/ <code>+N件</code>（溢余）/ <strong>"一致"</strong>（绿色）</td>
+</tr>
+<tr>
+<td>差异校准</td>
+<td>手动修正</td>
+<td>同品规校准，点击输入后确认/取消</td>
+</tr>
+</tbody>
+</table>
+<h3>4.3 校准操作</h3>
+<p><img alt="盘点进度页面 — 校准操作" src="04-progress-modify.png" /></p>
+<p>盘点过程中系统会对每个库位进行扫码（品规）和深度检测（数量），识别结果可能存在误差，提供手动校准进行修正。</p>
+<p><strong>校准操作步骤</strong>：点击单元格右侧的<strong>校准</strong>按钮 → 输入框中输入正确品规名称或数量 → 绿色 ✅ 确认，或红色 ❌ 取消修改。</p>
+<p><strong>未识别品规阻断逻辑</strong>（重要）：系统要求所有品规均需识别成功后才允许"完成并创建下个盘点"。若存在红色"<strong>未识别</strong>"的品规，页面顶部会弹出红色提示"存在 N 个未识别的品规，请先完成品规校准"，"完成并创建下个盘点"按钮呈灰色禁用，单元格背景高亮为淡红色。这是为防止错误品规被回写到 <code>bins_data.xlsx</code> 导致后续数据错乱。必须先在表格中手动校准所有未识别的品规，确认品规正确后按钮自动恢复可用，方可继续。</p>
+<p><strong>识别失败时，可通过观察窗口照片辅助判断</strong>：切换<strong>扫码相机</strong>标签查看扫码照片（模糊/污渍 → 清洁镜头或调整焦距；过暗/过亮 → 检查补光灯；条码被遮挡 → 手动校准品规）。切换<strong>3D相机</strong>标签查看深度图（depth.jpg 缺失 → 重启 3D 相机；全黑/全白 → 重启或检查反光；货物未完整入镜 → 调整相机角度）。</p>
+<h3>4.4 底部操作栏</h3>
+<p>任务完成后（进度条走完、按钮变为"任务已完成"）方可点击。</p>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>条件</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>盘点结果统计</strong></td>
+<td>任务完成</td>
+<td>弹出统计面板（见下方模态框说明）</td>
+</tr>
+<tr>
+<td><strong>完成盘点并保存结果</strong></td>
+<td>任务完成</td>
+<td>保存结果到系统并触发 Excel 报告下载</td>
+</tr>
+<tr>
+<td><strong>完成并创建下个盘点</strong></td>
+<td>任务完成且所有品规已识别</td>
+<td>保存结果、更新 <code>bins_data.xlsx</code> 库存数据后跳转回「开始盘点」页面</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ 若存在红色<strong>未识别</strong>品规，「完成并创建下个盘点」按钮将被禁用，需先完成品规校准。</p>
+</blockquote>
+<h3>4.5 观察窗口（右侧边栏）</h3>
+<p>实时显示当前选中库位的照片，库位处理完成后自动加载。</p>
+<table>
+<thead>
+<tr>
+<th>区域</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>上方图片格</td>
+<td>主图（3D相机 main_rotated.jpg 或扫码图1）</td>
+</tr>
+<tr>
+<td>下方图片格</td>
+<td>深度图（3D相机 depth_color.jpg 或扫码图2）</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>3D相机</strong> 标签</td>
+<td>切换显示 3D 相机的主图和深度图</td>
+</tr>
+<tr>
+<td><strong>扫码相机</strong> 标签</td>
+<td>切换显示扫码相机图1和图2</td>
+</tr>
+</tbody>
+</table>
+<p>标签状态：激活态为绿色，有照片的未激活为灰色，无照片为灰色禁用。</p>
+<h3>4.6 盘点结果统计弹窗</h3>
+<p>点击底部<strong>盘点结果统计</strong>按钮弹出。</p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>总耗时</strong> 统计卡</td>
+<td>从下发到全部完成的实际时长（蓝色）</td>
+</tr>
+<tr>
+<td><strong>准确率</strong> 统计卡</td>
+<td>盘点数量与系统记录一致的库位占比（绿色）</td>
+</tr>
+<tr>
+<td><strong>异常任务</strong> 统计卡</td>
+<td>存在差异的库位数量（红色）</td>
+</tr>
+<tr>
+<td>异常库位列表</td>
+<td>列出每个异常库位：任务号、储位、库存数量、实际数量、差异</td>
+</tr>
+<tr>
+<td>完美准确提示</td>
+<td>若所有库位数量一致，显示绿色"盘点结果完美 / 准确率100%"</td>
+</tr>
+<tr>
+<td>总体评价</td>
+<td>🟢 <strong>优秀</strong>（≥ 95%） / 🟡 <strong>良好</strong>（≥ 80%） / 🔴 <strong>需改进</strong>（&lt; 80%）</td>
+</tr>
+</tbody>
+</table>
+<p>点击右上角 <strong>×</strong> 或底部<strong>确认</strong>按钮关闭弹窗。</p>
+<h3>4.7 盘点失败库位弹窗</h3>
+<p>任务中有任何库位抓图失败时自动弹出（也可手动触发）。</p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>红色警告框</td>
+<td>显示失败库位数量</td>
+</tr>
+<tr>
+<td>失败列表</td>
+<td>每个库位一行，附具体错误原因（如 <code>scan_1: 未生成图片文件</code>）</td>
+</tr>
+<tr>
+<td>提示说明</td>
+<td>告知失败库位已记为 qty=0、spec="未识别"</td>
+</tr>
+</tbody>
+</table>
+<h3>4.8 系统离线 / 下发失败弹窗</h3>
+<p>预检或下发接口返回错误时弹出，错误类型决定弹窗标题。</p>
+<table>
+<thead>
+<tr>
+<th>弹窗类型</th>
+<th>标题</th>
+<th>错误来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RCS 离线</td>
+<td>⚠️ RCS 连接失败</td>
+<td>RCS 调度服务（端口 4001）不可达</td>
+</tr>
+<tr>
+<td>相机离线</td>
+<td>⚠️ 相机连接失败</td>
+<td>相机 IP 不可达</td>
+</tr>
+<tr>
+<td>其他失败</td>
+<td>⚠️ 盘点任务下发失败</td>
+<td>未知系统错误</td>
+</tr>
+</tbody>
+</table>
+<p>弹窗内含针对各类型的排查步骤清单。</p>
+<hr />
+<h2>五、历史盘点</h2>
+<p>点击首页<strong>历史盘点</strong>卡片，进入历史记录页面。</p>
+<p><img alt="历史盘点页面" src="05-history.png" /></p>
+<h3>5.1 左侧任务列表</h3>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>副标题</td>
+<td>"近6个月内"，系统仅保留6个月内的历史数据</td>
+</tr>
+<tr>
+<td><strong>清理历史 (N)</strong> 按钮</td>
+<td>左上红色按钮，需先勾选任务；显示已选数量；管理员专有</td>
+</tr>
+<tr>
+<td><strong>全选 (N/M)</strong> 复选框</td>
+<td>全选或取消全选所有历史任务</td>
+</tr>
+<tr>
+<td>任务卡片</td>
+<td>按时间倒序排列，点击后右侧展示详情</td>
+</tr>
+<tr>
+<td>任务卡片信息</td>
+<td>任务编号、盘点日期、Excel 文件名、"有效"绿色徽章</td>
+</tr>
+</tbody>
+</table>
+<h3>5.2 右侧详情面板</h3>
+<p>选择任务后展示该任务的完整盘点详情。</p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>任务编号（大字）</td>
+<td>当前查看的任务号</td>
+</tr>
+<tr>
+<td>盘点时间</td>
+<td>任务执行日期和时间</td>
+</tr>
+<tr>
+<td>绿色徽章</td>
+<td>"已盘点 N 个储位"</td>
+</tr>
+<tr>
+<td>储位选择器</td>
+<td>药丸按钮列表，每个按钮显示库位编号和品规简称，点击切换查看不同库位</td>
+</tr>
+</tbody>
+</table>
+<p><strong>库位详情（左侧卡片）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>品规名称</td>
+<td>系统录入的标准品规</td>
+</tr>
+<tr>
+<td>实际品规</td>
+<td>盘点时扫码识别的品规</td>
+</tr>
+<tr>
+<td>库存数量</td>
+<td>系统记录的标准库存件数（蓝色）</td>
+</tr>
+<tr>
+<td>实际数量</td>
+<td>AI 检测得出的实际件数（蓝色）</td>
+</tr>
+<tr>
+<td>差异结果</td>
+<td><strong>"一致"</strong>（绿色勾）= 数量相同；显示差异数量（红色叉）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>照片记录（右侧卡片，2×2 网格）</strong>：</p>
+<p>每张图片悬停后出现放大图标，点击在新标签页打开大图。</p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>图片缩略图</td>
+<td>覆盖适应显示</td>
+</tr>
+<tr>
+<td>悬停放大按钮</td>
+<td>左上角出现的放大镜图标</td>
+</tr>
+<tr>
+<td>加载失败占位</td>
+<td>图片无法加载时显示相机图标 + "加载失败"文字</td>
+</tr>
+</tbody>
+</table>
+<h3>5.3 清理历史（管理员）</h3>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>在左侧列表勾选需要清理的任务（可全选）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>点击左上角<strong>清理历史 (N)</strong> 按钮</td>
+</tr>
+<tr>
+<td>3</td>
+<td>在弹窗中选择清理方式：<br>• 仅清理选中的记录<br>• 清理选中之前的所有历史记录</td>
+</tr>
+<tr>
+<td>4</td>
+<td>点击<strong>确认清理</strong>（红色），弹出浏览器确认框</td>
+</tr>
+<tr>
+<td>5</td>
+<td>确认后系统删除记录，操作日志记录操作结果</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ 清理操作不可逆，删除后数据无法恢复。</p>
+</blockquote>
+<h3>5.4 权限不足弹窗</h3>
+<p>操作员点击"清理历史"时弹出，提示"您当前是操作员，无权执行清理历史操作。仅管理员可以清理历史记录。"</p>
+<hr />
+<h2>六、人员权限管理</h2>
+<p>点击首页<strong>人员权限</strong>卡片（管理员专有），进入用户管理页面。</p>
+<p><img alt="人员权限页面" src="06-user-management.png" /></p>
+<h3>6.1 顶部操作区</h3>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>注册新用户</strong></td>
+<td>绿色按钮，打开用户注册表单弹窗</td>
+</tr>
+<tr>
+<td><strong>删除用户 (N)</strong></td>
+<td>红色按钮（已选N个时激活），点击后直接删除选中的用户</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ <strong>admin 账户不可删除</strong>，删除操作不可恢复。</p>
+</blockquote>
+<h3>6.2 用户列表表格</h3>
+<table>
+<thead>
+<tr>
+<th>列名</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>复选框</td>
+<td>勾选用户，可批量删除</td>
+</tr>
+<tr>
+<td>序号</td>
+<td>行号</td>
+</tr>
+<tr>
+<td>用户代码</td>
+<td>登录账号名（如 <code>admin</code>）</td>
+</tr>
+<tr>
+<td>用户名称</td>
+<td>显示名称</td>
+</tr>
+<tr>
+<td>用户权限</td>
+<td><strong>管理员</strong>（紫色徽章）/ <strong>操作员</strong>（蓝色徽章）</td>
+</tr>
+<tr>
+<td>所属部门</td>
+<td>如"衡水市局"、"河北省局"</td>
+</tr>
+<tr>
+<td>手机号码</td>
+<td>注册时填写的联系方式（可为空）</td>
+</tr>
+<tr>
+<td>员工ID</td>
+<td>工号（可为空）</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>位置</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>全选/取消全选</strong></td>
+<td>表头复选框</td>
+<td>选中或取消全部用户</td>
+</tr>
+<tr>
+<td><strong>刷新</strong></td>
+<td>页面右上角，共 N 个用户标签右侧</td>
+<td>重新加载用户列表</td>
+</tr>
+<tr>
+<td><strong>返回</strong></td>
+<td>页面右上角</td>
+<td>返回系统首页</td>
+</tr>
+</tbody>
+</table>
+<h3>6.3 注册新用户弹窗</h3>
+<p>点击"注册新用户"后弹出，表单字段如下：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>必填</th>
+<th>校验规则</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用户名称</td>
+<td>✅</td>
+<td>不能为空</td>
+</tr>
+<tr>
+<td>用户代码</td>
+<td>✅</td>
+<td>不能为空，仅允许字母、数字、下划线</td>
+</tr>
+<tr>
+<td>所属部门</td>
+<td>✅</td>
+<td>下拉选择：衡水市局 / 河北省局</td>
+</tr>
+<tr>
+<td>用户权限</td>
+<td>✅</td>
+<td>两栏选择：<strong>操作员</strong>（基础功能）/ <strong>管理员</strong>（全部权限）</td>
+</tr>
+<tr>
+<td>手机号码</td>
+<td>否</td>
+<td>需为 11 位中国大陆手机号</td>
+</tr>
+<tr>
+<td>密码</td>
+<td>✅</td>
+<td>至少 6 位字符</td>
+</tr>
+<tr>
+<td>确认密码</td>
+<td>✅</td>
+<td>必须与密码一致</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>按钮</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>取消</strong></td>
+<td>关闭弹窗，放弃填写内容</td>
+</tr>
+<tr>
+<td><strong>注册用户</strong></td>
+<td>验证表单后提交注册，成功后自动刷新用户列表</td>
+</tr>
+</tbody>
+</table>
+<h3>6.4 权限不足提示（操作员）</h3>
+<p>非管理员访问 <code>/user_manage</code> 时，显示权限不足全屏提示，并提供<strong>返回首页</strong>按钮。</p>
+<hr />
+<h2>七、常见问题与错误排查</h2>
+<h3>7.1 下发任务失败</h3>
+<p>下发任务前系统会进行 RCS 和相机的连通性预检，预检失败时弹出对应提示。</p>
+<table>
+<thead>
+<tr>
+<th>错误现象</th>
+<th>可能原因</th>
+<th>排查方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⚠️ RCS 连接失败</td>
+<td>RCS 调度服务（端口 4001）未启动或网络不通</td>
+<td>检查 RCS 服务是否运行；确认 <code>10.16.82.90:4001</code> 网络可达</td>
+</tr>
+<tr>
+<td>⚠️ 相机连接失败</td>
+<td>相机 IP 不可达</td>
+<td>依次检查 <code>10.16.82.180</code>、<code>10.16.82.181</code>、<code>10.16.82.182</code> 是否网络连通</td>
+</tr>
+<tr>
+<td>⚠️ 盘点任务下发失败</td>
+<td>RCS 接口返回未知错误</td>
+<td>查看网关日志 <code>gateway.log</code> 确认具体报错信息</td>
+</tr>
+</tbody>
+</table>
+<h3>7.2 抓图失败</h3>
+<p>盘点执行过程中相机未能成功拍摄，系统会弹出失败库位提示，并记录具体失败的相机。</p>
+<table>
+<thead>
+<tr>
+<th>错误日志关键词</th>
+<th>可能原因</th>
+<th>排查方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scan_1: 未生成图片文件</code></td>
+<td>扫码相机1拍摄超时或断网</td>
+<td>检查 <code>10.16.82.181</code> 连接；重启相机</td>
+</tr>
+<tr>
+<td><code>scan_2: 未生成图片文件</code></td>
+<td>扫码相机2拍摄超时或断网</td>
+<td>检查 <code>10.16.82.182</code> 连接；重启相机</td>
+</tr>
+<tr>
+<td><code>scan_1: loop.*find.*mac</code> / <code>Private connect.*timeout</code></td>
+<td>扫码相机1网络不稳定、丢包或 IP 冲突</td>
+<td>检查 <code>10.16.82.181</code> 网线；确认 IP 无冲突</td>
+</tr>
+<tr>
+<td><code>3d: 未找到depth.jpg</code></td>
+<td>3D 相机未生成深度图（主图正常但深度图缺失）</td>
+<td>检查 <code>10.16.82.180</code> 连接；重启 3D 相机</td>
+</tr>
+<tr>
+<td><code>相机不可达</code></td>
+<td>相机断电或网线脱落</td>
+<td>检查相机供电和网线物理连接</td>
+</tr>
+<tr>
+<td>全部相机抓图失败</td>
+<td>网络整体故障或所有相机同时断线</td>
+<td>检查网络交换设备；确认相机电源</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>提示</strong>：系统具备自动重试机制（最多 5 次），若重试期间相机恢复，任务仍可正常完成，无需手动干预。</p>
+</blockquote>
+<h3>7.3 盘点结果异常</h3>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数量显示为 <code>0</code></td>
+<td>未识别到 pile（货物堆）</td>
+<td>相机拍摄角度不对、货物缺失或垛型与系统配置不符，导致 AI 未检测到堆叠区域</td>
+</tr>
+<tr>
+<td>数量显示 <code>0</code>，品规有值</td>
+<td>pile 未识别，但扫码成功</td>
+<td>3D 相机拍摄质量差或 depth.jpg 缺失，无法完成深度检测</td>
+</tr>
+<tr>
+<td>数量显示正确，但品规为"未识别"</td>
+<td>条码被遮挡或污损</td>
+<td>扫码相机拍摄到的条码不清晰，可在校准时手动录入品规</td>
+</tr>
+</tbody>
+</table>
+<h4>通过照片辅助判断识别失败原因</h4>
+<p>盘点结束后，在观察窗口点击<strong>扫码相机</strong>标签查看扫码相机照片，判断品规识别失败是否由相机问题导致：</p>
+<table>
+<thead>
+<tr>
+<th>观察现象</th>
+<th>说明</th>
+<th>处理建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>扫码相机照片整体模糊、虚焦</td>
+<td>扫码相机镜头失焦</td>
+<td>联系运维人员调整相机焦距</td>
+</tr>
+<tr>
+<td>扫码相机照片有明显污渍、水渍</td>
+<td>相机镜头脏污</td>
+<td>使用无纺布清洁相机镜头后重新拍摄</td>
+</tr>
+<tr>
+<td>扫码相机照片过暗或过亮</td>
+<td>光照条件异常</td>
+<td>检查仓库补光灯是否正常工作</td>
+</tr>
+<tr>
+<td>扫码相机照片中条码区域被遮挡</td>
+<td>货物包装遮挡条码</td>
+<td>正常盘点现象，可在观察窗口查看后手动校准品规</td>
+</tr>
+</tbody>
+</table>
+<p>同样，点击<strong>3D相机</strong>标签查看 3D 相机照片，判断数量识别失败是否由相机问题导致：</p>
+<table>
+<thead>
+<tr>
+<th>观察现象</th>
+<th>说明</th>
+<th>处理建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3D 相机照片中无深度图（depth.jpg 缺失）</td>
+<td>深度相机未正常工作</td>
+<td>检查 <code>10.16.82.180</code> 连接，重启 3D 相机</td>
+</tr>
+<tr>
+<td>3D 相机主图中 pile（货物堆）区域缺失或被截断</td>
+<td>相机拍摄角度偏移，货物未完整入镜</td>
+<td>联系运维调整相机安装位置和俯仰角</td>
+</tr>
+<tr>
+<td>3D 相机照片有明显污渍或水渍</td>
+<td>相机镜头脏污</td>
+<td>清洁镜头后重新拍摄</td>
+</tr>
+<tr>
+<td>深度图颜色异常（如全黑或全白）</td>
+<td>深度相机故障或反光过强</td>
+<td>重启深度相机；检查货物表面材质是否反光过强</td>
+</tr>
+<tr>
+<td>堆叠货物过密、箱子互相遮挡严重</td>
+<td>物理遮挡导致部分箱子无法被检测到</td>
+<td>属于正常限制，可手动校准数量</td>
+</tr>
+<tr>
+<td>数量与品规均显示"未识别"</td>
+<td>相机完全未拍摄到有效画面</td>
+<td>检查相机角度、光照条件，确认货物在相机视野范围内</td>
+</tr>
+<tr>
+<td>数量明显偏少（如实际 30 件只识别出 5 件）</td>
+<td>堆叠过密或遮挡严重，部分箱子未检出</td>
+<td>正常现象，可在校准时手动修正数量</td>
+</tr>
+<tr>
+<td>数量明显偏多（如实际 10 件识别出 30 件）</td>
+<td>pile 区域误检或深度图异常</td>
+<td>正常现象，可在校准时手动修正数量</td>
+</tr>
+</tbody>
+</table>
+<h3>7.4 保存结果失败</h3>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>点击"完成并创建下个盘点"无响应且无法点击</td>
+<td>存在品规为"未识别"的库位，系统要求先完成所有品规校准后才能继续</td>
+</tr>
+<tr>
+<td>点击"完成盘点并保存结果"无响应</td>
+<td>网关与 LMS 通信中断</td>
+</tr>
+<tr>
+<td>保存成功但 Excel 未下载</td>
+<td>浏览器弹窗被拦截；或文件写入失败（权限问题）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>说明</strong>："完成并创建下个盘点"按钮在校准时若发现存在未识别品规会自动禁用，页面顶部弹出提示"存在 N 个未识别的品规，请先完成品规校准"。此时需在表格中手动对品规列进行校准（见第四章 4.2 节），保存后方可继续。 |</p>
+</blockquote>
+<h3>7.5 历史记录无法加载</h3>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>历史盘点列表为空</td>
+<td>超过 6 个月的历史数据已被自动清理，属正常现象</td>
+</tr>
+<tr>
+<td>任务列表加载失败</td>
+<td>网关服务异常或历史文件损坏</td>
+</tr>
+</tbody>
+</table>
+<h3>7.6 用户注册/登录失败</h3>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>登录提示"认证已过期"</td>
+<td>登录令牌超时，需重新登录</td>
+</tr>
+<tr>
+<td>注册用户提示"权限不足"</td>
+<td>当前登录账户不是管理员</td>
+</tr>
+<tr>
+<td>注册提示"用户代码已存在"</td>
+<td>该用户代码（账号名）已被占用</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>八、操作流程总览</h2>
+<pre><code>访问系统首页
+    ↓
+输入用户名 + 密码 → 登录
+    ↓
+系统首页（Dashboard）
+    │
+    ├─→ 开始盘点 ──────────────────────────────────┐
+    │     ↓                                              │
+    │     填写/确认任务编号                               │
+    │     ↓                                              │
+    │     筛选库位（仓库/储区/位号 → 搜索）                │
+    │     ↓                                              │
+    │     勾选目标库位                                    │
+    │     ↓                                              │
+    │     添加到任务清单（可拖拽排序）                      │
+    │     ↓                                              │
+    │     开始盘点 ──→ 盘点进度页面（自动跳转）             │
+    │                                               │
+    ├─→ 历史盘点 ────────────────────────────────────────┤
+    │     ↓                                              │
+    │     选择历史任务查看详情                             │
+    │     ↓                                              │
+    │     选择储位查看数量对比和照片                        │
+    │     （管理员可清理历史）                             │
+    │                                               │
+    └─→ 人员权限（仅管理员）──────────────────────────────┘
+          ↓
+          注册新用户 / 删除用户
+</code></pre>
+<hr />
+<h2>九、盘点进度页面 — 完整操作流程</h2>
+<pre><code>任务下发 → 跳转盘点进度页面
+    ↓
+实时进度条（每秒更新）反映已下发库位进度
+    ↓
+机器人到达储位 → 拍照 → AI 检测
+    ↓
+照片自动加载到观察窗口
+    ↓
+（可选）对&quot;未识别&quot;品规进行品规校准
+    ↓
+（可选）对差异数量进行差异校准
+    ↓
+所有库位下发完毕 → 进度条走完
+    ↓
+按钮变为&quot;任务已完成&quot;
+    ↓
+点击「盘点结果统计」查看报告
+    或 点击「完成盘点并保存结果」下载 Excel
+    或 点击「完成并创建下个盘点」继续下一轮
+</code></pre>
+<hr />
+<h2>十、角色权限速查</h2>
+<table>
+<thead>
+<tr>
+<th>功能</th>
+<th>操作员</th>
+<th>管理员</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>登录系统</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>创建并下发盘点任务</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>监控盘点进度</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>校准品规/数量</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>查看历史盘点</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>保存盘点结果</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>查看统计报告</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>清理历史记录</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>查看用户列表</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>注册新用户</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>删除用户</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>清空操作日志</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

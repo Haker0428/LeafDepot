@@ -146,14 +146,13 @@ const formatTime = (milliseconds: number) => {
   return `${minutes}分${remainingSeconds}秒`;
 };
 
-// 新增：计算准确率函数
-const calculateAccuracyRate = (
+// 新增：计算差异率函数
+const calculateDiffRate = (
   items: InventoryItem[],
   abnormalTasks: any[],
 ) => {
   const totalItems = items.length;
-  const accurateItems = totalItems - abnormalTasks.length;
-  return (accurateItems / totalItems) * 100;
+  return totalItems > 0 ? (abnormalTasks.length / totalItems) * 100 : 0;
 };
 
 export default function InventoryProgress() {
@@ -190,6 +189,9 @@ export default function InventoryProgress() {
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [isStatisticsModalOpen, setIsStatisticsModalOpen] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  // pendingSaveAction: 点击"保存并进行下次盘点"时传入的保存回调，弹窗确认后才执行
+  const [pendingSaveAction, setPendingSaveAction] = useState<(() => void) | null>(null);
   const [currentExecutingTaskIndex, setCurrentExecutingTaskIndex] = useState<
     number | null
   >(null);
@@ -430,12 +432,17 @@ export default function InventoryProgress() {
       if (taskStartTime) {
         const totalTime = Date.now() - taskStartTime;
 
-        // 计算异常任务
+        // 计算异常任务（数量不一致 或 品规未识别/不匹配）
         const abnormalTasks = inventoryItems
           .filter(
-            (item) =>
-              item.actualQuantity !== null &&
-              item.actualQuantity !== item.systemQuantity,
+            (item) => {
+              if (item.actualQuantity === null) return false;
+              const qtyWrong = item.actualQuantity !== item.systemQuantity;
+              const specUnrecognized = item.actualSpec === "未识别";
+              const specMismatch = !!item.actualSpec && item.actualSpec !== item.productName;
+              const specWrong = specUnrecognized || specMismatch;
+              return qtyWrong || specWrong;
+            },
           )
           .map((item) => ({
             taskNo: item.taskNo,
@@ -444,17 +451,16 @@ export default function InventoryProgress() {
             actual: item.actualQuantity,
           }));
 
-        // 计算准确率
-        const accurateItems = inventoryItems.length - abnormalTasks.length;
-        const accuracyRate =
+        // 计算差异率
+        const diffRate =
           inventoryItems.length > 0
-            ? (accurateItems / inventoryItems.length) * 100
+            ? (abnormalTasks.length / inventoryItems.length) * 100
             : 0;
 
         // 更新统计数据
         setStatisticsData({
           totalTime,
-          accuracyRate,
+          diffRate,
           abnormalTasks,
         });
       }
@@ -763,11 +769,11 @@ export default function InventoryProgress() {
         photoScan1Path: string;
         photoScan2Path: string;
       };
-    } | null = null;
+    } | null = null as any;
 
     inventoryItems.forEach((item, index) => {
       // 统一使用 binDesc 作为储位标识符，与 handleRowClick 保持一致
-      const binLocation = item.binDesc;
+      const binLocation = item.binDesc || "";
       const photoKey = `${currentTaskNo}-${binLocation}`;
 
       // 获取当前照片路径
@@ -1082,7 +1088,7 @@ export default function InventoryProgress() {
 
   const [statisticsData, setStatisticsData] = useState({
     totalTime: 0,
-    accuracyRate: 0,
+    diffRate: 0,
     abnormalTasks: [] as any[],
   });
 
@@ -1093,6 +1099,17 @@ export default function InventoryProgress() {
   // 编辑差异状态
   const [editingDiffId, setEditingDiffId] = useState<string | null>(null);
   const [editDiffValue, setEditDiffValue] = useState<string>("");
+
+  // 校准记录：key 为 binLocation，value 包含是否修改了品规/数量
+  type CalibrationRecord = { specModified: boolean; quantityModified: boolean };
+
+  // 记录哪些储位有人工校准（点击对勾才记录，与品规检测结果无关）
+  const [manualCalibratedLocations, setManualCalibratedLocations] = useState<Set<string>>(new Set());
+  // 记录哪些储位被勾选为重新盘点
+  const [selectedRecountItems, setSelectedRecountItems] = useState<Set<string>>(new Set());
+  const [calibrationRecords, setCalibrationRecords] = useState<
+    Record<string, CalibrationRecord>
+  >({});
 
   // 在已有的状态后面添加
   const [gatewayStatus, setGatewayStatus] = useState<string>("disconnected");
@@ -1170,6 +1187,14 @@ export default function InventoryProgress() {
   //   img17out,
   // ];
 
+  // 监听 currentTaskNo 变化，清空校准记录，避免跨任务数据残留
+  useEffect(() => {
+    if (currentTaskNo) {
+      setCalibrationRecords({});
+      setManualCalibratedLocations(new Set());
+    }
+  }, [currentTaskNo]);
+
   // 从本地存储获取任务清单并初始化盘点数据
   useEffect(() => {
     const loadTaskManifest = () => {
@@ -1216,6 +1241,8 @@ export default function InventoryProgress() {
           );
 
           setInventoryItems(inventoryData);
+          // 清空校准记录，避免残留上一任务的数据
+          setCalibrationRecords({});
 
           // 如果有通过state传递的数据，也进行合并
           if (location.state?.inventoryTasks) {
@@ -1490,34 +1517,27 @@ export default function InventoryProgress() {
                     : "盘点任务完成",
                 );
 
-                // 收集失败的库位
+                // 收集失败的库位并计算新的 items（先在外部计算，避免闭包陷阱）
                 const failedBins: Array<{ binLocation: string; error: string }> = [];
-
-                // 一次性合并所有结果，避免闭包捕获的 inventoryItems 快照导致 findIndex 失败
-                setInventoryItems((prevItems) => {
-                  const newItems = prevItems.map((item) => {
-                    const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
-                    if (!ir) return item;
-
-                    if (ir.status === "异常") {
-                      failedBins.push({ binLocation: ir.binLocation, error: ir.error || "未知错误" });
-                    }
-
-                    return {
-                      ...item,
-                      actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
-                      actualSpec: ir.actualSpec || "未识别",
-                      photo3dPath: ir.photo3dPath,
-                      photoDepthPath: ir.photoDepthPath,
-                      photoScan1Path: ir.photoScan1Path,
-                      photoScan2Path: ir.photoScan2Path,
-                    };
-                  });
-                  return newItems;
+                const newItems = inventoryItems.map((item) => {
+                  const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
+                  if (!ir) return item;
+                  if (ir.status === "异常") {
+                    failedBins.push({ binLocation: ir.binLocation, error: ir.error || "未知错误" });
+                  }
+                  return {
+                    ...item,
+                    actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
+                    actualSpec: ir.actualSpec || "未识别",
+                    photo3dPath: ir.photo3dPath,
+                    photoDepthPath: ir.photoDepthPath,
+                    photoScan1Path: ir.photoScan1Path,
+                    photoScan2Path: ir.photoScan2Path,
+                  };
                 });
 
+                setInventoryItems(newItems);
                 setIsTaskCompleted(true);
-                // isStartingTask 保持 true，按钮由 isTaskCompleted 控制禁用状态
 
                 if (failedBins.length > 0) {
                   setFailedBinsModal({
@@ -1526,6 +1546,9 @@ export default function InventoryProgress() {
                     onOk: () => setFailedBinsModal((prev) => ({ ...prev, open: false })),
                   });
                   toast.error(`${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`);
+                } else {
+                  // 无失败库位，自动弹出统计窗口
+                  showStatisticsModal(newItems);
                 }
 
                 loadedPhotoKeysRef.current.clear();
@@ -1609,21 +1632,37 @@ export default function InventoryProgress() {
                 toast.success("盘点任务完成");
                 setIsTaskCompleted(true);
 
-                setInventoryItems((prevItems) =>
-                  prevItems.map((item) => {
-                    const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
-                    if (!ir) return item;
-                    return {
-                      ...item,
-                      actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
-                      actualSpec: ir.actualSpec || "未识别",
-                      photo3dPath: ir.photo3dPath,
-                      photoDepthPath: ir.photoDepthPath,
-                      photoScan1Path: ir.photoScan1Path,
-                      photoScan2Path: ir.photoScan2Path,
-                    };
-                  }),
-                );
+                // 先在外部计算失败库位和 newItems，避免闭包陷阱
+                const failedBins: Array<{ binLocation: string; error: string }> = [];
+                const newItems = inventoryItems.map((item) => {
+                  const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
+                  if (!ir) return item;
+                  if (ir.status === "异常") {
+                    failedBins.push({ binLocation: ir.binLocation, error: ir.error || "未知错误" });
+                  }
+                  return {
+                    ...item,
+                    actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
+                    actualSpec: ir.actualSpec || "未识别",
+                    photo3dPath: ir.photo3dPath,
+                    photoDepthPath: ir.photoDepthPath,
+                    photoScan1Path: ir.photoScan1Path,
+                    photoScan2Path: ir.photoScan2Path,
+                  };
+                });
+
+                setInventoryItems(newItems);
+
+                if (failedBins.length > 0) {
+                  setFailedBinsModal({
+                    open: true,
+                    bins: failedBins,
+                    onOk: () => setFailedBinsModal((prev) => ({ ...prev, open: false })),
+                  });
+                  toast.error(`${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`);
+                } else {
+                  showStatisticsModal(newItems);
+                }
                 return;
               }
 
@@ -1849,6 +1888,11 @@ export default function InventoryProgress() {
       return;
     }
 
+    if (!userName) {
+      toast.error("用户未登录，请重新登录");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -1864,6 +1908,8 @@ export default function InventoryProgress() {
           item.actualQuantity !== null
             ? item.actualQuantity - item.systemQuantity
             : 0,
+        // 品规不匹配（检测到但与系统品规不一致）时标记为异常
+        specMismatch: item.actualSpec && item.actualSpec !== item.productName,
         photo3dPath: item.photo3dPath || "",
         photoDepthPath: item.photoDepthPath || "",
         photoScan1Path: item.photoScan1Path || "",
@@ -1880,7 +1926,10 @@ export default function InventoryProgress() {
           },
           body: JSON.stringify({
             taskNo: currentTaskNo,
-            inventoryResults: inventoryResults, // 传入完整的盘点结果
+            inventoryResults: inventoryResults,
+            userInfo: { userName, userLevel },
+            calibrationRecords,
+            manualCalibratedLocations: Array.from(manualCalibratedLocations),
           }),
         },
       );
@@ -1898,7 +1947,7 @@ export default function InventoryProgress() {
         // 下载Excel文件
         if (result.data.xlsxUrl) {
           const link = document.createElement("a");
-          link.href = `${gatewayUrl()}${result.data.xlsxUrl}`;
+          link.href = `${GATEWAY_URL}${result.data.xlsxUrl}`;
           link.download = `${currentTaskNo}.xlsx`;
           document.body.appendChild(link);
           link.click();
@@ -1937,10 +1986,35 @@ export default function InventoryProgress() {
     }
   };
 
-  // 完成盘点并创建下个盘点（保存盘点结果 + 更新 bins_data.xlsx 并跳转）
-  const handleSaveInventoryAndCreateNext = async () => {
+  // 完成盘点并创建下个盘点（先显示统计窗口，确认后执行保存）
+  const handleSaveInventoryAndCreateNext = () => {
+    // 检查是否有未识别的品规
+    const unrecognizedItems = inventoryItems.filter(
+      (item) => item.actualSpec === "未识别" || !item.actualSpec
+    );
+
+    if (unrecognizedItems.length > 0) {
+      const unrecognizedLocations = unrecognizedItems
+        .map((item) => item.locationName || item.binDesc)
+        .join("、");
+      toast.error(
+        `以下储位品规未识别，请先校准：${unrecognizedLocations}`,
+        { duration: 5000 }
+      );
+      return;
+    }
+
+    openStatisticsWithConfirm(doSaveInventoryAndCreateNext);
+  };
+
+  const doSaveInventoryAndCreateNext = async () => {
     if (!currentTaskNo) {
       toast.error("任务编号不存在");
+      return;
+    }
+
+    if (!userName) {
+      toast.error("用户未登录，请重新登录");
       return;
     }
 
@@ -1989,6 +2063,9 @@ export default function InventoryProgress() {
         body: JSON.stringify({
           taskNo: currentTaskNo,
           inventoryResults: inventoryResults,
+          userInfo: { userName, userLevel },
+          calibrationRecords,
+          manualCalibratedLocations: Array.from(manualCalibratedLocations),
         }),
       });
 
@@ -2088,68 +2165,250 @@ export default function InventoryProgress() {
     }
   };
 
-  // 盘点结果统计
+  // 盘点结果统计（使用当前 state 中的 inventoryItems）
   const handleInventoryStatistics = () => {
     if (inventoryItems.length === 0) {
       toast.error("没有盘点数据可供统计");
+      return;
+    }
+    showStatisticsModal(inventoryItems);
+  };
 
+  // 一键重新盘点
+  const [isRecounting, setIsRecounting] = useState(false);
+  const handleRecountSelected = async () => {
+    const selectedIds = Array.from(selectedRecountItems);
+    if (selectedIds.length === 0) {
+      toast.error("请先勾选需要重新盘点的库位");
       return;
     }
 
-    const completedItems = inventoryItems.filter(
-      (item) => item.actualQuantity !== null,
+    const selectedItems = inventoryItems.filter((item) => selectedRecountItems.has(item.id));
+    const binLocations = selectedItems.map((item) => item.locationName);
+    const tobaccoCodes = selectedItems.map((item) => item.tobaccoCode);
+    const rcsCodes = selectedItems.map((item) => item.rcsCode);
+
+    // 生成独立的重新盘点任务号（避免与原任务状态冲突）
+    const recountTaskId = `${currentTaskNo}_recount_${Date.now()}`;
+
+    setIsRecounting(true);
+    toast.info(`正在重新盘点 ${selectedIds.length} 个库位...`);
+
+    // 清空选中项的盘点结果，以便重新显示
+    const clearedItems = inventoryItems.map((item) =>
+      selectedRecountItems.has(item.id)
+        ? { ...item, actualQuantity: null as number | null, actualSpec: undefined as string | undefined }
+        : item,
     );
+    setInventoryItems(clearedItems);
 
-    const totalItems = completedItems.length;
+    try {
+      const authToken = sessionStorage.getItem('authToken');
+      const taskResponse = await fetch(`${GATEWAY_URL}/api/inventory/start-inventory`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { 'authToken': authToken } : {}),
+        },
+        body: JSON.stringify({
+          taskNo: currentTaskNo,
+          recountTaskId,
+          binLocations,
+          tobaccoCode: tobaccoCodes,
+          rcsCode: rcsCodes,
+          inventoryItems: selectedItems,
+        }),
+      });
 
-    if (totalItems === 0) {
-      toast.error("请先完成盘点任务");
+      if (!taskResponse.ok) {
+        const errorData = await taskResponse.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.detail || "重新盘点任务启动失败");
+      }
 
+      const taskData = await taskResponse.json();
+      // 使用后端返回的 actualTaskNo 进行轮询
+      const pollTaskNo = taskData.data?.actualTaskNo || recountTaskId;
+      const taskStatus = taskData.data?.status;
+
+      const recountBinSet = new Set(binLocations);
+
+      const onRecountComplete = (allResults: any[]) => {
+        // 过滤出本次重新盘点的库位结果
+        const recountResults = allResults.filter((r: any) => recountBinSet.has(r.binLocation));
+
+        const failedBins: Array<{ binLocation: string; error: string }> = [];
+        const newItems = clearedItems.map((item) => {
+          if (!recountBinSet.has(item.locationName)) return item;
+          const ir = recountResults.find((r: any) => r.binLocation === item.locationName);
+          if (!ir) return item;
+          if (ir.status === "异常") {
+            failedBins.push({ binLocation: ir.binLocation, error: ir.error || "未知错误" });
+          }
+          return {
+            ...item,
+            actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
+            actualSpec: ir.actualSpec || item.actualSpec,
+            photo3dPath: ir.photo3dPath || item.photo3dPath,
+            photoDepthPath: ir.photoDepthPath || item.photoDepthPath,
+            photoScan1Path: ir.photoScan1Path || item.photoScan1Path,
+            photoScan2Path: ir.photoScan2Path || item.photoScan2Path,
+          };
+        });
+
+        setInventoryItems(newItems);
+        setIsRecounting(false);
+        setSelectedRecountItems(new Set());
+
+        if (failedBins.length > 0) {
+          setFailedBinsModal({
+            open: true,
+            bins: failedBins,
+            onOk: () => setFailedBinsModal((prev) => ({ ...prev, open: false })),
+          });
+          toast.error(`${failedBins.length} 个库位盘点失败`);
+        } else {
+          toast.success(`重新盘点完成，已更新 ${selectedIds.length} 个库位`);
+          showStatisticsModal(newItems);
+        }
+
+        // 合并保存到原任务号的 Excel 文件
+        saveInventoryMerge(recountResults);
+      };
+
+      if (taskStatus === "completed" || taskStatus === "partial") {
+        const resultsResponse = await fetch(
+          `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(pollTaskNo)}`,
+        );
+        const resultsData = await resultsResponse.json();
+        onRecountComplete(resultsData.data?.inventoryResults || []);
+      } else {
+        // 轮询等待任务完成
+        const pollIntervalId = setInterval(async () => {
+          try {
+            const progressResponse = await fetch(
+              `${GATEWAY_URL}/api/inventory/progress?taskNo=${encodeURIComponent(pollTaskNo)}`,
+            );
+            if (!progressResponse.ok) return;
+            const progressResult = await progressResponse.json();
+            if (progressResult.code !== 200) return;
+            const status = progressResult.data?.status;
+
+            const currentStep = progressResult.data?.current_step || 0;
+            const totalSteps = progressResult.data?.total_steps || 1;
+            setProgress(Math.round((currentStep / totalSteps) * 100));
+
+            if (status === "completed" || status === "partial") {
+              clearInterval(pollIntervalId);
+              const resultsResponse = await fetch(
+                `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(pollTaskNo)}`,
+              );
+              const resultsData = await resultsResponse.json();
+              onRecountComplete(resultsData.data?.inventoryResults || []);
+              return;
+            }
+
+            if (status === "failed") {
+              clearInterval(pollIntervalId);
+              setIsRecounting(false);
+              setSelectedRecountItems(new Set());
+              setTaskErrorModal({
+                open: true,
+                errorType: (progressResult.data?.error_type as "rcs" | "camera" | "other") || "other",
+                message: progressResult.data?.message || "盘点任务失败",
+                onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
+              });
+              return;
+            }
+          } catch (err) {
+            console.error("轮询进度出错:", err);
+          }
+        }, 2000);
+      }
+    } catch (error) {
+      console.error("重新盘点失败:", error);
+      toast.error(`重新盘点失败: ${error instanceof Error ? error.message : "未知错误"}`);
+      setIsRecounting(false);
+      setSelectedRecountItems(new Set());
+    }
+  };
+
+  // 合并保存（更新现有文件中的指定储位）
+  const saveInventoryMerge = async (recountResults: any[]) => {
+    try {
+      const saveResponse = await fetch(`${GATEWAY_URL}/api/inventory/save-results`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskNo: currentTaskNo,
+          inventoryResults: recountResults.map((ir) => ({
+            binLocation: ir.binLocation,
+            status: ir.status,
+            actualQuantity: ir.actualQuantity,
+            actualSpec: ir.actualSpec,
+            specName: ir.specName || ir.binLocation,
+            systemQuantity: ir.systemQuantity,
+            difference: ir.actualQuantity != null && ir.systemQuantity != null
+              ? Number(ir.actualQuantity) - Number(ir.systemQuantity) : 0,
+            photo3dPath: ir.photo3dPath || "",
+            photoDepthPath: ir.photoDepthPath || "",
+            photoScan1Path: ir.photoScan1Path || "",
+            photoScan2Path: ir.photoScan2Path || "",
+          })),
+          userInfo: { userName, userLevel },
+          calibrationRecords,
+          manualCalibratedLocations: Array.from(manualCalibratedLocations),
+          merge: true,
+        }),
+      });
+      if (!saveResponse.ok) {
+        const errData = await saveResponse.json().catch(() => ({}));
+        toast.error(errData.detail || "合并保存失败");
+      }
+    } catch (err) {
+      console.error("合并保存失败:", err);
+    }
+  };
+
+  // 核心统计函数，接受 items 作为参数，避免闭包陷阱
+  const showStatisticsModal = (items: InventoryItem[]) => {
+    if (items.length === 0) {
+      toast.error("没有盘点数据可供统计");
       return;
     }
 
-    // 计算异常任务
-
-    const abnormalTasks = inventoryItems
-
-      .filter(
-        (item) =>
-          item.actualQuantity !== null &&
-          item.actualQuantity !== item.systemQuantity,
-      )
-
+    const abnormalTasks = items
+      .filter((item) => {
+        if (item.actualQuantity === null) return false;
+        // 人工校准过的不计入差异（视为已处理）
+        if (manualCalibratedLocations.has(item.locationName)) return false;
+        const qtyWrong = item.actualQuantity !== item.systemQuantity;
+        const specUnrecognized = item.actualSpec === "未识别";
+        const specMismatch = !!item.actualSpec && item.actualSpec !== item.productName;
+        return qtyWrong || specUnrecognized || specMismatch;
+      })
       .map((item) => ({
         taskNo: item.taskNo,
-
         location: item.locationName,
-
         expected: item.systemQuantity,
-
         actual: item.actualQuantity,
       }));
 
-    const accurateItems = totalItems - abnormalTasks.length;
-
-    const accuracyRate =
-      totalItems > 0 ? (accurateItems / totalItems) * 100 : 0;
-
-    // 计算总耗时 - 如果任务已完成，使用已记录的时间；否则计算到当前
-
+    const totalItems = items.length;
+    const diffRate = totalItems > 0 ? (abnormalTasks.length / totalItems) * 100 : 0;
     let totalTime = statisticsData.totalTime;
-
     if (!isTaskCompleted && taskStartTime) {
       totalTime = Date.now() - taskStartTime;
     }
 
-    setStatisticsData({
-      totalTime,
-
-      accuracyRate,
-
-      abnormalTasks,
-    });
-
+    setStatisticsData({ totalTime, diffRate, abnormalTasks });
+    setPendingSaveAction(null);
     setIsStatisticsModalOpen(true);
+  };
+
+  // 带确认回调的统计（用于"保存并进行下次盘点"场景）
+  const openStatisticsWithConfirm = (onConfirm: () => void) => {
+    showStatisticsModal(inventoryItems);
+    setPendingSaveAction(() => onConfirm);
   };
   // 处理返回
   const handleBack = () => {
@@ -2344,8 +2603,19 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50 sticky top-0 z-10">
                         <tr>
-                          <th className="px-8 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            序号
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <input
+                              type="checkbox"
+                              checked={selectedRecountItems.size === inventoryItems.length && inventoryItems.length > 0}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedRecountItems(new Set(inventoryItems.map((item) => item.id)));
+                                } else {
+                                  setSelectedRecountItems(new Set());
+                                }
+                              }}
+                              className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                            />
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             品规名称
@@ -2407,6 +2677,13 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
 
                           const isSpecUnrecognized =
                             item.actualSpec === "未识别";
+                          // 品规检测出不匹配（但不是"未识别"），说明检测到了但与系统品规不一致
+                          const isSpecMismatch =
+                            item.actualSpec &&
+                            item.actualSpec !== item.productName &&
+                            !isSpecUnrecognized;
+                          const hasSpecIssue = isSpecUnrecognized || isSpecMismatch;
+                          const isManuallyCalibrated = manualCalibratedLocations.has(item.locationName);
 
                           return (
                             <tr
@@ -2416,15 +2693,26 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                   ? "bg-blue-50 border-l-4 border-blue-500"
                                   : ""
                               }`}
-                              onClick={() =>
-                                handleRowClick(
-                                  item.taskNo,
-                                  String(item.binDesc),
-                                )
-                              }
+                              onClick={() => handleRowClick(item.taskNo, String(item.binDesc))}
                             >
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {index + 1}
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRecountItems.has(item.id)}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedRecountItems((prev) => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) {
+                                        next.add(item.id);
+                                      } else {
+                                        next.delete(item.id);
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                                />
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {item.productName || "未知品规"}
@@ -2435,10 +2723,12 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {actualQuantity !== null ? (
                                   <div className="flex items-center">
-                                    <span className={`font-medium ${isSpecUnrecognized ? "text-red-600" : "text-green-600"}`}>
-                                      {isSpecUnrecognized ? "未识别" : (item.actualSpec || item.productName)}
+                                    <span className={`font-medium ${hasSpecIssue ? "text-red-600" : "text-green-600"}`}>
+                                      {item.actualSpec || item.productName}
                                     </span>
-                                    {!isSpecUnrecognized && (
+                                    {hasSpecIssue ? (
+                                      <i className="fa-solid fa-circle-xmark ml-2 text-red-500"></i>
+                                    ) : (
                                       <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
                                     )}
                                   </div>
@@ -2472,6 +2762,14 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                           );
                                           toast.success("实际品规已校准");
                                         }
+                                        setCalibrationRecords((prev) => ({
+                                          ...prev,
+                                          [item.locationName]: {
+                                            ...prev[item.locationName],
+                                            specModified: true,
+                                          },
+                                        }));
+                                        setManualCalibratedLocations((prev) => new Set([...prev, item.locationName]));
                                         setEditingSpecId(null);
                                         setEditSpecValue("");
                                       }}
@@ -2513,10 +2811,14 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {actualQuantity !== null ? (
                                   <div className="flex items-center">
-                                    <span className="text-green-600 font-medium">
+                                    <span className={`font-medium ${hasDifference ? "text-red-600" : "text-green-600"}`}>
                                       {actualQuantity}
                                     </span>
-                                    <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+                                    {hasDifference ? (
+                                      <i className="fa-solid fa-circle-xmark ml-2 text-red-500"></i>
+                                    ) : (
+                                      <i className="fa-solid fa-check-circle ml-2 text-green-500"></i>
+                                    )}
                                   </div>
                                 ) : (
                                   <span className="text-gray-400">待计算</span>
@@ -2530,10 +2832,24 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                     <div className="flex items-center gap-2">
                                       <span
                                         className={`text-sm font-medium ${
-                                          hasDiff ? "text-red-600" : "text-green-600"
+                                          isManuallyCalibrated
+                                            ? "text-yellow-600"
+                                            : (hasSpecIssue || hasDiff)
+                                              ? "text-red-600"
+                                              : "text-green-600"
                                         }`}
                                       >
-                                        {hasDiff ? (
+                                        {isManuallyCalibrated ? (
+                                          <>
+                                            <i className="fa-solid fa-pen-to-square mr-1"></i>
+                                            已校准
+                                          </>
+                                        ) : hasSpecIssue ? (
+                                          <>
+                                            <i className="fa-solid fa-exclamation-circle mr-1"></i>
+                                            品规不一致
+                                          </>
+                                        ) : hasDiff ? (
                                           <>
                                             <i className="fa-solid fa-exclamation-circle mr-1"></i>
                                             {difference > 0 ? `+${difference}` : difference}
@@ -2581,6 +2897,14 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                         setEditingDiffId(null);
                                         setEditDiffValue("");
                                         toast.success("实际数量已校准，差异已重新计算");
+                                        setCalibrationRecords((prev) => ({
+                                          ...prev,
+                                          [item.locationName]: {
+                                            ...prev[item.locationName],
+                                            quantityModified: true,
+                                          },
+                                        }));
+                                        setManualCalibratedLocations((prev) => new Set([...prev, item.locationName]));
                                       }}
                                       className="p-1.5 text-green-600 hover:bg-green-50 rounded-md transition-colors"
                                       title="确认"
@@ -2663,19 +2987,33 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
               </div>
 
               {/* 底部操作栏 */}
-              <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-4">
-                <button
-                  onClick={handleInventoryStatistics}
-                  disabled={!isTaskCompleted}
-                  className={`px-6 py-3 rounded-lg transition-colors flex items-center ${
-                    !isTaskCompleted
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-blue-700 hover:bg-blue-800 text-white"
-                  }`}
-                >
-                  <i className="fa-solid fa-chart-pie mr-2"></i>
-                  盘点结果统计
-                </button>
+              <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
+                <span className="text-sm text-gray-500">
+                  已选择 <span className="font-bold text-green-700">{selectedRecountItems.size}</span> 个库位待重新盘点
+                </span>
+                <div className="flex gap-4">
+                  <button
+                    onClick={handleRecountSelected}
+                    disabled={isRecounting || selectedRecountItems.size === 0}
+                    className={`px-6 py-3 rounded-lg transition-colors flex items-center ${
+                      isRecounting || selectedRecountItems.size === 0
+                        ? "bg-gray-400 cursor-not-allowed text-white"
+                        : "bg-orange-600 hover:bg-orange-700 text-white"
+                    }`}
+                  >
+                    {isRecounting ? (
+                      <>
+                        <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                        重新盘点中...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fa-solid fa-rotate mr-2"></i>
+                        一键重新盘点
+                      </>
+                    )}
+                  </button>
+                </div>
                 <button
                   onClick={handleSaveInventory}
                   disabled={isSaving}
@@ -2756,9 +3094,10 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                             <img
                               src={photoGroups[currentGroupIndex].top}
                               alt={currentGroupIndex === 0 ? "3D相机-主图" : "扫码相机-扫码图1"}
-                              className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700"
+                              className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700 cursor-zoom-in"
                               onLoad={handleImageLoad}
                               onError={handleImageError}
+                              onClick={() => setLightboxImage(photoGroups[currentGroupIndex].top)}
                             />
                             <div className="absolute top-2 left-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full">
                               {currentGroupIndex === 0 ? "主图" : "扫码图1"}
@@ -2796,9 +3135,10 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                         <img
                           src={photoGroups[currentGroupIndex].bottom}
                           alt={currentGroupIndex === 0 ? "3D相机-深度图" : "扫码相机-扫码图2"}
-                          className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700"
+                          className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700 cursor-zoom-in"
                           onLoad={handleImageLoad}
                           onError={handleImageError}
+                          onClick={() => setLightboxImage(photoGroups[currentGroupIndex].bottom)}
                         />
                         <div className="absolute top-2 left-2 bg-blue-700 text-white text-xs font-bold px-2 py-1 rounded-full">
                           {currentGroupIndex === 0 ? "深度图" : "扫码图2"}
@@ -2888,27 +3228,27 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                   </div>
                   <div className="text-sm text-blue-600 mt-1">总耗时</div>
                 </div>
-                <div className="bg-green-50 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-green-700">
-                    {statisticsData.accuracyRate.toFixed(1)}%
+                <div className={`rounded-lg p-4 text-center ${statisticsData.diffRate <= 10 ? "bg-green-50" : statisticsData.diffRate <= 50 ? "bg-yellow-50" : "bg-red-50"}`}>
+                  <div className={`text-2xl font-bold ${statisticsData.diffRate <= 10 ? "text-green-700" : statisticsData.diffRate <= 50 ? "text-yellow-700" : "text-red-700"}`}>
+                    {statisticsData.diffRate.toFixed(1)}%
                   </div>
-                  <div className="text-sm text-green-600 mt-1">准确率</div>
+                  <div className={`text-sm mt-1 ${statisticsData.diffRate <= 10 ? "text-green-600" : statisticsData.diffRate <= 50 ? "text-yellow-600" : "text-red-600"}`}>差异率</div>
                 </div>
                 <div className="bg-red-50 rounded-lg p-4 text-center">
                   <div className="text-2xl font-bold text-red-700">
                     {statisticsData.abnormalTasks.length}
                   </div>
-                  <div className="text-sm text-red-600 mt-1">异常任务</div>
+                  <div className="text-sm text-red-600 mt-1">差异任务</div>
                 </div>
               </div>
 
-              {/* 异常任务列表 */}
+              {/* 差异任务列表 */}
               {statisticsData.abnormalTasks.length > 0 ? (
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                   <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
                     <h4 className="font-semibold text-gray-800 flex items-center">
                       <i className="fa-solid fa-exclamation-triangle text-orange-500 mr-2"></i>
-                      异常任务详情
+                      差异任务详情
                     </h4>
                   </div>
                   <div className="max-h-60 overflow-y-auto">
@@ -2966,7 +3306,7 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                   <h4 className="text-lg font-medium text-green-800 mb-2">
                     盘点结果完美
                   </h4>
-                  <p className="text-green-600">所有任务均无异常，准确率100%</p>
+                  <p className="text-green-600">所有任务均无差异</p>
                 </div>
               )}
 
@@ -2984,19 +3324,19 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                   <div className="text-right">
                     <div
                       className={`text-lg font-bold ${
-                        statisticsData.accuracyRate >= 95
+                        statisticsData.diffRate <= 10
                           ? "text-green-600"
-                          : statisticsData.accuracyRate >= 80
+                          : statisticsData.diffRate <= 50
                             ? "text-yellow-600"
                             : "text-red-600"
                       }`}
                     >
                       总体评价:{" "}
-                      {statisticsData.accuracyRate >= 95
-                        ? "优秀"
-                        : statisticsData.accuracyRate >= 80
-                          ? "良好"
-                          : "需改进"}
+                      {statisticsData.diffRate <= 10
+                        ? "正常"
+                        : statisticsData.diffRate <= 50
+                          ? "偏差较大"
+                          : "严重异常"}
                     </div>
                   </div>
                 </div>
@@ -3004,13 +3344,37 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
             </div>
 
             {/* 模态框底部 */}
-            <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end">
-              <button
-                onClick={() => setIsStatisticsModalOpen(false)}
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
-              >
-                <i className="fa-solid fa-check mr-2"></i>确认
-              </button>
+            <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              {pendingSaveAction ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsStatisticsModalOpen(false);
+                      setPendingSaveAction(null);
+                    }}
+                    className="bg-gray-400 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
+                  >
+                    <i className="fa-solid fa-arrow-left mr-2"></i>返回
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsStatisticsModalOpen(false);
+                      setPendingSaveAction(null);
+                      pendingSaveAction();
+                    }}
+                    className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
+                  >
+                    <i className="fa-solid fa-check mr-2"></i>确认
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setIsStatisticsModalOpen(false)}
+                  className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
+                >
+                  <i className="fa-solid fa-check mr-2"></i>确认
+                </button>
+              )}
             </div>
           </motion.div>
         </div>
@@ -3135,6 +3499,27 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
           )}
         </div>
       </Modal>
+
+      {/* 图片放大镜模态框 */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white text-3xl hover:text-gray-300 z-10 w-10 h-10 flex items-center justify-center"
+            onClick={() => setLightboxImage(null)}
+          >
+            <i className="fa-solid fa-xmark"></i>
+          </button>
+          <img
+            src={lightboxImage}
+            alt="放大图片"
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
 
       {/* 下发失败提示弹窗 */}
       <Modal

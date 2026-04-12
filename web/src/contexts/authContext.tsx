@@ -164,31 +164,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [setAuthToken, setUserLevel, setUserName, setUserId, verifyToken]);
 
   useEffect(() => {
-    // 检查是否有存储的authToken（用于页面刷新后恢复会话）
-    // 使用 sessionStorage，关闭浏览器后数据会被清除
-    const storedToken = sessionStorage.getItem('authToken');
-    const storedUserLevel = sessionStorage.getItem('userLevel');
-    const storedUserName = sessionStorage.getItem('userName');
-    const storedUserId = sessionStorage.getItem('userId');
-
-    if (storedToken) {
-      setAuthTokenState(storedToken);
-
-      // 如果本地存储了用户权限、用户名和用户ID，先恢复它们
-      if (storedUserLevel) {
-        setUserLevelState(storedUserLevel);
-      }
-      if (storedUserName) {
-        setUserNameState(storedUserName);
-      }
-      if (storedUserId) {
-        setUserIdState(storedUserId);
-      }
-
-      // 验证token
-      verifyToken(storedToken);
-    }
-  }, [verifyToken]);
+    // 每次打开页面强制要求重新登录，不自动恢复会话
+  }, []);
 
   const value = {
     isAuthenticated,
