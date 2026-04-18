@@ -75,7 +75,7 @@ if _config_file.exists():
         logger.error(f"加载配置文件失败: {e}")
 
 # 服务地址统一从 config.json 派生（修改 host 即可全局生效）
-_HOST = _config.get("host", "10.16.82.95")
+_HOST = _config.get("host", "localhost")
 _PORTS = _config.get("ports", {})
 LMS_PORT = _PORTS.get("lms", 6000)
 RCS_PORT = _PORTS.get("rcs", 4001)
