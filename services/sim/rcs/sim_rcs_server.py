@@ -59,22 +59,20 @@ app.add_middleware(
 class RobotTaskSimulator:
     """机器人任务模拟器"""
 
-    # 存储所有任务组
+    # 任务组记录（robot_task_code → task_group）
     task_groups: Dict[str, dict] = {}
 
-    # 存储当前执行中的任务
-    active_tasks: Dict[str, dict] = {}
+    # 全局顺序 Event：每次 gateway 发 continue，触发等待中的最早 END
+    _pending_continue_event: asyncio.Event = asyncio.Event()
 
-    # 等待继续的任务队列
-    paused_tasks: Dict[str, dict] = {}
-
-    # 回调地址（假设您的系统地址）
+    # 回调地址
     callback_url = f"http://{_HOST}:{GATEWAY_PORT}/api/robot/reporter/task"
 
     @classmethod
-    async def simulate_task_execution(cls, robot_task_code: str, target_route: List[dict], task_type: str):
+    async def submit_and_run(cls, robot_task_code: str, target_route: List[dict], task_type: str):
         """
-        模拟机器人任务执行
+        提交并执行任务：每个 submit 独立运行，互不阻塞。
+        内部用 asyncio.create_task 启动 bin 执行（第一个 bin 立即发 END，后续等 continue）。
         """
         if robot_task_code not in cls.task_groups:
             cls.task_groups[robot_task_code] = {
@@ -83,129 +81,90 @@ class RobotTaskSimulator:
                 "task_type": task_type,
                 "current_index": 0,
                 "total_tasks": len(target_route),
-                "status": "initialized",  # initialized, running, paused, completed
+                "status": "running",
                 "start_time": datetime.now().isoformat(),
                 "completed_tasks": [],
-                "current_location": None,
                 "last_update": datetime.now().isoformat()
             }
 
         task_group = cls.task_groups[robot_task_code]
-        task_group["status"] = "running"
 
-        # 开始执行第一个任务
-        await cls.execute_single_task(robot_task_code, 0)
+        # 用 create_task 启动，不阻塞 HTTP 响应
+        asyncio.create_task(cls._run_task(robot_task_code))
 
     @classmethod
-    async def execute_single_task(cls, robot_task_code: str, task_index: int):
-        """
-        执行单个任务
-        """
+    async def _run_task(cls, robot_task_code: str):
+        """逐个 bin 执行：第一个立即 END，后续等 continue"""
         if robot_task_code not in cls.task_groups:
             return
-
         task_group = cls.task_groups[robot_task_code]
 
-        # 检查索引是否有效
-        if task_index >= len(task_group["target_route"]):
-            # 所有任务完成
-            task_group["status"] = "completed"
-            await cls.send_callback(robot_task_code, "end", task_group)
-            return
+        for i in range(task_group["total_tasks"]):
+            route_item = task_group["target_route"][i]
+            location = route_item.get("code", "")
 
-        # 更新当前任务索引
-        task_group["current_index"] = task_index
-        route_item = task_group["target_route"][task_index]
-        location = route_item.get("code", "")
+            # START
+            await cls.send_callback(robot_task_code, "start", {
+                "location": location,
+                "task_index": i,
+                "total_tasks": task_group["total_tasks"]
+            })
 
-        # 存储当前活动任务
-        cls.active_tasks[robot_task_code] = {
-            "task_index": task_index,
-            "location": location,
-            "start_time": datetime.now().isoformat(),
-            "status": "starting"
-        }
+            # 模拟移动到目标
+            await asyncio.sleep(0.1)
 
-        # 任务开始 - 反馈状态
-        await cls.send_callback(robot_task_code, "start", {
-            "location": location,
-            "task_index": task_index,
-            "total_tasks": task_group["total_tasks"]
-        })
+            # OUTBIN
+            await cls.send_callback(robot_task_code, "outbin", {
+                "location": location,
+                "progress": "moving_to_location"
+            })
 
-        # 等待一段时间（模拟移动到目标）
-        await asyncio.sleep(0.1)
+            # 模拟执行任务
+            await asyncio.sleep(0.1)
 
-        # 任务进行中 - 反馈状态
-        await cls.send_callback(robot_task_code, "outbin", {
-            "location": location,
-            "progress": "moving_to_location"
-        })
+            task_group["current_index"] = i + 1
+            task_group["last_update"] = datetime.now().isoformat()
 
-        # 模拟执行任务
-        await asyncio.sleep(0.1)
+            if i == 0:
+                # 第一个 bin：直接发 END（不等 continue）
+                await cls.send_callback(robot_task_code, "end", {
+                    "location": location,
+                    "task_index": i,
+                    "result": "success"
+                })
+                logger.info(f"任务 {robot_task_code} bin 1 ({location}) END 已发（不等 continue）")
+                # 等 continue 才触发下一个 bin
+                if task_group["total_tasks"] > 1:
+                    cls._pending_continue_event.clear()
+                    await cls._pending_continue_event.wait()
+            else:
+                # 后续 bin：等 continue 才发 END
+                logger.info(f"任务 {robot_task_code} bin {i+1} ({location}) 完成，等 continue...")
+                cls._pending_continue_event.clear()
+                await cls._pending_continue_event.wait()
+                await cls.send_callback(robot_task_code, "end", {
+                    "location": location,
+                    "task_index": i,
+                    "result": "success"
+                })
+                logger.info(f"任务 {robot_task_code} bin {i+1} ({location}) END 已发")
+                # 发完 END 继续等 continue
+                if i < task_group["total_tasks"] - 1:
+                    cls._pending_continue_event.clear()
+                    await cls._pending_continue_event.wait()
 
-        # 任务完成 - 反馈状态
-        await cls.send_callback(robot_task_code, "end", {
-            "location": location,
-            "task_index": task_index,
-            "result": "success"
-        })
-
-        # 记录完成的任务
-        if "completed_tasks" not in task_group:
-            task_group["completed_tasks"] = []
-        task_group["completed_tasks"].append({
-            "location": location,
-            "index": task_index,
-            "completion_time": datetime.now().isoformat()
-        })
-
-        # 从活动任务中移除
-        if robot_task_code in cls.active_tasks:
-            del cls.active_tasks[robot_task_code]
-
-        # 将任务组放入暂停队列，等待继续指令
-        task_group["status"] = "paused"
-        task_group["last_update"] = datetime.now().isoformat()
-        cls.paused_tasks[robot_task_code] = task_group
-
-        logger.info(f"任务 {robot_task_code} 的第 {task_index + 1} 个任务已完成，等待继续指令")
-
-        # 注意：这里不自动调用 continue_task，而是等待外部调用 continue_inventory_task 接口
+        task_group["status"] = "completed"
+        logger.info(f"任务 {robot_task_code} 全部 {task_group['total_tasks']} 个 bin 执行完毕")
 
     @classmethod
     async def continue_task(cls, robot_task_code: str):
-        """
-        继续执行下一个任务
-        """
-        if robot_task_code not in cls.paused_tasks:
-            logger.warning(f"任务 {robot_task_code} 不在暂停队列中")
-            return False
-
-        task_group = cls.paused_tasks[robot_task_code]
-
-        # 计算下一个任务索引
-        next_index = task_group["current_index"] + 1
-
-        # 如果所有任务都已完成
-        if next_index >= task_group["total_tasks"]:
-            logger.info(f"任务 {robot_task_code} 所有任务已完成")
-            task_group["status"] = "completed"
-            # 发送最终完成回调
-            # await cls.send_callback(robot_task_code, "end", {
-            #     "total_tasks": task_group["total_tasks"],
-            #     "completed_tasks": len(task_group["completed_tasks"])
-            # })
-            del cls.paused_tasks[robot_task_code]
-            return True
-
-        # 从暂停队列中移除
-        del cls.paused_tasks[robot_task_code]
-
-        # 执行下一个任务
-        await cls.execute_single_task(robot_task_code, next_index)
-        return True
+        """收到 continue，触发全局顺序信号（如果任务已完成则忽略）"""
+        task_group = cls.task_groups.get(robot_task_code)
+        if task_group and task_group.get("status") == "completed":
+            logger.info(f"收到 continue，但任务 {robot_task_code} 已完成，忽略")
+            return
+        cls._pending_continue_event.set()
+        logger.info(f"收到 continue，触发下一 bin")
 
     @classmethod
     async def send_callback(cls, robot_task_code: str, method: str, data: dict):
@@ -256,8 +215,6 @@ class RobotTaskSimulator:
     def get_all_tasks(cls) -> dict:
         """获取所有任务状态"""
         return {
-            "active_tasks": cls.active_tasks,
-            "paused_tasks": cls.paused_tasks,
             "all_task_groups": cls.task_groups
         }
 
@@ -287,23 +244,20 @@ async def submit_inventory_task(request: Request):
         logger.info(
             f"处理盘点任务: taskType={task_type}, 包含 {len(target_route)} 个储位")
         # 生成唯一的机器人任务代码
-        timestamp = int(time.time())
-        robot_task_code = f"ROBOT-TASK-{timestamp}"
+        robot_task_code = f"ROBOT-TASK-{uuid.uuid4().hex[:8].upper()}"
 
         logger.info(f"生成机器人任务代码: {robot_task_code}")
 
-        # 异步启动任务模拟
-        asyncio.create_task(
-            RobotTaskSimulator.simulate_task_execution(
-                robot_task_code, target_route, task_type)
-        )
+        # 立即返回响应（不阻塞 gateway 的 HTTP 请求）
+        # 每个 submit 独立执行，互不阻塞
+        await RobotTaskSimulator.submit_and_run(robot_task_code, target_route, task_type)
 
-        # 返回响应
+        # 返回响应（立即返回，不等待任务执行完成）
         return {
             "code": "SUCCESS",
             "message": "成功",
             "data": {
-                "robotTaskCode": "ctu001",
+                "robotTaskCode": robot_task_code,
                 "extra": None
             }
         }

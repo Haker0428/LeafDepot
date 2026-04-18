@@ -24,6 +24,7 @@ from services.api.shared.models import (
 )
 from services.api.shared.config import (
     logger,
+    rcs_logger,
     project_root,
     RCS_BASE_URL,
     RCS_PREFIX,
@@ -40,10 +41,14 @@ from services.api.shared.excel_writer import build_excel_data, write_excel
 
 # 从 robot/router 导入状态管理（避免与 services.api.state 混淆）
 from services.api.robot.router import (
-    _robot_status_store,
-    _status_event,
+    clear_robot_status_queue,
     update_robot_status as _router_update_status,
     wait_for_robot_status as _router_wait_status,
+)
+from services.api.inventory.task_state import (
+    mark_running,
+    update_progress,
+    mark_finished,
 )
 
 # 任务状态存储
@@ -89,33 +94,48 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
     import uuid
 
     try:
+        import aiohttp
         logger.info(f"下发盘点任务: {task_no}, 储位: {bin_locations}, 模拟模式: {is_sim}")
 
         last_error = None
         for attempt in range(max_retries):
             try:
                 if is_sim:
-                    # ====== 模拟模式 ======
+                    # ====== 模拟模式：使用 aiohttp 异步下发，不阻塞事件循环 ======
+                    # requests.post 阻塞期间 asyncio 无法处理回调，END 会丢失。
+                    # aiohttp 不阻塞，END 回调到达时事件循环正常处理，不会丢失。
                     url = f"{RCS_FULL_URL}/api/robot/controller/task/submit"
                     headers = {
                         "X-lr-request-id": "ldui",
                         "Content-Type": "application/json"
                     }
-                    target_route = [
-                        {"seq": i, "type": "ZONE", "code": loc}
-                        for i, loc in enumerate(bin_locations)
-                    ]
-                    request_body = {
-                        "taskType": "PF-CTU-COMMON-TEST",
-                        "targetRoute": target_route
-                    }
-                    response = requests.post(url, json=request_body, headers=headers, timeout=30)
+                    async with aiohttp.ClientSession() as session:
+                        captured_code = None
+                        for i, loc in enumerate(bin_locations):
+                            target_route = [{"seq": 0, "type": "ZONE", "code": loc}]
+                            request_body = {
+                                "taskType": "PF-CTU-COMMON-TEST",
+                                "targetRoute": target_route
+                            }
+                            rcs_logger.info(f"【模拟RCS下发请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
+                            async with session.post(url, json=request_body, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                                response_text = await response.text()
+                                rcs_logger.info(f"【模拟RCS下发响应】code={response.status} body={response_text}")
+                                if response.status == 200:
+                                    try:
+                                        data = json.loads(response_text)
+                                        captured_code = data.get("data", {}).get("robotTaskCode", "")
+                                    except Exception:
+                                        pass
+                            if i < len(bin_locations) - 1:
+                                await asyncio.sleep(0.5)
+                    return {"success": True, "message": "盘点任务已下发", "robotTaskCode": captured_code or "ctu001"}
 
                 else:
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "localhost")
+                    host = real_cfg.get("host", "10.16.82.95")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     url = f"{base_url}{RCS_PREFIX}/api/robot/controller/task/submit"
@@ -125,26 +145,19 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                         "X-App-Id": real_cfg.get("app_id", "1008"),
                         "X-Sign": real_cfg.get("sign", ""),
                         "X-Timestamp": timestamp,
-                        "X-LR-REQUEST-ID": str(uuid.uuid4()),
+                        "X-LR-REQUEST-ID": f"TASK_SUBMIT_{uuid.uuid4().hex[:4].upper()}",
                         "Content-Type": "application/json"
                     }
-                    # 构建 targetRoute：STORAGE（储位）+ CARRIER_TYPE（载体类型）
-                    target_route = []
-                    for i, loc in enumerate(bin_locations):
-                        target_route.append({
+                    # 构建 targetRoute：STORAGE（储位）
+                    target_route = [
+                        {
                             "autoStart": 1,
                             "code": loc,
-                            "extra": {},
                             "seq": i,
                             "type": "STORAGE"
-                        })
-                        target_route.append({
-                            "autoStart": 1,
-                            "code": "1",
-                            "extra": {},
-                            "seq": i,
-                            "type": "CARRIER_TYPE"
-                        })
+                        }
+                        for i, loc in enumerate(bin_locations)
+                    ]
                     request_body = {
                         "extra": {},
                         "groupCode": "",
@@ -153,11 +166,11 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                         "robotTaskCode": "",
                         "robotType": "",
                         "targetRoute": target_route,
-                        "taskType": real_cfg.get("task_type", "PF-CTU-HS-H-DETECT-NOTIFY-1")
+                        "taskType": "ABCDEFG"
                     }
-                    logger.info(f"【真实RCS下发请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
+                    rcs_logger.info(f"【真实RCS下发请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
                     response = requests.post(url, json=request_body, headers=headers, timeout=20, verify=False)
-                    logger.info(f"【真实RCS下发响应】code={response.status_code} body={response.text}")
+                    rcs_logger.info(f"【真实RCS下发响应】code={response.status_code} body={response.text}")
 
                 if response.status_code == 200:
                     response_data = response.json()
@@ -219,16 +232,17 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                         "Content-Type": "application/json"
                     }
                     request_body = {
-                        "triggerType": "TASK",
-                        "triggerCode": "001"
+                        "robotTaskCode": robot_task_code or "ctu001"
                     }
+                    rcs_logger.info(f"【模拟RCS继续请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
                     response = requests.post(url, json=request_body, headers=headers, timeout=30)
+                    rcs_logger.info(f"【模拟RCS继续响应】code={response.status_code} body={response.text}")
 
                 else:
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "localhost")
+                    host = real_cfg.get("host", "10.16.82.95")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     continue_path = real_cfg.get("continue_url", "/rcs/rtas/api/robot/controller/task/extend/continue")
@@ -247,9 +261,9 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                         "triggerType": "TASK",
                         "triggerCode": robot_task_code
                     }
-                    logger.info(f"【真实RCS继续请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
+                    rcs_logger.info(f"【真实RCS继续请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
                     response = requests.post(url, json=request_body, headers=headers, timeout=20, verify=False)
-                    logger.info(f"【真实RCS继续响应】code={response.status_code} body={response.text}")
+                    rcs_logger.info(f"【真实RCS继续响应】code={response.status_code} body={response.text}")
 
                 if response.status_code == 200:
                     response_data = response.json()
@@ -851,7 +865,7 @@ async def process_single_bin_location(
 
     try:
         if is_sim:
-            # 模拟模式
+            # 模拟模式：END 等待由 execute_inventory_workflow 统一处理，此处直接拍照
             logger.info(f"模拟模式：处理储位 {bin_location}")
 
             from services.api.shared.config import WITH_CAMERA
@@ -1091,129 +1105,121 @@ async def process_single_bin_location(
             result["endTime"] = datetime.now().isoformat()
 
         else:
-            # 真实模式
-            logger.info(f"============等待机器人就位信息: {bin_location}")
+            # 真实模式：wait_for_robot_status 已在 execute_inventory_workflow 层处理，此处直接拍照
+            logger.info(f"============拍照: {bin_location}")
             try:
-                ctu_status = await wait_for_robot_status("end", timeout=600)  # 真实模式等待10分钟
+                capture_results = await capture_images_with_scripts(task_no, bin_location)
+                result["captureResults"] = capture_results
 
-                if ctu_status and ctu_status.get("method") == "end":
-                    capture_results = await capture_images_with_scripts(task_no, bin_location)
-                    result["captureResults"] = capture_results
+                if not capture_results.get("success"):
+                    logger.error(f"抓图失败，跳过储位: {bin_location}")
+                    result["status"] = "异常"
+                    result["error"] = f"抓图失败: {capture_results.get('error', '所有相机抓图失败')}"
+                    result["actualQuantity"] = 0
+                    result["actualSpec"] = "无"
+                    result["endTime"] = datetime.now().isoformat()
+                    return result
 
-                    if not capture_results.get("success"):
-                        logger.error(f"抓图失败，跳过储位: {bin_location}")
-                        result["status"] = "异常"
-                        result["error"] = f"抓图失败: {capture_results.get('error', '所有相机抓图失败')}"
-                        result["actualQuantity"] = 0
-                        result["actualSpec"] = "无"
-                        result["endTime"] = datetime.now().isoformat()
-                        return result
+                # 部分相机失败 → 记录警告，继续处理
+                if capture_results.get("partial"):
+                    logger.warning(f"部分相机抓图失败: {capture_results.get('errors', [])}")
 
-                    # 部分相机失败 → 记录警告，继续处理
+                logger.info(f"抓图成功: {bin_location}")
+
+                # 先用原始抓图路径；检测成功后会被旋转/彩色路径替代
+                result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main.jpg"
+                result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth.jpg"
+                result["photoScan1Path"] = f"/{task_no}/{bin_location}/scan_camera_1/main.jpg"
+                result["photoScan2Path"] = f"/{task_no}/{bin_location}/scan_camera_2/main.jpg"
+
+                capture_img_dir = project_root / "capture_img" / task_no / bin_location
+
+                recognition_result = await run_barcode_and_detect(
+                    task_no=task_no,
+                    bin_location=bin_location,
+                    scan_dirs=[capture_img_dir / "scan_camera_1", capture_img_dir / "scan_camera_2"],
+                    detect_dir=capture_img_dir / "3d_camera",
+                    pile_id=1,
+                    code_type="ucc128"
+                )
+
+                detect_result = (recognition_result or {}).get("detect_result") or {}
+                barcode_result = (recognition_result or {}).get("barcode_result") or {}
+
+                # 识别成功 → 更新为旋转/彩色后的路径
+                if detect_result.get("status") == "success":
+                    result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
+                    result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
+
+                # 识别失败（3D相机主图没找到）→ 仍返回已拍到的照片
+                if detect_result.get("status") == "failed":
+                    result["status"] = "异常"
                     if capture_results.get("partial"):
-                        logger.warning(f"部分相机抓图失败: {capture_results.get('errors', [])}")
-
-                    logger.info(f"抓图成功: {bin_location}")
-
-                    # 先用原始抓图路径；检测成功后会被旋转/彩色路径替代
-                    result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main.jpg"
-                    result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth.jpg"
-                    result["photoScan1Path"] = f"/{task_no}/{bin_location}/scan_camera_1/main.jpg"
-                    result["photoScan2Path"] = f"/{task_no}/{bin_location}/scan_camera_2/main.jpg"
-
-                    capture_img_dir = project_root / "capture_img" / task_no / bin_location
-
-                    recognition_result = await run_barcode_and_detect(
-                        task_no=task_no,
-                        bin_location=bin_location,
-                        scan_dirs=[capture_img_dir / "scan_camera_1", capture_img_dir / "scan_camera_2"],
-                        detect_dir=capture_img_dir / "3d_camera",
-                        pile_id=1,
-                        code_type="ucc128"
-                    )
-
-                    detect_result = (recognition_result or {}).get("detect_result") or {}
-                    barcode_result = (recognition_result or {}).get("barcode_result") or {}
-
-                    # 识别成功 → 更新为旋转/彩色后的路径
-                    if detect_result.get("status") == "success":
-                        result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
-                        result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
-
-                    # 识别失败（3D相机主图没找到）→ 仍返回已拍到的照片
-                    if detect_result.get("status") == "failed":
-                        result["status"] = "异常"
-                        if capture_results.get("partial"):
-                            result["error"] = "相机抓图失败：" + "；".join(capture_results.get("errors", []))
-                        else:
-                            result["error"] = f"抓图失败：{detect_result.get('error', '未找到图片')}"
-                        inventory_item = None
-                        if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
-                            for item in _inventory_task_details[task_no]["inventoryItems"]:
-                                if item.get("locationName") == bin_location:
-                                    inventory_item = item
-                                    break
-                        result["actualSpec"] = _get_actual_spec(barcode_result, inventory_item)
-                        result["actualQuantity"] = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
-                        result["barcodeResult"] = barcode_result
-                        result["detectResult"] = detect_result
-                        result["photos"] = recognition_result.get("photos", [])
-                        result["endTime"] = datetime.now().isoformat()
-                        return result
-
-                    result["actualSpec"] = _get_actual_spec(barcode_result, None)
-
-                    result["status"] = "成功"
-                    result["actualQuantity"] = detect_result.get("total_count", 0)
+                        result["error"] = "相机抓图失败：" + "；".join(capture_results.get("errors", []))
+                    else:
+                        result["error"] = f"抓图失败：{detect_result.get('error', '未找到图片')}"
+                    inventory_item = None
+                    if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
+                        for item in _inventory_task_details[task_no]["inventoryItems"]:
+                            if item.get("locationName") == bin_location:
+                                inventory_item = item
+                                break
+                    result["actualSpec"] = _get_actual_spec(barcode_result, inventory_item)
+                    result["actualQuantity"] = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
                     result["barcodeResult"] = barcode_result
                     result["detectResult"] = detect_result
                     result["photos"] = recognition_result.get("photos", [])
-
-                    # 更新任务状态
-                    if task_no in _inventory_task_bins:
-                        for bin_status in _inventory_task_bins[task_no]:
-                            if bin_status.bin_location == bin_location:
-                                bin_status.image_data = capture_results
-                                bin_status.compute_result = {
-                                    "actualQuantity": result["actualQuantity"],
-                                    "actualSpec": result["actualSpec"]
-                                }
-                                bin_status.capture_time = result["startTime"]
-                                bin_status.compute_time = datetime.now().isoformat()
-                                bin_status.detect_result = detect_result
-                                bin_status.barcode_result = barcode_result
-                                break
-
-                    if task_no not in _inventory_task_details:
-                        _inventory_task_details[task_no] = {}
-
-                    _inventory_task_details[task_no][bin_location] = {
-                        "image_data": capture_results,
-                        "compute_result": {
-                            "actualQuantity": result["actualQuantity"],
-                            "actualSpec": result["actualSpec"]
-                        },
-                        "capture_time": result["startTime"],
-                        "compute_time": datetime.now().isoformat(),
-                        "updated_at": datetime.now().isoformat(),
-                        "recognition": recognition_result
-                    }
-
-                    result["status"] = "成功"
                     result["endTime"] = datetime.now().isoformat()
+                    return result
 
-                else:
-                    logger.warning(f"未收到预期的结束状态，当前状态: {ctu_status}")
+                result["actualSpec"] = _get_actual_spec(barcode_result, None)
 
-            except asyncio.TimeoutError as e:
-                logger.error(f"等待机器人结束状态超时: {str(e)}")
+                result["status"] = "成功"
+                result["actualQuantity"] = detect_result.get("total_count", 0)
+                result["barcodeResult"] = barcode_result
+                result["detectResult"] = detect_result
+                result["photos"] = recognition_result.get("photos", [])
+
+                # 更新任务状态
+                if task_no in _inventory_task_bins:
+                    for bin_status in _inventory_task_bins[task_no]:
+                        if bin_status.bin_location == bin_location:
+                            bin_status.image_data = capture_results
+                            bin_status.compute_result = {
+                                "actualQuantity": result["actualQuantity"],
+                                "actualSpec": result["actualSpec"]
+                            }
+                            bin_status.capture_time = result["startTime"]
+                            bin_status.compute_time = datetime.now().isoformat()
+                            bin_status.detect_result = detect_result
+                            bin_status.barcode_result = barcode_result
+                            break
+
+                if task_no not in _inventory_task_details:
+                    _inventory_task_details[task_no] = {}
+
+                _inventory_task_details[task_no][bin_location] = {
+                    "image_data": capture_results,
+                    "compute_result": {
+                        "actualQuantity": result["actualQuantity"],
+                        "actualSpec": result["actualSpec"]
+                    },
+                    "capture_time": result["startTime"],
+                    "compute_time": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat(),
+                    "recognition": recognition_result
+                }
+
+                result["status"] = "成功"
+                result["endTime"] = datetime.now().isoformat()
+
+            except Exception as e:
+                logger.error(f"真实模式拍照/识别异常: {str(e)}")
                 result["status"] = "异常"
-                result["error"] = "等待机器人结束状态超时"
+                result["error"] = str(e)
                 result["actualQuantity"] = 0
                 result["actualSpec"] = "无"
                 result["endTime"] = datetime.now().isoformat()
-
-                return result
 
     except Exception as e:
         result["status"] = "异常"
@@ -1259,6 +1265,9 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
     # 更新任务状态为运行中
     _inventory_tasks[task_no].status = "running"
     _inventory_tasks[task_no].current_step = 0
+
+    # 写入持久化状态，服务器重启后可识别中断任务
+    mark_running(task_no, len(bin_locations))
 
     # 预检：检查 RCS 和相机系统是否在线
     from services.api.shared.config import WITH_CAMERA
@@ -1314,129 +1323,204 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
     inventory_results = []
 
     try:
-        logger.info(f"开始顺序处理 {len(bin_locations)} 个储位")
+        logger.info(f"开始处理 {len(bin_locations)} 个储位")
 
         # 先将所有储位状态设为运行中
         if task_no in _inventory_task_bins:
             for bin_status in _inventory_task_bins[task_no]:
                 bin_status.status = "running"
 
-        # 顺序执行所有 bin 的处理
-        for i, bin_location in enumerate(bin_locations):
-            logger.info(f"下发第 {i+1}/{len(bin_locations)} 个库位: {bin_location}")
-            # 更新下发进度，前端据此计算进度条
-            _inventory_tasks[task_no].current_step = i + 1
+        if is_sim:
+            # ====== 模拟模式：aiohttp 批量下发（不阻塞） → 逐个等待 END → 拍照 → 发 continue ======
+            # aiohttp 不阻塞事件循环，END 回调到达时能正常处理，不会丢失。
+            logger.info(f"模拟模式：aiohttp 批量下发 {len(bin_locations)} 个库位（间隔 0.5s）")
+            submit_result = await submit_inventory_task(task_no, bin_locations, is_sim=True)
+            if not submit_result.get("success"):
+                error_msg = submit_result.get("message", "盘点任务下发失败")
+                _inventory_tasks[task_no].status = "failed"
+                _inventory_tasks[task_no].end_time = datetime.now().isoformat()
+                _inventory_tasks[task_no].error_message = error_msg
+                _inventory_tasks[task_no].error_type = "rcs"
+                return {"success": False, "message": error_msg, "errorType": "rcs", "task_no": task_no}
+            logger.info(f"全部 {len(bin_locations)} 个库位已下发完毕，等待 END 回调...")
 
-            if is_sim:
-                # 模拟模式：只在第一个库位一次性下发所有库位
-                if i == 0:
-                    submit_result = await submit_inventory_task(task_no, bin_locations, is_sim=True)
-                    if not submit_result.get("success"):
-                        logger.error(f"盘点任务下发失败: {submit_result.get('message')}")
-                        error_msg = submit_result.get("message", "盘点任务下发失败")
-                        _inventory_tasks[task_no].status = "failed"
-                        _inventory_tasks[task_no].end_time = datetime.now().isoformat()
-                        _inventory_tasks[task_no].error_message = error_msg
-                        _inventory_tasks[task_no].error_type = "rcs"
-                        return {
-                            "success": False,
-                            "message": error_msg,
-                            "errorType": "rcs",
-                            "task_no": task_no
-                        }
-                robot_task_code = ""
-            else:
-                # 真实模式：每个库位单独下发，得到各自的 robotTaskCode
-                method = "start"
-                await update_robot_status(method)
-                submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=False)
-                robot_task_code = submit_result.get("robotTaskCode", "")
-                logger.info(f"获取到 robotTaskCode: {robot_task_code}")
+            # 逐个等待 END：收到 END → 拍照 → 发 continue
+            for i in range(len(bin_locations)):
+                # 清空队列中的旧状态，防止上一轮残留的 END 干扰
+                clear_robot_status_queue()
 
-                if not submit_result.get("success"):
-                    logger.error(f"库位 {bin_location} 下发失败: {submit_result.get('message')}")
-                    result = {
-                        "status": "异常",
-                        "actualQuantity": 0,
-                        "actualSpec": "无",
-                        "error": submit_result.get("message", "下发失败")
-                    }
+                # 等待 END（队列支持多 END 并发到达，不会丢失）
+                resolved_bin = ""
+                try:
+                    ctu_status = await wait_for_robot_status("end", timeout=600)
+                    bin_code = ctu_status.get("binCode", "")
+                    resolved_bin = bin_code or bin_locations[i]
+                    if bin_code:
+                        logger.info(f"END 回调携带 binCode: {bin_code}")
+                except asyncio.TimeoutError:
+                    logger.error(f"等待 END 超时，跳过库位")
                     inventory_results.append({
-                        "binLocation": bin_location,
-                        "status": result["status"],
-                        "actualQuantity": result.get("actualQuantity"),
-                        "actualSpec": result.get("actualSpec"),
-                        "error": result.get("error"),
+                        "binLocation": bin_locations[i], "status": "异常",
+                        "actualQuantity": None, "actualSpec": "无",
+                        "error": "等待 END 超时",
+                        "photo3dPath": None, "photoDepthPath": None,
+                        "photoScan1Path": "", "photoScan2Path": "",
+                        "specName": "", "systemQuantity": 0, "difference": 0,
                     })
+                    update_progress(task_no, len(inventory_results))
                     continue
 
-            try:
-                result = await process_single_bin_location(
-                    task_no=task_no,
-                    bin_location=bin_location,
-                    index=i,
-                    total=len(bin_locations),
-                    is_sim=is_sim
-                )
-            except Exception as e:
-                logger.error(f"处理库位 {bin_location} 时发生异常: {str(e)}")
-                result = {
-                    "status": "异常",
-                    "error": f"处理库位异常: {str(e)}",
-                    "actualQuantity": None,
-                    "actualSpec": "无",
-                    "photo3dPath": None,
-                    "photoDepthPath": None,
-                    "photoScan1Path": "",
-                    "photoScan2Path": "",
-                }
-
-            # 真实模式下，当前库位处理完成后，发送 continue（无论成功或失败都继续）
-            if not is_sim:
-                logger.info(f"库位 {bin_location} 处理完成，发送 continue")
+                # 拍照
+                # 更新进度：反映实际已收到 END 的数量
+                _inventory_tasks[task_no].current_step = len(inventory_results) + 1
+                logger.info(f"已收到 END: {resolved_bin}，拍照...")
                 try:
-                    continue_result = await continue_inventory_task(is_sim=False, robot_task_code=robot_task_code)
-                    logger.info(f"continue 接口调用结果: {continue_result}")
+                    result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
+                except Exception as e:
+                    logger.error(f"处理库位 {resolved_bin} 时发生异常: {str(e)}")
+                    result = {
+                        "status": "异常", "error": f"处理库位异常: {str(e)}",
+                        "actualQuantity": None, "actualSpec": "无",
+                        "photo3dPath": None, "photoDepthPath": None,
+                        "photoScan1Path": "", "photoScan2Path": "",
+                    }
+
+                # 发 continue（simulator 收到后等待 gateway 发 END）
+                try:
+                    await continue_inventory_task(is_sim=True, robot_task_code=submit_result.get("robotTaskCode", "ctu001"))
                 except Exception as e:
                     logger.error(f"发送 continue 失败: {str(e)}")
-                # continue 发送后，等待 10 秒再下发下一个库位
-                await asyncio.sleep(10)
 
-            # 更新 bin 状态
-            if task_no in _inventory_task_bins:
-                for bin_status in _inventory_task_bins[task_no]:
-                    if bin_status.bin_location == bin_location:
-                        bin_status.status = "completed" if result.get("status") == "成功" else "failed"
-                        break
+                # 更新 bin 状态 & 收集结果
+                if task_no in _inventory_task_bins:
+                    for bs in _inventory_task_bins[task_no]:
+                        if bs.bin_location == resolved_bin:
+                            bs.status = "completed" if result.get("status") == "成功" else "failed"
+                            break
 
-            # 从原始盘点项中查找匹配的储位信息
-            inventory_item = None
-            if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
-                for item in _inventory_task_details[task_no]["inventoryItems"]:
-                    if item.get("locationName") == bin_location:
-                        inventory_item = item
-                        break
+                inventory_item = None
+                if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
+                    for item in _inventory_task_details[task_no]["inventoryItems"]:
+                        if item.get("locationName") == resolved_bin:
+                            inventory_item = item
+                            break
 
-            # 计算差异（使用 int 强制转换避免类型错误）
-            actual_qty = int(result.get("actualQuantity", 0) or 0)
-            system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
-            difference = actual_qty - system_qty
+                actual_qty = int(result.get("actualQuantity", 0) or 0)
+                system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
+                inventory_results.append({
+                    "binLocation": resolved_bin,
+                    "status": result.get("status"),
+                    "actualQuantity": result.get("actualQuantity"),
+                    "actualSpec": result.get("actualSpec"),
+                    "photo3dPath": result.get("photo3dPath"),
+                    "photoDepthPath": result.get("photoDepthPath"),
+                    "photoScan1Path": result.get("photoScan1Path", ""),
+                    "photoScan2Path": result.get("photoScan2Path", ""),
+                    "error": result.get("error"),
+                    "specName": inventory_item.get("productName", "") if inventory_item else "",
+                    "systemQuantity": system_qty,
+                    "difference": actual_qty - system_qty,
+                })
+                update_progress(task_no, len(inventory_results))
 
-            # 收集盘点结果（无论成功或失败都记录）
-            inventory_results.append({
-                "binLocation": bin_location,
-                "status": result.get("status"),
-                "actualQuantity": result.get("actualQuantity"),
-                "actualSpec": result.get("actualSpec"),
-                "photo3dPath": result.get("photo3dPath"),
-                "photoDepthPath": result.get("photoDepthPath"),
-                "photoScan1Path": result.get("photoScan1Path", ""),
-                "photoScan2Path": result.get("photoScan2Path", ""),
-                "error": result.get("error"),
-                "specName": inventory_item.get("productName", "") if inventory_item else "",
-                "systemQuantity": system_qty,
-                "difference": difference,
-            })
+        else:
+            # ====== 真实模式：批量下发 → 逐个等待 END → 拍照 → 发 continue ======
+            logger.info(f"真实模式：批量下发 {len(bin_locations)} 个库位（间隔 0.5s）")
+            submitted_bins: List[str] = []
+            # 记录每个 bin_location 对应的 robot_task_code，等待 END 时需要用它发 continue
+            bin_to_task_code: Dict[str, str] = {}
+            for i, bin_location in enumerate(bin_locations):
+                submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=False)
+                robot_task_code = submit_result.get("robotTaskCode", "")
+                bin_to_task_code[bin_location] = robot_task_code
+                submitted_bins.append(bin_location)
+                logger.info(f"第 {i+1}/{len(bin_locations)} 个库位已下发: {bin_location}, robotTaskCode={robot_task_code}")
+                if i < len(bin_locations) - 1:
+                    await asyncio.sleep(0.5)
+            logger.info(f"全部 {len(submitted_bins)} 个库位已下发完毕，等待 END 回调...")
+
+            # 逐个等待 END：每次收到 END → 拍照 → 发 continue
+            pending_count = len(submitted_bins)
+            for _ in range(pending_count):
+                try:
+                    ctu_status = await wait_for_robot_status("end", timeout=600)
+                    bin_code = ctu_status.get("binCode", "")
+                    # 优先用回调中的 binCode，若取不到则按顺序匹配
+                    if not bin_code:
+                        idx = len(inventory_results)
+                        bin_location = submitted_bins[idx] if idx < len(submitted_bins) else ""
+                        logger.warning(f"END 回调未含 binCode，按顺序匹配为: {bin_location}")
+                    else:
+                        bin_location = bin_code
+                        logger.info(f"END 回调携带 binCode: {bin_location}")
+
+                    # 优先用回调中的 robotTaskCode，兜底用 bin_to_task_code 映射
+                    rt_code = ctu_status.get("robotTaskCode", "") or bin_to_task_code.get(bin_location, "")
+                    logger.info(f"END 回调 robotTaskCode: {rt_code}")
+
+                    # 更新进度：反映实际已收到 END 的数量
+                    _inventory_tasks[task_no].current_step = len(inventory_results) + 1
+
+                    logger.info(f"等待库位 END 完成: {bin_location}，拍照...")
+                    result = await process_single_bin_location(task_no, bin_location, 0, len(bin_locations), is_sim=False)
+                except asyncio.TimeoutError:
+                    logger.error(f"等待 END 超时，跳过库位")
+                    _inventory_tasks[task_no].current_step = len(inventory_results)
+                    result = {
+                        "status": "异常", "error": "等待 END 超时",
+                        "actualQuantity": None, "actualSpec": "无",
+                        "photo3dPath": None, "photoDepthPath": None,
+                        "photoScan1Path": "", "photoScan2Path": "",
+                    }
+                except Exception as e:
+                    logger.error(f"处理库位 {bin_location} 时发生异常: {str(e)}")
+                    result = {
+                        "status": "异常", "error": f"处理库位异常: {str(e)}",
+                        "actualQuantity": None, "actualSpec": "无",
+                        "photo3dPath": None, "photoDepthPath": None,
+                        "photoScan1Path": "", "photoScan2Path": "",
+                    }
+
+                # 更新 bin 状态
+                if task_no in _inventory_task_bins:
+                    for bs in _inventory_task_bins[task_no]:
+                        if bs.bin_location == bin_location:
+                            bs.status = "completed" if result.get("status") == "成功" else "failed"
+                            break
+
+                # 拍照完成后，用该 bin 对应的 robot_task_code 发送 continue
+                try:
+                    continue_result = await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
+                    logger.info(f"continue 调用结果 (bin={bin_location}, robotTaskCode={rt_code}): {continue_result}")
+                except Exception as e:
+                    logger.error(f"发送 continue 失败: {str(e)}")
+
+                # 查找匹配储位信息
+                inventory_item = None
+                if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
+                    for item in _inventory_task_details[task_no]["inventoryItems"]:
+                        if item.get("locationName") == bin_location:
+                            inventory_item = item
+                            break
+
+                actual_qty = int(result.get("actualQuantity", 0) or 0)
+                system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
+                inventory_results.append({
+                    "binLocation": bin_location,
+                    "status": result.get("status"),
+                    "actualQuantity": result.get("actualQuantity"),
+                    "actualSpec": result.get("actualSpec"),
+                    "photo3dPath": result.get("photo3dPath"),
+                    "photoDepthPath": result.get("photoDepthPath"),
+                    "photoScan1Path": result.get("photoScan1Path", ""),
+                    "photoScan2Path": result.get("photoScan2Path", ""),
+                    "error": result.get("error"),
+                    "specName": inventory_item.get("productName", "") if inventory_item else "",
+                    "systemQuantity": system_qty,
+                    "difference": actual_qty - system_qty,
+                })
+                update_progress(task_no, len(inventory_results))
+                logger.info(f"库位 {bin_location} 处理完毕，已处理 {len(inventory_results)}/{pending_count} 个")
 
         logger.info(f"所有 {len(bin_locations)} 个储位处理完成")
 
@@ -1454,6 +1538,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
         _inventory_tasks[task_no].status = task_status
         _inventory_tasks[task_no].current_step = len(bin_locations)
         _inventory_tasks[task_no].end_time = datetime.now().isoformat()
+        mark_finished(task_no, task_status)
 
         # 全部失败时，聚合各库位错误原因
         if task_status == "failed" and inventory_results:
@@ -1512,6 +1597,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
         if task_no in _inventory_tasks:
             _inventory_tasks[task_no].status = "failed"
             _inventory_tasks[task_no].end_time = datetime.now().isoformat()
+        mark_finished(task_no, "failed")
 
         # 从任务详情中获取用户信息
         user_info = _inventory_task_details.get(task_no, {}).get("userInfo", {})

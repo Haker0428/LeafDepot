@@ -44,6 +44,24 @@ _root_logger.setLevel(logging.INFO)
 _root_logger.handlers = _handlers  # 替换而非追加，避免重复 handler
 logger = logging.getLogger(__name__)
 
+# 专用 RCS 日志：写入 rcs_*.log
+_rcs_log_file = logs_dir / f"rcs_{datetime.now().strftime('%Y%m%d')}.log"
+try:
+    _rcs_handler = logging.FileHandler(str(_rcs_log_file), encoding='utf-8')
+    _rcs_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'))
+    _rcs_logger = logging.getLogger("rcs")
+    _rcs_logger.setLevel(logging.INFO)
+    _rcs_logger.addHandler(_rcs_handler)
+    _rcs_logger.propagate = False
+    print(f"[LOG] RCS 日志文件: {_rcs_log_file}")
+except Exception as e:
+    print(f"[WARN] 无法创建 RCS 日志文件 {_rcs_log_file}: {e}")
+    _rcs_logger = logging.getLogger("rcs")
+
+rcs_logger = _rcs_logger  # 导出供其他模块使用
+
 # 从 JSON 配置文件读取配置
 _config_file = project_root / "config.json"
 _config = {}
@@ -100,9 +118,9 @@ ENABLE_VISUALIZATION = _config.get("enable_visualization", False)
 # CORS 配置（从 JSON 文件读取）
 CORS_ORIGINS = _config.get("cors_origins", [
     f"http://{_HOST}", f"http://{_HOST}:{GATEWAY_PORT}",
-    f"http://{_HOST}:{FRONTEND_PORT}", "http://localhost", f"http://localhost:{GATEWAY_PORT}",
-    f"http://localhost:{FRONTEND_PORT}", "http://127.0.0.1", f"http://127.0.0.1:{GATEWAY_PORT}",
-    f"http://127.0.0.1:{FRONTEND_PORT}",
+    f"http://{_HOST}:{FRONTEND_PORT}", "http://10.16.82.95", f"http://10.16.82.95:{GATEWAY_PORT}",
+    f"http://10.16.82.95:{FRONTEND_PORT}", "http://10.16.82.95", f"http://10.16.82.95:{GATEWAY_PORT}",
+    f"http://10.16.82.95:{FRONTEND_PORT}",
 ])
 
 # 模拟用户配置（LMS 不可用时使用）

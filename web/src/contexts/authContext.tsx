@@ -5,6 +5,7 @@ import { GATEWAY_URL } from '../config/ip_address';
 interface AuthContextType {
   isAuthenticated: boolean;
   setIsAuthenticated: (isAuthenticated: boolean) => void;
+  isVerifying: boolean; // token 验证中，防止刷新时闪烁跳转
   user: any;
   setUser: (user: any) => void;
   authToken: string | null;
@@ -23,6 +24,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(() => {
+    // 初始化时检查 sessionStorage 是否有 token，如有则标记为验证中
+    return !!sessionStorage.getItem('authToken');
+  });  // token 验证中，防止闪烁跳转
   const [user, setUser] = useState<any>(null);
   const [authToken, setAuthTokenState] = useState<string | null>(null);
   const [userLevel, setUserLevelState] = useState<string | null>(null); // 新增：用户权限状态
@@ -81,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [setAuthToken, setUserLevel, setUserName, setUserId]);
 
   const verifyToken = useCallback(async (token: string) => {
+    setIsVerifying(true);
     try {
       const response = await fetch(`${GATEWAY_URL}/auth/token?token=${token}`);
       if (response.ok) {
@@ -111,6 +117,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserId(null);
       toast.error('会话已过期，请重新登录');
       return false; // 验证失败
+    } finally {
+      setIsVerifying(false);
     }
   }, [setUserLevel, setUserName, setUserId]);
 
@@ -164,12 +172,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [setAuthToken, setUserLevel, setUserName, setUserId, verifyToken]);
 
   useEffect(() => {
-    // 每次打开页面强制要求重新登录，不自动恢复会话
-  }, []);
+    // 页面挂载时：从 sessionStorage 恢复 token 并验证，刷新页面不退出登录
+    const storedToken = sessionStorage.getItem('authToken');
+    if (storedToken) {
+      setAuthTokenState(storedToken);
+      verifyToken(storedToken);
+    }
+  }, [verifyToken]);
 
   const value = {
     isAuthenticated,
     setIsAuthenticated,
+    isVerifying,
     user,
     setUser,
     authToken,

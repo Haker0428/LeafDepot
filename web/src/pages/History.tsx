@@ -40,6 +40,7 @@ interface TaskMeta {
   operator: string;
   hasModified: boolean;
   modifiedBins: string[];
+  isValid: boolean;
 }
 
 export default function History() {
@@ -48,13 +49,10 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<HistoryTask | null>(null);
   const [taskDetails, setTaskDetails] = useState<InventoryDetail[]>([]);
-  const [selectedPosition, setSelectedPosition] = useState<string>("");
-  const [taskMeta, setTaskMeta] = useState<TaskMeta>({ operator: "", hasModified: false, modifiedBins: [] });
-  const [currentImages, setCurrentImages] = useState<string[]>([]);
+  const [taskMeta, setTaskMeta] = useState<TaskMeta>({ operator: "", hasModified: false, modifiedBins: [], isValid: true });
   const today = new Date().toISOString().split("T")[0];
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>(today);
-  const [imagesLoading, setImagesLoading] = useState(false);
   // 日历选择相关
   const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -62,8 +60,6 @@ export default function History() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
-  const [selectingEnd, setSelectingEnd] = useState(false);
-  const [imagesLoaded, setImagesLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -244,14 +240,10 @@ export default function History() {
           operator: result.data.operator || "",
           hasModified: result.data.hasModified || false,
           modifiedBins: result.data.modifiedBins || [],
+          isValid: result.data.isValid !== undefined ? result.data.isValid : true,
         });
 
         // 默认选中第一个储位
-        if (details.length > 0) {
-          setSelectedPosition(details[0].储位名称);
-          // 传入当前任务的taskId
-          updateImagesForPosition(task.taskId, details[0]);
-        }
       } else {
         toast.error(`加载任务 ${task.taskId} 详情失败: ${result.message}`);
       }
@@ -262,111 +254,10 @@ export default function History() {
   };
 
   // 3. 修改 updateImagesForPosition 函数中的图片路径构建：
-  const updateImagesForPosition = async (
-    taskId: string,
-    detail: InventoryDetail,
-  ) => {
-    // 从detail中获取照片路径数组
-    const photoPaths = [
-      detail.照片1路径,
-      detail.照片2路径,
-      detail.照片3路径,
-      detail.照片4路径,
-    ];
-
-    // 构建图片URL数组
-    const images = photoPaths.map((photoPath) => {
-      // 默认值
-      if (!photoPath || photoPath.trim() === "") {
-        return "";
-      }
-
-      try {
-        // 解析照片路径，格式如：/taskNo/binLocation/cameraType/filename.jpg
-        // 去除开头的斜杠并分割路径
-        const normalizedPath = photoPath.startsWith("/")
-          ? photoPath.substring(1)
-          : photoPath;
-
-        const parts = normalizedPath.split("/");
-
-        // 确保路径至少有4部分
-        if (parts.length < 4) {
-          console.warn(`无效的照片路径格式: ${photoPath}`);
-          return "";
-        }
-
-        // parts[0]=taskNo, parts[1]=binLocation, parts[2]=cameraType, parts[3]=filename
-        // cameraType转为小写（例如：3D_CAMERA -> 3d_camera）
-        const cameraType = parts[2].toLowerCase();
-        // 去除文件扩展名（例如：main_rotated.jpg -> main_rotated）
-        const filename = parts[3].split(".")[0];
-
-        // 构建URL，source=capture_img 指向实际图片目录
-        return `${GATEWAY_URL}/api/history/image?taskNo=${parts[0]}&binLocation=${parts[1]}&cameraType=${cameraType}&filename=${filename}&source=capture_img`;
-      } catch (error) {
-        console.error(`解析照片路径失败: ${photoPath}`, error);
-        return "";
-      }
-    });
-
-    // 过滤掉空URL
-    const validImages = images.filter((img) => img !== "");
-    console.log("生成的图片URLs:", validImages); // 添加调试日志
-
-    // 设置加载状态
-    setImagesLoading(true);
-    setImagesLoaded(false);
-
-    // 设置图片URL
-    setCurrentImages(validImages);
-
-    // 预加载所有图片
-    if (validImages.length > 0) {
-      try {
-        await Promise.all(
-          validImages.map((url) => {
-            return new Promise<void>((resolve, reject) => {
-              const img = new Image();
-              img.onload = () => {
-                console.log(`图片加载成功: ${url}`);
-                resolve();
-              };
-              img.onerror = () => {
-                console.error(`图片加载失败: ${url}`);
-                // 即使加载失败，也继续
-                resolve();
-              };
-              img.src = url;
-            });
-          }),
-        );
-        setImagesLoaded(true);
-      } catch (error) {
-        console.error("预加载图片失败:", error);
-      } finally {
-        setImagesLoading(false);
-      }
-    } else {
-      setImagesLoading(false);
-      setImagesLoaded(true);
-    }
-  };
-
   // 处理选择任务
   const handleSelectTask = async (task: HistoryTask) => {
     setSelectedTask(task);
     await loadTaskDetails(task);
-  };
-
-  // 处理选择储位
-  const handleSelectPosition = (position: string) => {
-    setSelectedPosition(position);
-    const detail = taskDetails.find((d) => d.储位名称 === position);
-    if (detail && selectedTask) {
-      // 传入当前任务的taskId
-      updateImagesForPosition(selectedTask.taskId, detail);
-    }
   };
 
   // 处理文件上传（模拟读取本地文件）
@@ -421,15 +312,6 @@ export default function History() {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [calendarOpen]);
-
-  // 获取差异标签样式
-  const getDifferenceBadgeStyle = (difference: string) => {
-    if (difference === "一致") {
-      return "bg-gradient-to-r from-green-500 to-green-600 text-white";
-    } else {
-      return "bg-gradient-to-r from-red-500 to-red-600 text-white";
-    }
-  };
 
   const handleCleanupHistory = async () => {
     if (!authToken) {
@@ -680,13 +562,7 @@ export default function History() {
             >
               <i className="fa-solid fa-calendar text-green-600"></i>
               <span className="text-green-800">
-                {startDate && endDate
-                  ? `${startDate} ~ ${endDate}`
-                  : startDate
-                    ? `从 ${startDate} 起`
-                    : endDate
-                      ? `至 ${endDate}`
-                      : "全部日期"}
+                {startDate ? `${startDate}` : "全部日期"}
               </span>
               <i className={`fa-solid fa-chevron-down text-xs text-green-600 transition-transform ${calendarOpen ? "rotate-180" : ""}`}></i>
             </button>
@@ -776,21 +652,12 @@ export default function History() {
                           <button
                             key={day}
                             onClick={() => {
-                              if (!startDate || (startDate && endDate) || selectingEnd) {
-                                setStartDate(dateStr);
-                                setEndDate("");
-                                setSelectingEnd(true);
-                              } else {
-                                if (dateStr < startDate) {
-                                  setEndDate(startDate);
-                                  setStartDate(dateStr);
-                                } else {
-                                  setEndDate(dateStr);
-                                }
-                                setSelectingEnd(false);
-                                setCalendarOpen(false);
-                                loadHistoryTasks();
-                              }
+                              // 点一次即精确筛选当天
+                              setStartDate(dateStr);
+                              setEndDate(dateStr);
+                              setSelectingEnd(false);
+                              setCalendarOpen(false);
+                              loadHistoryTasks();
                             }}
                             disabled={!hasData}
                             className={`h-8 rounded-lg text-sm flex flex-col items-center justify-center relative transition-colors
@@ -811,7 +678,7 @@ export default function History() {
 
                   {/* 提示 */}
                   <p className="text-xs text-gray-400 mt-3 text-center">
-                    点击日期选择开始日期，再点击选择结束日期。绿色圆点表示有盘点数据。
+                    点击日期筛选当天盘点记录。绿色圆点表示有盘点数据。
                   </p>
                 </div>
               </div>
@@ -966,270 +833,146 @@ export default function History() {
           <div className="lg:col-span-2">
             {selectedTask ? (
               <div className="space-y-6">
-                {/* 任务详情卡片 */}
-                <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
-                  <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-blue-50">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
-                      <div>
-                        <h4 className="text-xl font-bold text-green-800">
-                          {selectedTask.taskId}
-                        </h4>
-                        <p className="text-gray-600">
-                          <i className="fa-solid fa-calendar mr-1"></i>
-                          盘点时间: {formatDate(selectedTask.taskDate)}
-                          {taskMeta.operator && (
-                            <>
-                              <span className="mx-2">|</span>
-                              <i className="fa-solid fa-user mr-1"></i>
-                              操作员: {taskMeta.operator}
-                            </>
-                          )}
-                        </p>
-                        {taskMeta.hasModified && (
-                          <p className="text-red-600 text-base font-bold mt-1">
-                            <i className="fa-solid fa-pen-to-square mr-1"></i>
-                            存在人工修改：{taskMeta.modifiedBins.join("、")}
-                          </p>
-                        )}
-                        {!taskMeta.hasModified && taskMeta.operator && (
-                          <p className="text-green-600 text-sm mt-1">
-                            <i className="fa-solid fa-circle-check mr-1"></i>
-                            无人工修改
-                          </p>
-                        )}
-                      </div>
-                      <div className="mt-2 md:mt-0">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                          <i className="fa-solid fa-check-circle mr-1"></i>
-                          已盘点 {taskDetails.length} 个储位
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 储位选择器 */}
-                  <div className="px-6 py-4 border-b border-gray-200">
-                    <h5 className="text-sm font-medium text-gray-700 mb-3">
-                      选择储位查看详情
-                    </h5>
-                    <div className="flex flex-wrap gap-2">
-                      {taskDetails.map((detail) => (
-                        <button
-                          key={detail.储位名称}
-                          onClick={() => handleSelectPosition(detail.储位名称)}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            selectedPosition === detail.储位名称
-                              ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                          }`}
-                        >
-                          {detail.储位名称}
-                          <span className="ml-2 text-xs">
-                            ({detail.品规名称})
+                {/* 任务信息横幅 */}
+                <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
+                  <div className="flex flex-col md:flex-row">
+                    {/* 左侧：任务基本信息 */}
+                    <div className="flex-1 px-6 py-5 border-b md:border-b-0 md:border-r border-gray-200">
+                      <h4 className="text-3xl font-bold text-green-800 mb-2">{selectedTask.taskId}</h4>
+                      <div className="flex flex-col gap-y-1 text-lg text-gray-600">
+                        <span><i className="fa-solid fa-calendar mr-2 w-5"></i>{formatDate(selectedTask.taskDate)}</span>
+                        <span><i className="fa-solid fa-user mr-2 w-5"></i>{taskMeta.operator || "-"}</span>
+                        {taskMeta.hasModified ? (
+                          <span className="font-bold text-yellow-700">
+                            <i className="fa-solid fa-pen mr-2 w-5"></i>存在人工修改
                           </span>
-                        </button>
-                      ))}
+                        ) : (
+                          <span className="text-green-600">
+                            <i className="fa-solid fa-circle-check mr-2 w-5"></i>无人工修改
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {/* 右侧：统计数字 + 详情按钮 */}
+                    <div className="flex items-center gap-0">
+                      {/* 盘点类型标志 */}
+                      <div className="px-5 py-4 text-center border-r border-gray-200">
+                        {taskMeta.isValid === false ? (
+                          <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-bold bg-red-200 text-red-900 border-2 border-red-400 whitespace-nowrap">
+                            <i className="fa-solid fa-xmark mr-1"></i>无效盘点
+                          </span>
+                        ) : taskMeta.hasModified ? (
+                          <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-bold bg-yellow-200 text-yellow-900 border-2 border-yellow-400 whitespace-nowrap">
+                            <i className="fa-solid fa-pen mr-1"></i>有效修正盘点
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-bold bg-green-200 text-green-900 border-2 border-green-400 whitespace-nowrap">
+                            <i className="fa-solid fa-check mr-1"></i>有效盘点
+                          </span>
+                        )}
+                      </div>
+                      {/* 统计区 */}
+                      <div className="flex divide-x divide-gray-200">
+                        <div className="px-5 py-4 text-center min-w-[80px]">
+                          <p className="text-4xl font-bold text-gray-800">{taskDetails.length}</p>
+                          <p className="text-sm text-gray-500 mt-0.5">下发库位</p>
+                        </div>
+                        <div className="px-5 py-4 text-center min-w-[80px] bg-green-50">
+                          <p className="text-4xl font-bold text-green-600">{taskDetails.filter(d => d.差异 === "一致").length}</p>
+                          <p className="text-sm text-green-600 mt-0.5">一致库位</p>
+                        </div>
+                        <div className="px-5 py-4 text-center min-w-[80px]">
+                          <p className={`text-4xl font-bold ${taskDetails.length > 0 ? (taskDetails.filter(d => d.差异 !== "一致" || d.修改记录 === "人工修改").length > 0 ? "text-red-500" : "text-gray-400") : "text-gray-400"}`}>
+                            {taskDetails.length > 0
+                              ? `${Math.round(taskDetails.filter(d => d.差异 !== "一致" || d.修改记录 === "人工修改").length / taskDetails.length * 100)}%`
+                              : "0%"}
+                          </p>
+                          <p className="text-sm text-gray-500 mt-0.5">异常比例</p>
+                        </div>
+                      </div>
+                      {/* 详情大按钮，与横幅融合 */}
+                      <button
+                        onClick={() => selectedTask && navigate(`/inventory/history/${selectedTask.taskId}`)}
+                        className="h-full px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white transition-all flex flex-col items-center justify-center gap-1 rounded-tr-xl rounded-br-xl min-w-[120px]"
+                        style={{ borderTopRightRadius: "0.75rem", borderBottomRightRadius: "0.75rem" }}
+                      >
+                        <i className="fa-solid fa-chart-bar text-2xl"></i>
+                        <span className="text-base font-bold">详细信息</span>
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                {/* 详情表格和图片 */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* 左侧：盘点详情表格 */}
-                  <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
-                    <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                      <h5 className="text-lg font-semibold text-gray-800">
-                        盘点详情
-                      </h5>
-                      <p className="text-sm text-gray-500">
-                        储位: {selectedPosition || "未选择"}
-                      </p>
-                    </div>
-                    <div className="p-6">
-                      {selectedPosition ? (
-                        <div className="space-y-4">
-                          {taskDetails
-                            .filter((d) => d.储位名称 === selectedPosition)
-                            .map((detail) => (
-                              <div key={detail.序号} className="space-y-3">
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs text-gray-500">
-                                      品规名称
-                                    </p>
-                                    <p className="font-medium">
-                                      {detail.品规名称}
-                                    </p>
-                                  </div>
-                                  <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs text-gray-500">
-                                      实际品规
-                                    </p>
-                                    <p className="font-medium">
-                                      {detail.实际品规}
-                                    </p>
-                                  </div>
-                                  <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs text-gray-500">
-                                      库存数量
-                                    </p>
-                                    <p className="font-medium text-blue-600">
-                                      {detail.库存数量}
-                                    </p>
-                                  </div>
-                                  <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs text-gray-500">
-                                      实际数量
-                                    </p>
-                                    <p className="font-medium text-blue-600">
-                                      {detail.实际数量}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="bg-gray-50 p-4 rounded-lg">
-                                  <p className="text-xs text-gray-500 mb-2">
-                                    差异结果
-                                  </p>
-                                  <span
-                                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getDifferenceBadgeStyle(
-                                      detail.差异,
-                                    )}`}
-                                  >
-                                    <i
-                                      className={`fa-solid ${
-                                        detail.差异 === "一致"
-                                          ? "fa-check-circle mr-1"
-                                          : "fa-times-circle mr-1"
-                                      }`}
-                                    ></i>
-                                    {detail.差异}
+                {/* 差异汇总表格 */}
+                <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <h5 className="text-2xl font-semibold text-gray-800">
+                      <i className="fa-solid fa-triangle-exclamation mr-2 text-orange-500"></i>
+                      异常库位 ({taskDetails.filter(d => d.差异 !== "一致" || d.修改记录 === "人工修改").length} 个)
+                    </h5>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-base">
+                      <thead className="bg-gray-50 text-gray-600 text-sm uppercase">
+                        <tr>
+                          <th className="px-5 py-4 text-left font-medium">库位号</th>
+                          <th className="px-5 py-4 text-left font-medium">系统品规</th>
+                          <th className="px-5 py-4 text-left font-medium">盘点品规</th>
+                          <th className="px-5 py-4 text-center font-medium">系统数量</th>
+                          <th className="px-5 py-4 text-center font-medium">盘点数量</th>
+                          <th className="px-5 py-4 text-center font-medium">修改类型</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {taskDetails
+                          .filter(d => d.差异 !== "一致" || d.修改记录 === "人工修改")
+                          .map((detail, idx) => {
+                            const isManualModified = detail.修改记录 === "人工修改";
+                            return (
+                              <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                <td className="px-5 py-4 font-medium text-gray-800">
+                                  {detail.储位名称}
+                                </td>
+                                <td className="px-5 py-4 text-gray-600">
+                                  {detail.品规名称}
+                                </td>
+                                <td className="px-5 py-4 text-gray-600">
+                                  <span className={detail.实际品规 !== detail.品规名称 ? "text-red-600 font-medium" : ""}>
+                                    {detail.实际品规 || "-"}
                                   </span>
-                                  {detail.库存数量 === detail.实际数量 ? (
-                                    <p className="text-green-600 text-sm mt-2">
-                                      <i className="fa-solid fa-thumbs-up mr-1"></i>
-                                      库存准确，无需调整
-                                    </p>
+                                </td>
+                                <td className="px-5 py-4 text-center text-blue-600 font-medium">
+                                  {detail.库存数量}
+                                </td>
+                                <td className="px-5 py-4 text-center font-medium">
+                                  <span className={detail.差异 !== "一致" ? "text-red-600" : "text-gray-800"}>
+                                    {detail.实际数量}
+                                  </span>
+                                </td>
+                                <td className="px-5 py-4 text-center">
+                                  {isManualModified ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-200 text-yellow-900 border border-yellow-400">
+                                      <i className="fa-solid fa-pen mr-1"></i>人工修改
+                                    </span>
                                   ) : (
-                                    <p className="text-red-600 text-sm mt-2">
-                                      <i className="fa-solid fa-exclamation-triangle mr-1"></i>
-                                      库存差异:{" "}
-                                      {Math.abs(
-                                        detail.库存数量 - detail.实际数量,
-                                      )}{" "}
-                                      件
-                                    </p>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-orange-200 text-orange-900 border border-orange-400">
+                                      <i className="fa-solid fa-robot mr-1"></i>系统修改
+                                    </span>
                                   )}
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 mx-auto mb-4">
-                            <i className="fa-solid fa-warehouse text-2xl"></i>
-                          </div>
-                          <p className="text-gray-500">请先选择要查看的储位</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 右侧：图片四宫格 */}
-                  <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
-                    <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                      <h5 className="text-lg font-semibold text-gray-800">
-                        盘点图片记录
-                      </h5>
-                      <p className="text-sm text-gray-500">
-                        储位: {selectedPosition || "未选择"}
-                      </p>
-                    </div>
-                    <div className="p-6">
-                      {selectedPosition && currentImages.length > 0 ? (
-                        <div>
-                          {imagesLoading && (
-                            <div className="flex items-center justify-center py-8">
-                              <i className="fa-solid fa-spinner fa-spin text-3xl text-green-600 mr-3"></i>
-                              <span className="text-gray-600">
-                                正在加载图片...
-                              </span>
-                            </div>
-                          )}
-                          {!imagesLoading && (
-                            <div className="grid grid-cols-2 gap-4">
-                              {currentImages.map((image, index) => (
-                                <div
-                                  key={index}
-                                  className="aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-100 relative group"
-                                >
-                                  <img
-                                    crossOrigin="anonymous"
-                                    src={image}
-                                    alt={`盘点图片 ${index + 1}`}
-                                    className="w-full h-full object-cover"
-                                    loading="eager"
-                                    onError={(e) => {
-                                      // 图片加载失败时显示占位符
-                                      e.currentTarget.style.display = "none";
-                                      const parent =
-                                        e.currentTarget.parentElement;
-                                      if (parent) {
-                                        const placeholder =
-                                          document.createElement("div");
-                                        placeholder.className =
-                                          "w-full h-full flex items-center justify-center";
-                                        placeholder.innerHTML = `
-                <div class="text-center">
-                  <i class="fa-solid fa-image text-4xl text-gray-300 mb-2"></i>
-                  <p class="text-xs text-gray-500">图片 ${index + 1}</p>
-                  <p class="text-xs text-gray-400 mt-1">加载失败</p>
-                </div>
-              `;
-                                        parent.appendChild(placeholder);
-                                      }
-                                    }}
-                                  />
-                                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                    <button
-                                      className="bg-white bg-opacity-90 hover:bg-opacity-100 p-2 rounded-full shadow-lg"
-                                      onClick={() =>
-                                        window.open(image, "_blank")
-                                      }
-                                    >
-                                      <i className="fa-solid fa-expand text-gray-700"></i>
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 mx-auto mb-4">
-                            <i className="fa-solid fa-images text-2xl"></i>
-                          </div>
-                          <p className="text-gray-500">暂无图片记录</p>
-                          <p className="text-gray-400 text-sm mt-2">
-                            选择储位后显示对应图片
-                          </p>
-                        </div>
-                      )}
-
-                      {/* 图片路径信息 */}
-                      {selectedPosition && currentImages.length > 0 && (
-                        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                          <p className="text-xs text-gray-500 mb-2">
-                            <i className="fa-solid fa-info-circle mr-1"></i>
-                            图片路径结构
-                          </p>
-                          <p className="text-sm text-gray-700 font-mono break-all">
-                            {selectedTask.taskId}/{selectedPosition}/[照片路径]
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        {taskDetails.filter(d => d.差异 !== "一致" || d.修改记录 === "人工修改").length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-5 py-8 text-center text-gray-400">
+                              <i className="fa-solid fa-circle-check text-3xl mb-2 block"></i>
+                              <p>所有库位盘点正常，无异常</p>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>

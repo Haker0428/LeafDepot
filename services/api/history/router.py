@@ -221,18 +221,27 @@ async def get_history_task_details(task_id: str):
         headers = [str(cell.value) for cell in worksheet[1] if cell.value]
         logger.info(f"Excel表头: {headers}")
 
+        # 预先从第一行数据读取操作员和有效状态（直接按列索引读取，不走 row_dict）
+        task_is_valid = True  # 默认为有效
+        if worksheet.max_row >= 2:
+            if "操作员" in headers:
+                op_val = worksheet.cell(row=2, column=headers.index("操作员") + 1).value
+                if op_val:
+                    operator = str(op_val)
+            if "有效状态" in headers:
+                valid_col_idx = headers.index("有效状态") + 1
+                valid_str = str(worksheet.cell(row=2, column=valid_col_idx).value or "").strip()
+                task_is_valid = (valid_str == "有效")
+                logger.info(f"详情接口读取 isValid: {task_is_valid}, valid_str: '{valid_str}'")
+
         details = []
         has_modified = False
         modified_bins: List[str] = []
-        operator = ""
         for row_index, row in enumerate(worksheet.iter_rows(min_row=2, values_only=True), 1):
             if all(cell is None for cell in row):
                 continue
 
             row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
-            # 操作员只取第一条记录的值（enumerate 从 1 开始计数，第一条数据行 row_index=1）
-            if row_index == 1 and row_dict.get("操作员"):
-                operator = str(row_dict.get("操作员", ""))
             mod_record = str(row_dict.get("修改记录", "") or "")
             # 排除空字符串和字符串 "None"（旧版 Excel 遗留值）
             if mod_record and mod_record != "None":
@@ -260,7 +269,8 @@ async def get_history_task_details(task_id: str):
             status_code=status.HTTP_200_OK,
             content={"code": 200, "message": "获取历史任务详情成功",
                      "data": {"taskId": task_id, "details": details, "total": len(details),
-                              "operator": operator, "hasModified": has_modified, "modifiedBins": modified_bins}}
+                              "operator": operator, "hasModified": has_modified, "modifiedBins": modified_bins,
+                              "isValid": task_is_valid}}
         )
 
     except HTTPException:

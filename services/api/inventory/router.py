@@ -40,6 +40,7 @@ from services.api.inventory.service import (
     inventory_task_bins,
     inventory_task_details,
 )
+from services.api.inventory.task_state import on_server_startup, clear_task
 
 from services.api.auth.router import get_user_info_from_token
 
@@ -98,6 +99,12 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
                             }
                         }
                     )
+                elif existing_task.status == "cancelled":
+                    # 已取消的任务，清除内存状态，允许重新下发
+                    inventory_tasks.pop(task_no, None)
+                    inventory_task_details.pop(task_no, None)
+                    inventory_task_bins.pop(task_no, None)
+                    # 继续执行下发逻辑（不 return）
 
         # 保存原始盘点项信息（使用存储键）
         if storage_key not in inventory_task_details:
@@ -859,3 +866,25 @@ async def get_local_bins():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"code": 500, "message": f"读取失败: {str(e)}", "data": []}
         )
+
+
+# ==================== 取消任务接口 ====================
+
+@router.post("/cancel-inventory")
+async def cancel_inventory(taskNo: str):
+    """取消正在运行的盘点任务"""
+    if taskNo in inventory_tasks:
+        inventory_tasks[taskNo].status = "cancelled"
+        clear_task(taskNo)
+        logger.info(f"任务已取消: {taskNo}")
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"code": 200, "message": "任务已取消", "data": None}
+    )
+
+
+# ==================== Gateway 启动时处理中断任务 ====================
+
+@router.on_event("startup")
+async def startup_event():
+    on_server_startup()

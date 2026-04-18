@@ -93,7 +93,7 @@ async def startup_event():
     """应用启动事件"""
     logger.info("🚀 Gateway服务启动")
     logger.info("📡 API地址: http://0.0.0.0:8000")
-    logger.info("📚 API文档: http://localhost:8000/docs")
+    logger.info("📚 API文档: http://10.16.82.95:8000/docs")
     logger.info(f"📝 日志目录: {logs_dir}")
 
     # 记录启动日志

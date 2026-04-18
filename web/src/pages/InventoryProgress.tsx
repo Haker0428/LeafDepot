@@ -274,7 +274,7 @@ export default function InventoryProgress() {
   // }
 
   // // 构建 WebSocket URL，根据你的网关地址调整
-  // const wsUrl = `ws://localhost:8000/ws/inventory/${currentTaskNo}`;
+  // const wsUrl = `ws://10.16.82.95:8000/ws/inventory/${currentTaskNo}`;
   // console.log("尝试连接 WebSocket:", wsUrl);
 
   // const ws = new WebSocket(wsUrl);
@@ -1262,6 +1262,28 @@ export default function InventoryProgress() {
 
     loadTaskManifest();
   }, [location]);
+
+  // 页面加载时检测任务是否已被取消或中断
+  useEffect(() => {
+    const checkTaskStatus = async () => {
+      if (!currentTaskNo) return;
+      try {
+        const res = await fetch(
+          `${GATEWAY_URL}/api/inventory/progress?taskNo=${encodeURIComponent(currentTaskNo)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const status = data.data?.status;
+        if (status === "cancelled" || status === "interrupted") {
+          localStorage.removeItem("currentTaskManifest");
+          localStorage.removeItem("currentTaskNo");
+          toast.warning("上一个任务已被中断，请重新下发");
+          setCurrentTaskManifest(null);
+        }
+      } catch {}
+    };
+    checkTaskStatus();
+  }, [currentTaskNo]);
 
   // 图片加载处理
   const handleImageLoad = () => {
@@ -2415,6 +2437,25 @@ export default function InventoryProgress() {
     navigate("/inventory/start");
   };
 
+  // 取消任务
+  const handleCancelTask = async () => {
+    try {
+      const res = await fetch(
+        `${GATEWAY_URL}/api/inventory/cancel-inventory?taskNo=${encodeURIComponent(currentTaskNo)}`,
+        { method: "POST" }
+      );
+      const data = await res.json();
+      if (data.code === 200) {
+        localStorage.removeItem("currentTaskManifest");
+        localStorage.removeItem("currentTaskNo");
+        toast.success("任务已取消");
+        navigate("/inventory/start");
+      }
+    } catch (err) {
+      toast.error("取消任务失败");
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       {/* 背景图片 */}
@@ -2470,6 +2511,16 @@ export default function InventoryProgress() {
             >
               <i className="fa-solid fa-arrow-left mr-2"></i>返回
             </button>
+
+            {/* 取消任务按钮（任务进行中时显示） */}
+            {!isTaskCompleted && currentTaskManifest && (
+              <button
+                onClick={handleCancelTask}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-all flex items-center"
+              >
+                <i className="fa-solid fa-stop mr-2"></i>取消任务
+              </button>
+            )}
           </div>
         </div>
       </header>

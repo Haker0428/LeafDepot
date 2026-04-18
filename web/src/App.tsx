@@ -15,12 +15,18 @@ import InventoryStart from "./pages/InventoryStart";
 import InventoryProgress from "./pages/InventoryProgress";
 import UserManage from "./pages/UserManage";
 import History from "./pages/History";
+import HistoryDetail from "./pages/HistoryDetail";
 
 import { useAuth } from "./contexts/authContext"; // 导入 useAuth
 
 // 受保护路由组件
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated } = useAuth(); // 使用 useAuth 钩子
+  const { isAuthenticated, isVerifying } = useAuth(); // 使用 useAuth 钩子
+
+  // token 验证中，不跳转，等待验证结果
+  if (isVerifying) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/" replace />;
@@ -73,6 +79,15 @@ export default function App() {
         element={
           <ProtectedRoute>
             <History />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/inventory/history/:taskId"
+        element={
+          <ProtectedRoute>
+            <HistoryDetail />
           </ProtectedRoute>
         }
       />
