@@ -38,6 +38,7 @@ export default function HistoryDetail() {
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(0);
   const [mainImgError, setMainImgError] = useState(false);
+  const [failedThumbIdx, setFailedThumbIdx] = useState<Set<number>>(new Set());
 
   // 加载任务详情
   useEffect(() => {
@@ -78,7 +79,6 @@ export default function HistoryDetail() {
   const totalBins = taskDetails.length;
   const matchedBins = taskDetails.filter(d => d.差异 === "一致").length;
   const diffBins = totalBins - matchedBins;
-  const modifiedBins = taskDetails.filter(d => d.修改记录 === "人工修改").length;
 
   // 构建图片URL
   const buildImageUrls = (detail: InventoryDetail): string[] => {
@@ -94,14 +94,23 @@ export default function HistoryDetail() {
     }).filter(Boolean);
   };
 
+  // photoUrls 变化时也要重置图片错误状态，防止切换库位后残留
+  useEffect(() => {
+    setMainImgError(false);
+    setFailedThumbIdx(new Set());
+  }, [photoUrls]);
+
   // 当选中的库位变化时，重新构建照片URL
   useEffect(() => {
     if (selectedBin) {
-      setPhotoUrls(buildImageUrls(selectedBin));
+      const urls = buildImageUrls(selectedBin);
+      setPhotoUrls(urls);
       setSelectedPhotoIdx(0);
       setMainImgError(false);
     } else {
       setPhotoUrls([]);
+      setSelectedPhotoIdx(0);
+      setMainImgError(false);
     }
   }, [selectedBin]);
 
@@ -374,18 +383,21 @@ export default function HistoryDetail() {
                       {/* 缩略图 */}
                       {photoUrls.length > 1 && (
                         <div className="flex justify-center gap-2 mt-2">
-                          {photoUrls.map((url, idx) => (
-                            <img
-                              key={idx}
-                              src={url}
-                              alt={`照片 ${idx + 1}`}
-                              onClick={() => setSelectedPhotoIdx(idx)}
-                              className={`w-16 h-16 object-cover rounded cursor-pointer border-2 transition-all ${
-                                selectedPhotoIdx === idx ? "border-blue-500 opacity-100" : "border-gray-200 opacity-60 hover:opacity-100"
-                              }`}
-                              onError={(e) => { e.currentTarget.style.display = "none"; }}
-                            />
-                          ))}
+                          {photoUrls.map((url, idx) => {
+                            if (failedThumbIdx.has(idx)) return null;
+                            return (
+                              <img
+                                key={idx}
+                                src={url}
+                                alt={`照片 ${idx + 1}`}
+                                onClick={() => setSelectedPhotoIdx(idx)}
+                                className={`w-16 h-16 object-cover rounded cursor-pointer border-2 transition-all ${
+                                  selectedPhotoIdx === idx ? "border-blue-500 opacity-100" : "border-gray-200 opacity-60 hover:opacity-100"
+                                }`}
+                                onError={() => setFailedThumbIdx(prev => new Set([...prev, idx]))}
+                              />
+                            );
+                          })}
                         </div>
                       )}
                     </div>
