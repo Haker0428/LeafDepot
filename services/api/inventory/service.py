@@ -1350,7 +1350,8 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 clear_robot_status_queue()
 
                 # 等待 END（队列支持多 END 并发到达，不会丢失）
-                resolved_bin = ""
+                resolved_bin = bin_locations[i]
+                timeout_occurred = False
                 try:
                     ctu_status = await wait_for_robot_status("end", timeout=600)
                     bin_code = ctu_status.get("binCode", "")
@@ -1358,9 +1359,9 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     if bin_code:
                         logger.info(f"END 回调携带 binCode: {bin_code}")
                 except asyncio.TimeoutError:
-                    logger.error(f"等待 END 超时，跳过库位")
+                    logger.error(f"等待 END 超时，跳过库位: {resolved_bin}")
                     inventory_results.append({
-                        "binLocation": bin_locations[i], "status": "异常",
+                        "binLocation": resolved_bin, "status": "异常",
                         "actualQuantity": None, "actualSpec": "无",
                         "error": "等待 END 超时",
                         "photo3dPath": None, "photoDepthPath": None,
@@ -1368,6 +1369,15 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         "specName": "", "systemQuantity": 0, "difference": 0,
                     })
                     update_progress(task_no, len(inventory_results))
+                    timeout_occurred = True
+
+                # 不论超时与否，都发送 continue 推进任务，防止最后一个库位卡住无法结束
+                try:
+                    await continue_inventory_task(is_sim=True, robot_task_code=submit_result.get("robotTaskCode", "ctu001"))
+                except Exception as e:
+                    logger.error(f"发送 continue 失败: {str(e)}")
+
+                if timeout_occurred:
                     continue
 
                 # 拍照
@@ -1384,12 +1394,6 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         "photo3dPath": None, "photoDepthPath": None,
                         "photoScan1Path": "", "photoScan2Path": "",
                     }
-
-                # 发 continue（simulator 收到后等待 gateway 发 END）
-                try:
-                    await continue_inventory_task(is_sim=True, robot_task_code=submit_result.get("robotTaskCode", "ctu001"))
-                except Exception as e:
-                    logger.error(f"发送 continue 失败: {str(e)}")
 
                 # 更新 bin 状态 & 收集结果
                 if task_no in _inventory_task_bins:
@@ -1442,6 +1446,11 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             # 逐个等待 END：每次收到 END → 拍照 → 发 continue
             pending_count = len(submitted_bins)
             for _ in range(pending_count):
+                # 初始化，防止 timeout 时变量未定义
+                bin_location = ""
+                rt_code = ""
+                result = None
+                timeout_occurred = False
                 try:
                     ctu_status = await wait_for_robot_status("end", timeout=600)
                     bin_code = ctu_status.get("binCode", "")
@@ -1466,12 +1475,17 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 except asyncio.TimeoutError:
                     logger.error(f"等待 END 超时，跳过库位")
                     _inventory_tasks[task_no].current_step = len(inventory_results)
+                    # 超时时按顺序推算 bin_location（用 bin_to_task_code 的第一个未完成项兜底）
+                    idx = len(inventory_results)
+                    bin_location = submitted_bins[idx] if idx < len(submitted_bins) else ""
+                    rt_code = bin_to_task_code.get(bin_location, "")
                     result = {
                         "status": "异常", "error": "等待 END 超时",
                         "actualQuantity": None, "actualSpec": "无",
                         "photo3dPath": None, "photoDepthPath": None,
                         "photoScan1Path": "", "photoScan2Path": "",
                     }
+                    timeout_occurred = True
                 except Exception as e:
                     logger.error(f"处理库位 {bin_location} 时发生异常: {str(e)}")
                     result = {
@@ -1482,18 +1496,24 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     }
 
                 # 更新 bin 状态
-                if task_no in _inventory_task_bins:
+                if bin_location and task_no in _inventory_task_bins:
                     for bs in _inventory_task_bins[task_no]:
                         if bs.bin_location == bin_location:
-                            bs.status = "completed" if result.get("status") == "成功" else "failed"
+                            bs.status = "completed" if result and result.get("status") == "成功" else "failed"
                             break
 
-                # 拍照完成后，用该 bin 对应的 robot_task_code 发送 continue
-                try:
-                    continue_result = await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
-                    logger.info(f"continue 调用结果 (bin={bin_location}, robotTaskCode={rt_code}): {continue_result}")
-                except Exception as e:
-                    logger.error(f"发送 continue 失败: {str(e)}")
+                # 拍照完成后，用该 bin 对应的 robot_task_code 发送 continue（不论是否超时都要发，推进机器人）
+                if rt_code:
+                    try:
+                        continue_result = await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
+                        logger.info(f"continue 调用结果 (bin={bin_location}, robotTaskCode={rt_code}): {continue_result}")
+                    except Exception as e:
+                        logger.error(f"发送 continue 失败: {str(e)}")
+                else:
+                    logger.warning(f"rt_code 为空，跳过 continue（bin={bin_location}）")
+
+                if timeout_occurred:
+                    continue
 
                 # 查找匹配储位信息
                 inventory_item = None
