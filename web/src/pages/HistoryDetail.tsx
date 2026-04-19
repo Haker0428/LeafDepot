@@ -39,6 +39,7 @@ export default function HistoryDetail() {
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(0);
   const [mainImgError, setMainImgError] = useState(false);
   const [failedThumbIdx, setFailedThumbIdx] = useState<Set<number>>(new Set());
+  const [photoPanelStyle, setPhotoPanelStyle] = useState<React.CSSProperties>({});
 
   // 加载任务详情
   useEffect(() => {
@@ -113,6 +114,36 @@ export default function HistoryDetail() {
       setMainImgError(false);
     }
   }, [selectedBin]);
+
+  // 计算照片面板位置，使其始终垂直居中于当前视口
+  useEffect(() => {
+    const HEADER_HEIGHT = 64; // header 高度约 64px
+    const PANEL_HEIGHT = 480; // 照片面板预估高度
+    const PANEL_WIDTH = 384;  // w-96 = 24rem = 384px
+
+    const updatePosition = () => {
+      const viewportH = window.innerHeight;
+      const availableH = viewportH - HEADER_HEIGHT;
+      // 面板上下各留 16px 边距
+      const maxH = availableH - 32;
+      const top = HEADER_HEIGHT + Math.max(16, (availableH - PANEL_HEIGHT) / 2);
+      setPhotoPanelStyle({
+        position: "fixed",
+        right: 16,
+        top: Math.min(top, viewportH - PANEL_HEIGHT - 16),
+        width: PANEL_WIDTH,
+        maxHeight: maxH,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("scroll", updatePosition, { passive: true });
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("scroll", updatePosition);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, []);
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return "";
@@ -325,90 +356,93 @@ export default function HistoryDetail() {
                   </table>
                 </div>
               </div>
+            </div>
 
-              {/* 右侧：照片展示区域，页面滚动时贴顶跟随 */}
-              <div className="w-96 flex-shrink-0 bg-white rounded-xl shadow-md overflow-hidden border border-gray-100 flex flex-col sticky top-8 self-start max-h-[calc(100vh-12rem)]">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                  <h3 className="text-lg font-semibold text-gray-800">
-                    <i className="fa-solid fa-image mr-2"></i>
-                    照片展示
-                  </h3>
-                </div>
-                <div className="flex-1 p-4 flex flex-col overflow-y-auto">
-                  {selectedBin ? (
-                    <div className="flex flex-col">
-                      {/* 选中库位标题 */}
-                      <div className="mb-3 text-center">
-                        <p className="text-base font-bold text-gray-800">{selectedBin.储位名称}</p>
-                        <p className="text-sm text-gray-500">{selectedBin.品规名称} → {selectedBin.实际品规}</p>
-                        <p className="text-sm text-gray-500">
-                          系统数量: <span className="text-blue-600 font-medium">{selectedBin.库存数量}</span> |
-                          盘点数量: <span className={`font-medium ${selectedBin.差异 !== "一致" ? "text-red-600" : "text-gray-800"}`}>{selectedBin.实际数量}</span>
-                        </p>
-                      </div>
+            {/* 右侧浮动照片展示区域 */}
+            <div
+              style={photoPanelStyle}
+              className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200 flex flex-col z-50"
+            >
+              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+                <h3 className="text-lg font-semibold text-gray-800">
+                  <i className="fa-solid fa-image mr-2"></i>
+                  照片展示
+                </h3>
+              </div>
+              <div className="flex-1 p-4 flex flex-col overflow-y-auto">
+                {selectedBin ? (
+                  <div className="flex flex-col">
+                    {/* 选中库位标题 */}
+                    <div className="mb-3 text-center">
+                      <p className="text-base font-bold text-gray-800">{selectedBin.储位名称}</p>
+                      <p className="text-sm text-gray-500">{selectedBin.品规名称} → {selectedBin.实际品规}</p>
+                      <p className="text-sm text-gray-500">
+                        系统数量: <span className="text-blue-600 font-medium">{selectedBin.库存数量}</span> |
+                        盘点数量: <span className={`font-medium ${selectedBin.差异 !== "一致" ? "text-red-600" : "text-gray-800"}`}>{selectedBin.实际数量}</span>
+                      </p>
+                    </div>
 
-                      {/* 大图 */}
-                      <div className="flex items-center justify-center bg-gray-100 rounded-lg overflow-hidden relative min-h-[200px]">
-                        {photoUrls.length > 0 ? (
-                          <img
-                            src={photoUrls[selectedPhotoIdx]}
-                            alt={`照片 ${selectedPhotoIdx + 1}`}
-                            className="max-h-48 max-w-full object-contain cursor-pointer"
-                            onClick={() => {
-                              window.open(photoUrls[selectedPhotoIdx], "_blank");
-                            }}
-                            onError={() => setMainImgError(true)}
-                          />
-                        ) : mainImgError ? (
-                          <div className="text-center text-gray-400 py-4">
-                            <i className="fa-solid fa-image text-4xl mb-2 block"></i>
-                            <p className="text-sm">图片加载失败</p>
-                          </div>
-                        ) : (
-                          <div className="text-center text-gray-400 py-4">
-                            <i className="fa-solid fa-image text-4xl mb-2 block"></i>
-                            <p className="text-sm">暂无照片</p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 照片说明 */}
-                      <div className="grid grid-cols-4 gap-1 text-xs text-gray-500 text-center mt-2">
-                        <span>3D主图</span>
-                        <span>3D深度图</span>
-                        <span>扫描相机1</span>
-                        <span>扫描相机2</span>
-                      </div>
-
-                      {/* 缩略图 */}
-                      {photoUrls.length > 1 && (
-                        <div className="flex justify-center gap-2 mt-2">
-                          {photoUrls.map((url, idx) => {
-                            if (failedThumbIdx.has(idx)) return null;
-                            return (
-                              <img
-                                key={idx}
-                                src={url}
-                                alt={`照片 ${idx + 1}`}
-                                onClick={() => setSelectedPhotoIdx(idx)}
-                                className={`w-16 h-16 object-cover rounded cursor-pointer border-2 transition-all ${
-                                  selectedPhotoIdx === idx ? "border-blue-500 opacity-100" : "border-gray-200 opacity-60 hover:opacity-100"
-                                }`}
-                                onError={() => setFailedThumbIdx(prev => new Set([...prev, idx]))}
-                              />
-                            );
-                          })}
+                    {/* 大图 */}
+                    <div className="flex items-center justify-center bg-gray-100 rounded-lg overflow-hidden relative min-h-[200px]">
+                      {photoUrls.length > 0 ? (
+                        <img
+                          src={photoUrls[selectedPhotoIdx]}
+                          alt={`照片 ${selectedPhotoIdx + 1}`}
+                          className="max-h-48 max-w-full object-contain cursor-pointer"
+                          onClick={() => {
+                            window.open(photoUrls[selectedPhotoIdx], "_blank");
+                          }}
+                          onError={() => setMainImgError(true)}
+                        />
+                      ) : mainImgError ? (
+                        <div className="text-center text-gray-400 py-4">
+                          <i className="fa-solid fa-image text-4xl mb-2 block"></i>
+                          <p className="text-sm">图片加载失败</p>
+                        </div>
+                      ) : (
+                        <div className="text-center text-gray-400 py-4">
+                          <i className="fa-solid fa-image text-4xl mb-2 block"></i>
+                          <p className="text-sm">暂无照片</p>
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-gray-400 flex-1">
-                      <i className="fa-solid fa-hand-point-up text-5xl mb-4"></i>
-                      <p className="text-base font-medium">点击左侧表格中的库位</p>
-                      <p className="text-sm mt-1">查看对应照片</p>
+
+                    {/* 照片说明 */}
+                    <div className="grid grid-cols-4 gap-1 text-xs text-gray-500 text-center mt-2">
+                      <span>3D主图</span>
+                      <span>3D深度图</span>
+                      <span>扫描相机1</span>
+                      <span>扫描相机2</span>
                     </div>
-                  )}
-                </div>
+
+                    {/* 缩略图 */}
+                    {photoUrls.length > 1 && (
+                      <div className="flex justify-center gap-2 mt-2">
+                        {photoUrls.map((url, idx) => {
+                          if (failedThumbIdx.has(idx)) return null;
+                          return (
+                            <img
+                              key={idx}
+                              src={url}
+                              alt={`照片 ${idx + 1}`}
+                              onClick={() => setSelectedPhotoIdx(idx)}
+                              className={`w-16 h-16 object-cover rounded cursor-pointer border-2 transition-all ${
+                                selectedPhotoIdx === idx ? "border-blue-500 opacity-100" : "border-gray-200 opacity-60 hover:opacity-100"
+                              }`}
+                              onError={() => setFailedThumbIdx(prev => new Set([...prev, idx]))}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-gray-400 flex-1">
+                    <i className="fa-solid fa-hand-point-up text-5xl mb-4"></i>
+                    <p className="text-base font-medium">点击左侧表格中的库位</p>
+                    <p className="text-sm mt-1">查看对应照片</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
