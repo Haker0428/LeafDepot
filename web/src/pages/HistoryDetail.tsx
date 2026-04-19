@@ -317,17 +317,17 @@ export default function HistoryDetail() {
                 </div>
               </div>
 
-              {/* 右侧：照片展示区域 */}
-              <div className="w-96 bg-white rounded-xl shadow-md overflow-hidden border border-gray-100 flex flex-col">
+              {/* 右侧：照片展示区域，页面滚动时贴顶跟随 */}
+              <div className="w-96 flex-shrink-0 bg-white rounded-xl shadow-md overflow-hidden border border-gray-100 flex flex-col sticky top-8 self-start max-h-[calc(100vh-12rem)]">
                 <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
                   <h3 className="text-lg font-semibold text-gray-800">
                     <i className="fa-solid fa-image mr-2"></i>
                     照片展示
                   </h3>
                 </div>
-                <div className="flex-1 p-4 flex flex-col">
+                <div className="flex-1 p-4 flex flex-col overflow-y-auto">
                   {selectedBin ? (
-                    <div className="flex flex-col h-full">
+                    <div className="flex flex-col">
                       {/* 选中库位标题 */}
                       <div className="mb-3 text-center">
                         <p className="text-base font-bold text-gray-800">{selectedBin.储位名称}</p>
@@ -339,24 +339,24 @@ export default function HistoryDetail() {
                       </div>
 
                       {/* 大图 */}
-                      <div className="flex-1 flex items-center justify-center bg-gray-100 rounded-lg overflow-hidden relative min-h-[280px]">
+                      <div className="flex items-center justify-center bg-gray-100 rounded-lg overflow-hidden relative min-h-[200px]">
                         {photoUrls.length > 0 ? (
                           <img
                             src={photoUrls[selectedPhotoIdx]}
                             alt={`照片 ${selectedPhotoIdx + 1}`}
-                            className="max-h-full max-w-full object-contain cursor-pointer"
+                            className="max-h-48 max-w-full object-contain cursor-pointer"
                             onClick={() => {
                               window.open(photoUrls[selectedPhotoIdx], "_blank");
                             }}
                             onError={() => setMainImgError(true)}
                           />
                         ) : mainImgError ? (
-                          <div className="text-center text-gray-400">
+                          <div className="text-center text-gray-400 py-4">
                             <i className="fa-solid fa-image text-4xl mb-2 block"></i>
                             <p className="text-sm">图片加载失败</p>
                           </div>
                         ) : (
-                          <div className="text-center text-gray-400">
+                          <div className="text-center text-gray-400 py-4">
                             <i className="fa-solid fa-image text-4xl mb-2 block"></i>
                             <p className="text-sm">暂无照片</p>
                           </div>
@@ -390,7 +390,7 @@ export default function HistoryDetail() {
                       )}
                     </div>
                   ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 min-h-[300px]">
+                    <div className="flex flex-col items-center justify-center text-gray-400 flex-1">
                       <i className="fa-solid fa-hand-point-up text-5xl mb-4"></i>
                       <p className="text-base font-medium">点击左侧表格中的库位</p>
                       <p className="text-sm mt-1">查看对应照片</p>
