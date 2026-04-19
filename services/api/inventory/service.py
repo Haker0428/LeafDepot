@@ -1349,6 +1349,11 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 # 清空队列中的旧状态，防止上一轮残留的 END 干扰
                 clear_robot_status_queue()
 
+                # 检查任务是否已被取消
+                if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                    logger.warning(f"任务 {task_no} 已被取消，退出等待循环")
+                    break
+
                 # 等待 END（队列支持多 END 并发到达，不会丢失）
                 resolved_bin = bin_locations[i]
                 timeout_occurred = False
@@ -1446,6 +1451,10 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             # 逐个等待 END：每次收到 END → 拍照 → 发 continue
             pending_count = len(submitted_bins)
             for _ in range(pending_count):
+                # 检查任务是否已被取消，避免在用户取消后继续空等 END
+                if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                    logger.warning(f"任务 {task_no} 已被取消，退出等待循环")
+                    break
                 # 初始化，防止 timeout 时变量未定义
                 bin_location = ""
                 rt_code = ""

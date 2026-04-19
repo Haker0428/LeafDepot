@@ -58,6 +58,9 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300):
                 item = _robot_status_queue[j]
                 del _robot_status_queue[j]
                 logger.info(f"从队列中取出期望状态: {expected_method}，binCode={item.get('binCode', '')}，剩余: {len(_robot_status_queue)}")
+                # 队列非空时不清除事件，让下一轮立即处理剩余 END
+                if not _robot_status_queue:
+                    _status_event.clear()
                 return item
 
         elapsed = time.time() - start_time
@@ -67,9 +70,12 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300):
             raise asyncio.TimeoutError(f"等待 {expected_method} 状态超时")
 
         try:
-            await asyncio.wait_for(_status_event.wait(), timeout=min(1.0, remaining))
-            _status_event.clear()
+            # 等待剩余全部时间（不再固定 1 秒），避免长处理期间漏掉回调
+            await asyncio.wait_for(_status_event.wait(), timeout=remaining)
         except asyncio.TimeoutError:
+            # 只有队列空时才清除事件，防止已到达的回调被漏掉
+            if not _robot_status_queue:
+                _status_event.clear()
             elapsed = time.time() - start_time
             if elapsed >= timeout:
                 logger.error(f"等待机器人状态超时: {expected_method}")
