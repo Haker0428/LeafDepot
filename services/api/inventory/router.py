@@ -40,6 +40,7 @@ from services.api.inventory.service import (
     inventory_task_bins,
     inventory_task_details,
     abort_inventory_task,  # TODO: RCS cancel API 就位后，取消接口中将调用此函数
+    _get_next_task_no,
 )
 from services.api.shared.websocket_manager import ws_manager
 from services.api.inventory.task_state import on_server_startup, clear_task
@@ -68,7 +69,7 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
     """启动盘点任务，接收任务编号和储位名称列表"""
     try:
         data = await request.json()
-        task_no = data.get("taskNo")
+        task_no = data.get("taskNo") or _get_next_task_no()
         bin_locations = data.get("binLocations", [])
         is_sim = IS_SIM  # 使用配置文件中的值
         inventory_items = data.get("inventoryItems", [])

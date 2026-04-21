@@ -600,13 +600,7 @@ export default function InventoryStart() {
       return;
     }
 
-    // 检查任务号是否填写，如果为空则自动生成
-    let taskNo = taskNoInput.trim();
-    if (!taskNo) {
-      taskNo = generateTaskNo();
-      setTaskNoInput(taskNo);
-      toast.info(`已自动生成任务号: ${taskNo}`);
-    }
+    // 任务号由网关自动生成（每日递增），前端不填则传空
 
     // 过滤掉已经在任务列表中的库位（使用id判断）
     const existingBinIds = new Set(
@@ -636,7 +630,7 @@ export default function InventoryStart() {
         if (!bin) return null;
 
         // 为每个任务生成唯一的taskID
-        const uniqueTaskID = `${taskNo}_${Date.now()}_${index}`;
+        const uniqueTaskID = `${taskNoInput}_${Date.now()}_${index}`;
 
         return {
           taskID: uniqueTaskID,

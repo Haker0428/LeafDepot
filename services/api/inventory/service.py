@@ -74,6 +74,36 @@ def _get_next_request_id() -> str:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
+# 盘点任务号计数器（按日递增，跨进程互斥写）
+_TASKNO_COUNTER_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs", "task_no_counter.txt")
+
+def _get_next_task_no() -> str:
+    """获取下一个盘点任务号，格式: HS{YYYYMMDD}{NN}，每日从1开始递增"""
+    import fcntl
+    today = datetime.now().strftime("%Y%m%d")
+    os.makedirs(os.path.dirname(_TASKNO_COUNTER_FILE), exist_ok=True)
+    with open(_TASKNO_COUNTER_FILE, "r+") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            current = f.read().strip()
+            if current:
+                parts = current.split(":", 1)
+                saved_date = parts[0]
+                counter = int(parts[1]) if len(parts) > 1 else 0
+            else:
+                saved_date = ""
+                counter = 0
+            if saved_date != today:
+                counter = 0  # 新的一天，重置计数器
+            counter += 1
+            f.seek(0)
+            f.truncate()
+            f.write(f"{today}:{counter}")
+            return f"HS{today}{counter:02d}"
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
 # 任务状态存储
 _inventory_tasks: Dict[str, TaskStatus] = {}
 _inventory_task_bins: Dict[str, List[BinLocationStatus]] = {}

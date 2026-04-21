@@ -1553,6 +1553,12 @@ export default function InventoryProgress() {
 
       if (result.code === 200) {
         if (result.message === "盘点任务已启动") {
+          // 任务号可能由网关自动生成，同步到状态和本地存储
+          const returnedTaskNo = result.data?.taskNo;
+          if (returnedTaskNo && returnedTaskNo !== currentTaskNo) {
+            setCurrentTaskNo(returnedTaskNo);
+            localStorage.setItem("currentTaskNo", returnedTaskNo);
+          }
           toast.success(`任务启动成功，正在执行盘点...`);
 
           const pollIntervalId = setInterval(async () => {
