@@ -419,9 +419,9 @@ async def update_robot_status(method: str, data: Optional[Dict] = None):
     await _router_update_status(method, data)
 
 
-async def wait_for_robot_status(expected_method: str, timeout: int = 300):
+async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_robot_codes: set = None):
     """等待特定机器人状态（委托给 robot/router）"""
-    return await _router_wait_status(expected_method, timeout)
+    return await _router_wait_status(expected_method, timeout, valid_robot_codes=valid_robot_codes)
 
 
 # ==================== 系统在线状态检查 ====================
