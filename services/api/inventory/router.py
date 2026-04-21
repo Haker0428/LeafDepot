@@ -62,6 +62,37 @@ else:
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 
+# ==================== 用户进行中任务查询 ====================
+
+@router.get("/running-task")
+async def get_running_task(request: Request):
+    """查询当前登录用户是否有正在进行的盘点任务，有则返回任务信息"""
+    auth_token = request.headers.get("authToken")
+    user_info = await get_user_info_from_token(auth_token) if auth_token else {}
+    user_id = user_info.get("userId", "")
+    if not user_id:
+        return JSONResponse(status_code=200, content={"code": 200, "data": None})
+
+    for running_task_no, task_status in inventory_tasks.items():
+        if task_status.status == "running":
+            task_user_info = inventory_task_details.get(running_task_no, {}).get("userInfo", {})
+            if task_user_info.get("userId") == user_id:
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "code": 200,
+                        "data": {
+                            "taskNo": running_task_no,
+                            "operatorName": task_user_info.get("userName", ""),
+                            "startTime": task_status.start_time or "",
+                            "totalBins": task_status.total_bins or 0,
+                            "completedBins": task_status.completed_bins or 0,
+                        }
+                    }
+                )
+    return JSONResponse(status_code=200, content={"code": 200, "data": None})
+
+
 # ==================== 任务进度接口 ====================
 
 @router.post("/start-inventory")

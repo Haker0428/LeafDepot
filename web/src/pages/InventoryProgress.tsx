@@ -1217,6 +1217,20 @@ export default function InventoryProgress() {
   // 从本地存储获取任务清单并初始化盘点数据
   useEffect(() => {
     const loadTaskManifest = () => {
+      const isResumeMode = location.state?.resumeMode;
+
+      // 继续盘点模式：从后端加载任务状态
+      if (isResumeMode) {
+        const resumeTaskNo = location.state.taskNo;
+        if (resumeTaskNo) {
+          setCurrentTaskNo(resumeTaskNo);
+          localStorage.setItem("currentTaskNo", resumeTaskNo);
+          toast.info(`正在加载任务 ${resumeTaskNo} 的进度...`);
+        }
+        return;
+      }
+
+      // 正常模式：从本地存储加载任务清单
       try {
         const manifestData = localStorage.getItem("currentTaskManifest");
         const taskNo = localStorage.getItem("currentTaskNo");
