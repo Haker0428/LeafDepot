@@ -53,6 +53,27 @@ from services.api.inventory.task_state import (
     mark_finished,
 )
 
+# RCS REQUEST-ID 递增计数器（持久化到文件，进程重启不丢失）
+_COUNTER_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs", "request_id_counter.txt")
+
+def _get_next_request_id() -> str:
+    """获取下一个递增的 REQUEST-ID，格式: TASK_ + 12位16进制大写（每进程互斥写）"""
+    import fcntl
+    os.makedirs(os.path.dirname(_COUNTER_FILE), exist_ok=True)
+    with open(_COUNTER_FILE, "r+") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            current = f.read().strip()
+            counter = int(current, 16) if current else 0
+            counter += 1
+            f.seek(0)
+            f.truncate()
+            f.write(f"{counter:012X}")
+            return f"TASK_{counter:012X}"
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
 # 任务状态存储
 _inventory_tasks: Dict[str, TaskStatus] = {}
 _inventory_task_bins: Dict[str, List[BinLocationStatus]] = {}
@@ -96,7 +117,6 @@ def get_inventory_service():
 async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: bool = True, max_retries: int = 3):
     """下发盘点任务，接收任务编号和储位名称列表，支持失败重试"""
     import time as time_module
-    import uuid
 
     try:
         logger.info(f"下发盘点任务: {task_no}, 储位: {bin_locations}, 模拟模式: {is_sim}")
@@ -149,7 +169,7 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                         "X-App-Id": real_cfg.get("app_id", "1008"),
                         "X-Sign": real_cfg.get("sign", ""),
                         "X-Timestamp": timestamp,
-                        "X-LR-REQUEST-ID": f"TASK_SUBMIT_{uuid.uuid4().hex[:4].upper()}",
+                        "X-LR-REQUEST-ID": _get_next_request_id(),
                         "Content-Type": "application/json"
                     }
                     # 构建 targetRoute：STORAGE（储位）
@@ -221,7 +241,6 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
 async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = "", max_retries: int = 3):
     """继续盘点任务，支持失败重试"""
     import time as time_module
-    import uuid
 
     try:
         logger.info(f"继续执行盘点任务, 模拟模式: {is_sim}, robotTaskCode: {robot_task_code}")
@@ -257,7 +276,7 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                         "X-App-Id": real_cfg.get("app_id", "1008"),
                         "X-Sign": real_cfg.get("sign", ""),
                         "X-Timestamp": timestamp,
-                        "X-LR-REQUEST-ID": str(uuid.uuid4()),
+                        "X-LR-REQUEST-ID": _get_next_request_id(),
                         "Content-Type": "application/json"
                     }
                     request_body = {
@@ -325,7 +344,6 @@ async def abort_inventory_task(robot_task_code: str, is_sim: bool = True, max_re
     }
     """
     import time as time_module
-    import uuid
 
     if not robot_task_code:
         logger.warning("[abort] robotTaskCode 为空，跳过 abort 调用")
@@ -371,7 +389,7 @@ async def abort_inventory_task(robot_task_code: str, is_sim: bool = True, max_re
                         "X-App-Id": real_cfg.get("app_id", "1008"),
                         "X-Sign": real_cfg.get("sign", ""),
                         "X-Timestamp": timestamp,
-                        "X-LR-REQUEST-ID": str(uuid.uuid4()),
+                        "X-LR-REQUEST-ID": _get_next_request_id(),
                         "Content-Type": "application/json"
                     }
                     request_body = {
