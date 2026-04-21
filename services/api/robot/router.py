@@ -46,22 +46,39 @@ async def update_robot_status(method: str, data: Optional[Dict] = None, robot_ta
     _status_event.set()
 
 
-async def wait_for_robot_status(expected_method: str, timeout: int = 300):
-    """等待特定机器人状态，从队列中弹出匹配的条目"""
+async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_robot_codes: set = None):
+    """等待特定机器人状态，从队列中弹出匹配的条目。
+
+    Args:
+        expected_method: 期望的方法名（如 "end"）
+        timeout: 超时时间（秒）
+        valid_robot_codes: 当前任务有效的 robotTaskCode 集合。
+                         若传入，队列中 robotTaskCode 不在集合内的 END 会被跳过（保留在队列中），
+                         防止上一个任务残留的旧回调被错误消费。
+    """
     logger.info(f"开始等待机器人状态: {expected_method}, 超时: {timeout}秒")
     start_time = time.time()
 
     while True:
         # 先从队列中查找匹配的 END（防止已有 END 在队列中等待）
         for j in range(len(_robot_status_queue) - 1, -1, -1):
-            if _robot_status_queue[j].get("method") == expected_method:
-                item = _robot_status_queue[j]
-                del _robot_status_queue[j]
-                logger.info(f"从队列中取出期望状态: {expected_method}，binCode={item.get('binCode', '')}，剩余: {len(_robot_status_queue)}")
-                # 队列非空时不清除事件，让下一轮立即处理剩余 END
-                if not _robot_status_queue:
-                    _status_event.clear()
-                return item
+            item = _robot_status_queue[j]
+            if item.get("method") != expected_method:
+                continue
+            # 真实模式下，按 robotTaskCode 过滤，跳过不属于当前任务的旧回调
+            if valid_robot_codes is not None:
+                item_code = item.get("robotTaskCode", "")
+                if item_code and item_code not in valid_robot_codes:
+                    logger.info(f"跳过队列中的旧 END 回调 (binCode={item.get('binCode', '')}, "
+                                f"robotTaskCode={item_code}，不在当前任务集合 {valid_robot_codes} 中，保留在队列)")
+                    continue
+            # 命中，弹出并返回
+            del _robot_status_queue[j]
+            logger.info(f"从队列中取出期望状态: {expected_method}，binCode={item.get('binCode', '')}，剩余: {len(_robot_status_queue)}")
+            # 队列非空时不清除事件，让下一轮立即处理剩余 END
+            if not _robot_status_queue:
+                _status_event.clear()
+            return item
 
         elapsed = time.time() - start_time
         remaining = timeout - elapsed

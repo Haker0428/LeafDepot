@@ -39,7 +39,9 @@ from services.api.inventory.service import (
     inventory_tasks,
     inventory_task_bins,
     inventory_task_details,
+    abort_inventory_task,  # TODO: RCS cancel API 就位后，取消接口中将调用此函数
 )
+from services.api.shared.websocket_manager import ws_manager
 from services.api.inventory.task_state import on_server_startup, clear_task
 
 from services.api.auth.router import get_user_info_from_token
@@ -84,27 +86,11 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
 
         # 重新盘点的独立任务号不受"任务已在执行中"检查影响
         if not recount_task_id:
-            # 检查任务是否已存在
-            if task_no in inventory_tasks:
-                existing_task = inventory_tasks[task_no]
-                if existing_task.status in ["running", "init"]:
-                    return JSONResponse(
-                        status_code=status.HTTP_200_OK,
-                        content={
-                            "code": 200,
-                            "message": "任务已在执行中",
-                            "data": {
-                                "taskNo": existing_task.task_no,
-                                "status": existing_task.status,
-                            }
-                        }
-                    )
-                elif existing_task.status == "cancelled":
-                    # 已取消的任务，清除内存状态，允许重新下发
-                    inventory_tasks.pop(task_no, None)
-                    inventory_task_details.pop(task_no, None)
-                    inventory_task_bins.pop(task_no, None)
-                    # 继续执行下发逻辑（不 return）
+            # 已取消的任务，清除内存状态，允许重新下发
+            if task_no in inventory_tasks and inventory_tasks[task_no].status == "cancelled":
+                inventory_tasks.pop(task_no, None)
+                inventory_task_details.pop(task_no, None)
+                inventory_task_bins.pop(task_no, None)
 
         # 保存原始盘点项信息（使用存储键）
         if storage_key not in inventory_task_details:
@@ -116,6 +102,36 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"收到 authToken: {auth_token}")
         user_info = await get_user_info_from_token(auth_token) if auth_token else {}
         logger.info(f"获取到的 user_info: {user_info}")
+
+        # ===== 全局并发检查：不允许两个盘点任务同时运行 =====
+        for running_task_no, task_status in inventory_tasks.items():
+            if task_status.status == "running":
+                # 获取正在运行任务的操作人信息
+                running_user_info = {}
+                if running_task_no in inventory_task_details:
+                    running_user_info = inventory_task_details[running_task_no].get("userInfo", {})
+                operator_name = running_user_info.get("userName", "未知")
+                operator_id = running_user_info.get("userId", "")
+                start_time = task_status.start_time or ""
+                conflict_msg = (
+                    f"有其他盘点任务正在进行中（任务号: {running_task_no}，"
+                    f"操作人: {operator_name}{f'（{operator_id}）' if operator_id else ''}，"
+                    f"开始时间: {start_time}），请等待该任务结束后再下发新任务。"
+                )
+                logger.warning(f"[并发冲突] 用户 {user_info.get('userName','未知')} 试图下发任务 {task_no}，但任务 {running_task_no} 正在运行")
+                return JSONResponse(
+                    status_code=status.HTTP_409_CONFLICT,
+                    content={
+                        "code": 409,
+                        "message": conflict_msg,
+                        "data": {
+                            "runningTaskNo": running_task_no,
+                            "operatorName": operator_name,
+                            "operatorId": operator_id,
+                            "startTime": start_time,
+                        }
+                    }
+                )
 
         # 保存用户信息到任务详情，供后台任务使用
         inventory_task_details[storage_key]["userInfo"] = user_info
@@ -873,10 +889,30 @@ async def get_local_bins():
 @router.post("/cancel-inventory")
 async def cancel_inventory(taskNo: str):
     """取消正在运行的盘点任务"""
+    robot_task_code = ""
     if taskNo in inventory_tasks:
+        robot_task_code = inventory_tasks[taskNo].robot_task_code or ""
         inventory_tasks[taskNo].status = "cancelled"
         clear_task(taskNo)
-        logger.info(f"任务已取消: {taskNo}")
+        logger.info(f"任务已取消: {taskNo}, robotTaskCode={robot_task_code}")
+
+        # 广播任务取消通知
+        user_info = inventory_task_details.get(taskNo, {}).get("userInfo", {})
+        await ws_manager.broadcast_task_event(
+            "task_cancelled",
+            taskNo,
+            {
+                "taskNo": taskNo,
+                "operatorName": user_info.get("userName", ""),
+            }
+        )
+
+    # TODO: RCS 提供 cancel API 后，在此调用 abort_inventory_task
+    # 等 RCS 接口到位后，取消时会主动通知 RCS 停止所有进行中的任务
+    # await abort_inventory_task(robot_task_code, is_sim=False)
+    if robot_task_code:
+        logger.info(f"[cancel] 等待 RCS cancel API 就位，robotTaskCode={robot_task_code}")
+
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={"code": 200, "message": "任务已取消", "data": None}

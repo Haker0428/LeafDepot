@@ -218,6 +218,25 @@ export default function InventoryProgress() {
     onOk: () => void;
   }>({ open: false, errorType: "other", message: "", onOk: () => {} });
 
+  // 盘点冲突弹窗状态（有其他任务正在运行）
+  const [conflictModal, setConflictModal] = useState<{
+    open: boolean;
+    runningTaskNo: string;
+    operatorName: string;
+    operatorId: string;
+    startTime: string;
+    onWait: () => void;
+    onTerminate: () => void;
+  }>({
+    open: false,
+    runningTaskNo: "",
+    operatorName: "",
+    operatorId: "",
+    startTime: "",
+    onWait: () => {},
+    onTerminate: () => {},
+  });
+
   // 照片组状态：2组，每组2张（上、下）
   // 组0: 3D相机 (上: main, 下: depth)
   // 组1: 扫码相机 (上: scan1, 下: scan2)
@@ -1479,11 +1498,49 @@ export default function InventoryProgress() {
         // 尝试解析错误信息
         try {
           const errorData = await taskResponse.json();
+
+          // 409 Conflict：有其他任务正在运行，弹出冲突弹窗
+          if (taskResponse.status === 409) {
+            setIsStartingTask(false);
+            const runningInfo = errorData.data || {};
+            setConflictModal({
+              open: true,
+              runningTaskNo: runningInfo.runningTaskNo || "",
+              operatorName: runningInfo.operatorName || "未知",
+              operatorId: runningInfo.operatorId || "",
+              startTime: runningInfo.startTime || "",
+              onWait: () => {
+                setConflictModal((prev) => ({ ...prev, open: false }));
+                // 切换到监控模式，跟随当前任务
+                toast.info(`跟随任务 ${runningInfo.runningTaskNo}，实时监控中...`);
+                setCurrentTaskNo(runningInfo.runningTaskNo);
+                setIsStartingTask(false);
+              },
+              onTerminate: async () => {
+                // 调用取消接口
+                try {
+                  await fetch(
+                    `${GATEWAY_URL}/api/inventory/cancel-inventory?taskNo=${encodeURIComponent(runningInfo.runningTaskNo)}`,
+                    { method: "POST" },
+                  );
+                  toast.success("已发送终止指令，任务结束后可重新下发");
+                } catch {
+                  toast.error("终止指令发送失败");
+                }
+                setConflictModal((prev) => ({ ...prev, open: false }));
+                setIsStartingTask(false);
+              },
+            });
+            return;
+          }
+
           throw new Error(
             errorData.message || errorData.detail || "任务启动失败",
           );
-        } catch {
-          throw new Error(`任务启动失败，状态码: ${taskResponse.status}`);
+        } catch (err) {
+          // 已经是 Conflict 弹窗则不再抛出
+          if (taskResponse.status === 409) return;
+          throw err;
         }
       }
 
@@ -3571,6 +3628,58 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
           />
         </div>
       )}
+
+      {/* 下发失败提示弹窗 */}
+      <Modal
+        title="⚠️ 有其他盘点任务正在进行"
+        open={conflictModal.open}
+        onCancel={() => conflictModal.onWait()}
+        footer={[
+          <button
+            key="wait"
+            onClick={conflictModal.onWait}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          >
+            等待当前任务完成
+          </button>,
+          <button
+            key="terminate"
+            onClick={conflictModal.onTerminate}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+          >
+            终止当前任务
+          </button>,
+        ]}
+        width={520}
+      >
+        <div className="py-2">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-3">
+            <p className="text-amber-800 font-medium">
+              有其他盘点任务正在进行中，无法同时下发新任务。
+            </p>
+          </div>
+          <div className="space-y-2 text-sm text-gray-700">
+            <div className="flex gap-2">
+              <span className="text-gray-500 w-20 flex-shrink-0">任务号：</span>
+              <span className="font-mono font-medium">{conflictModal.runningTaskNo || "—"}</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="text-gray-500 w-20 flex-shrink-0">操作人：</span>
+              <span>{conflictModal.operatorName || "未知"}{conflictModal.operatorId ? `（${conflictModal.operatorId}）` : ""}</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="text-gray-500 w-20 flex-shrink-0">开始时间：</span>
+              <span>{conflictModal.startTime ? new Date(conflictModal.startTime).toLocaleString("zh-CN") : "—"}</span>
+            </div>
+          </div>
+          <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500">
+            <p>
+              选择「<strong>等待当前任务完成</strong>」将切换到该任务的监控视图；<br />
+              选择「<strong>终止当前任务</strong>」将强制结束该任务，终止后请等待数秒再重新下发。
+            </p>
+          </div>
+        </div>
+      </Modal>
 
       {/* 下发失败提示弹窗 */}
       <Modal

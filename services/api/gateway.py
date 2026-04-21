@@ -7,6 +7,8 @@ import os
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import WebSocket, WebSocketDisconnect
+from services.api.shared.websocket_manager import ws_manager
 
 # 导入共享配置和日志
 from services.api.shared.config import logger, logs_dir, CORS_ORIGINS
@@ -85,6 +87,28 @@ async def root():
         "docs": "/docs",
         "health": "/health"
     }
+
+
+# ==================== WebSocket 端点 ====================
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, task_no: str = ""):
+    """WebSocket 实时通知端点
+
+    客户端连接后自动订阅指定 task_no 的任务更新。
+    所有连接的客户端都会收到"其他任务完成/失败/取消"的通知。
+    """
+    task_no = task_no or ""
+    await ws_manager.connect(websocket, task_no)
+    try:
+        while True:
+            # 客户端可以发消息（如心跳），但本端不需要处理
+            data = await websocket.receive_text()
+            logger.debug(f"[WS] 收到客户端消息: {data}")
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket, task_no)
+    except Exception:
+        await ws_manager.disconnect(websocket, task_no)
 
 
 # 启动事件

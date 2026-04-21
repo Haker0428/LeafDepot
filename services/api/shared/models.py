@@ -30,6 +30,7 @@ class TaskStatus(BaseModel):
     end_time: Optional[str] = None
     error_message: Optional[str] = None  # 失败原因
     error_type: Optional[str] = None     # rcs / camera / other
+    robot_task_code: Optional[str] = None  # RCS 任务编号，用于取消时发给 RCS
 
 
 class BinLocationStatus(BaseModel):
