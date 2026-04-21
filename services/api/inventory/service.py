@@ -58,6 +58,9 @@ _inventory_tasks: Dict[str, TaskStatus] = {}
 _inventory_task_bins: Dict[str, List[BinLocationStatus]] = {}
 _inventory_task_details: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
+# 真实模式 END 处理全局锁：防止多任务同时处理队列导致回调被对方错误消费
+_real_mode_lock = asyncio.Lock()
+
 # 导出别名（供其他模块导入）
 inventory_tasks = _inventory_tasks
 inventory_task_bins = _inventory_task_bins
@@ -1546,213 +1549,214 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 update_progress(task_no, len(inventory_results))
 
         else:
-            # ====== 真实模式：批量下发 → 逐个等待 END → 拍照 → 发 continue ======
-            logger.info(f"真实模式：批量下发 {len(bin_locations)} 个库位（间隔 0.5s）")
-            submitted_bins: List[str] = []
-            # 记录每个 bin_location 对应的 robot_task_code，等待 END 时需要用它发 continue
-            bin_to_task_code: Dict[str, str] = {}
-            for i, bin_location in enumerate(bin_locations):
-                submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=False)
-                robot_task_code = submit_result.get("robotTaskCode", "")
-                # 保存 robot_task_code，供取消时使用
-                if task_no in _inventory_tasks:
-                    _inventory_tasks[task_no].robot_task_code = robot_task_code
-                bin_to_task_code[bin_location] = robot_task_code
-                submitted_bins.append(bin_location)
-                logger.info(f"第 {i+1}/{len(bin_locations)} 个库位已下发: {bin_location}, robotTaskCode={robot_task_code}")
-                if i < len(bin_locations) - 1:
-                    await asyncio.sleep(0.5)
-            logger.info(f"全部 {len(submitted_bins)} 个库位已下发完毕，等待 END 回调...")
-
-            # 逐个等待 END：每次收到 END → 拍照 → 发 continue
-            # 用 set 记录已处理过的 bin 和 robotTaskCode，防止 RCS 重复发 END 导致重复处理和重复发 continue
-            completed_bins: set = set()
-            completed_robot_codes: set = set()
-            pending_count = len(submitted_bins)
-            for _ in range(pending_count):
-                # 检查任务是否已被取消，避免在用户取消后继续空等 END
-                if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
-                    logger.warning(f"任务 {task_no} 已被取消，退出等待循环")
-                    break
-                # 初始化，防止 timeout 时变量未定义
-                bin_location = ""
-                rt_code = ""
-                result = None
-                timeout_occurred = False
-                # 传入当前任务的所有有效 robotTaskCode，过滤掉上一个任务残留的旧回调
-                valid_robot_codes = set(bin_to_task_code.values())
-                try:
-                    ctu_status = await wait_for_robot_status("end", timeout=600, valid_robot_codes=valid_robot_codes)
-                    bin_code = ctu_status.get("binCode", "")
-                    # 优先用回调中的 binCode，若取不到则按顺序匹配
-                    if not bin_code:
-                        idx = len(inventory_results)
-                        bin_location = submitted_bins[idx] if idx < len(submitted_bins) else ""
-                        logger.warning(f"END 回调未含 binCode，按顺序匹配为: {bin_location}")
-                    else:
-                        bin_location = bin_code
-                        logger.info(f"END 回调携带 binCode: {bin_location}")
-
-                    # robotTaskCode 始终从 bin_to_task_code 映射中取，不信任回调里的值
-                    expected_rt_code = bin_to_task_code.get(bin_location, "")
-                    callback_rt_code = ctu_status.get("robotTaskCode", "")
-                    logger.info(f"[END 校验] bin={bin_location}，映射 rt_code={expected_rt_code}，回调 rt_code={callback_rt_code}")
-
-                    # 校验 1：bin 去重
-                    if bin_location in completed_bins:
-                        logger.warning(f"[END 校验] bin={bin_location} 已处理过，跳过本次 END 回调，不发 continue")
-                        continue
-
-                    # 校验 2：robotTaskCode 去重
-                    if expected_rt_code and expected_rt_code in completed_robot_codes:
-                        logger.warning(f"[END 校验] rt_code={expected_rt_code} 已响应过，跳过本次 END 回调，不发 continue")
-                        continue
-
-                    # 校验 3：回调中的 robotTaskCode 与映射中的 expected_rt_code 校验一致性
-                    if callback_rt_code and expected_rt_code and callback_rt_code != expected_rt_code:
-                        logger.warning(f"[END 校验] 回调 rt_code={callback_rt_code} 与映射 rt_code={expected_rt_code} 不一致，以映射为准，继续处理")
-
-                    rt_code = expected_rt_code
-                    logger.info(f"[END 校验] 校验通过，bin={bin_location}，rt_code={rt_code}，开始处理")
-
-                    # 标记为已处理，防止 RCS 重复 END 导致重复处理
-                    completed_bins.add(bin_location)
-                    completed_robot_codes.add(rt_code)
-
-                    # 更新进度：反映实际已收到 END 的数量
-                    _inventory_tasks[task_no].current_step = len(inventory_results) + 1
-
-                    logger.info(f"等待库位 END 完成: {bin_location}，拍照...")
-                    result = await process_single_bin_location(task_no, bin_location, 0, len(bin_locations), is_sim=False)
-                except asyncio.TimeoutError:
-                    logger.error(f"等待 END 超时，跳过库位")
-                    _inventory_tasks[task_no].current_step = len(inventory_results)
-                    # 超时时按顺序推算 bin_location（用 bin_to_task_code 的第一个未完成项兜底）
-                    idx = len(inventory_results)
-                    bin_location = submitted_bins[idx] if idx < len(submitted_bins) else ""
-                    rt_code = bin_to_task_code.get(bin_location, "")
-                    result = {
-                        "status": "异常", "error": "等待 END 超时",
-                        "actualQuantity": None, "actualSpec": "无",
-                        "photo3dPath": None, "photoDepthPath": None,
-                        "photoScan1Path": "", "photoScan2Path": "",
-                    }
-                    timeout_occurred = True
-                except Exception as e:
-                    logger.error(f"处理库位 {bin_location} 时发生异常: {str(e)}")
-                    result = {
-                        "status": "异常", "error": f"处理库位异常: {str(e)}",
-                        "actualQuantity": None, "actualSpec": "无",
-                        "photo3dPath": None, "photoDepthPath": None,
-                        "photoScan1Path": "", "photoScan2Path": "",
-                    }
-
-                # 更新 bin 状态
-                if bin_location and task_no in _inventory_task_bins:
-                    for bs in _inventory_task_bins[task_no]:
-                        if bs.bin_location == bin_location:
-                            bs.status = "completed" if result and result.get("status") == "成功" else "failed"
-                            break
-
-                # 取消后不再发送 continue，避免 RCS 卡在等待继续指令的状态
-                if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
-                    logger.warning(f"任务 {task_no} 已被取消，跳过 continue，退出等待循环")
-                    break
-                # 拍照完成后，用该 bin 对应的 robot_task_code 发送 continue
-                # 发 continue 前再次确认 rt_code 与当前任务有效集合一致，防止旧任务代码残留
-                if not rt_code:
-                    logger.error(f"[continue 校验] rt_code 为空，拒绝发送 continue（bin={bin_location}）")
-                elif rt_code not in valid_robot_codes:
-                    logger.error(f"[continue 校验] rt_code={rt_code} 不在当前任务有效集合中，拒绝发送 continue（bin={bin_location}）")
-                else:
-                    logger.info(f"[continue 校验] 校验通过，发送 continue → bin={bin_location}, rt_code={rt_code}")
+            async with _real_mode_lock:
+                # ====== 真实模式：批量下发 → 逐个等待 END → 拍照 → 发 continue ======
+                logger.info(f"真实模式：批量下发 {len(bin_locations)} 个库位（间隔 0.5s）")
+                submitted_bins: List[str] = []
+                # 记录每个 bin_location 对应的 robot_task_code，等待 END 时需要用它发 continue
+                bin_to_task_code: Dict[str, str] = {}
+                for i, bin_location in enumerate(bin_locations):
+                    submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=False)
+                    robot_task_code = submit_result.get("robotTaskCode", "")
+                    # 保存 robot_task_code，供取消时使用
+                    if task_no in _inventory_tasks:
+                        _inventory_tasks[task_no].robot_task_code = robot_task_code
+                    bin_to_task_code[bin_location] = robot_task_code
+                    submitted_bins.append(bin_location)
+                    logger.info(f"第 {i+1}/{len(bin_locations)} 个库位已下发: {bin_location}, robotTaskCode={robot_task_code}")
+                    if i < len(bin_locations) - 1:
+                        await asyncio.sleep(0.5)
+                logger.info(f"全部 {len(submitted_bins)} 个库位已下发完毕，等待 END 回调...")
+    
+                # 逐个等待 END：每次收到 END → 拍照 → 发 continue
+                # 用 set 记录已处理过的 bin 和 robotTaskCode，防止 RCS 重复发 END 导致重复处理和重复发 continue
+                completed_bins: set = set()
+                completed_robot_codes: set = set()
+                pending_count = len(submitted_bins)
+                for _ in range(pending_count):
+                    # 检查任务是否已被取消，避免在用户取消后继续空等 END
+                    if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                        logger.warning(f"任务 {task_no} 已被取消，退出等待循环")
+                        break
+                    # 初始化，防止 timeout 时变量未定义
+                    bin_location = ""
+                    rt_code = ""
+                    result = None
+                    timeout_occurred = False
+                    # 传入当前任务的所有有效 robotTaskCode，过滤掉上一个任务残留的旧回调
+                    valid_robot_codes = set(bin_to_task_code.values())
                     try:
-                        continue_result = await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
-                        logger.info(f"continue 调用结果 (bin={bin_location}, robotTaskCode={rt_code}): {continue_result}")
-                    except Exception as e:
-                        logger.error(f"发送 continue 失败: {str(e)}")
-
-                if timeout_occurred:
-                    continue
-
-                # 查找匹配储位信息
-                inventory_item = None
-                if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
-                    for item in _inventory_task_details[task_no]["inventoryItems"]:
-                        if item.get("locationName") == bin_location:
-                            inventory_item = item
-                            break
-
-                actual_qty = int(result.get("actualQuantity", 0) or 0)
-                system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
-                inventory_results.append({
-                    "binLocation": bin_location,
-                    "status": result.get("status"),
-                    "actualQuantity": result.get("actualQuantity"),
-                    "actualSpec": result.get("actualSpec"),
-                    "photo3dPath": result.get("photo3dPath"),
-                    "photoDepthPath": result.get("photoDepthPath"),
-                    "photoScan1Path": result.get("photoScan1Path", ""),
-                    "photoScan2Path": result.get("photoScan2Path", ""),
-                    "error": result.get("error"),
-                    "specName": inventory_item.get("productName", "") if inventory_item else "",
-                    "systemQuantity": system_qty,
-                    "difference": actual_qty - system_qty,
-                })
-                update_progress(task_no, len(inventory_results))
-                logger.info(f"库位 {bin_location} 处理完毕，已处理 {len(inventory_results)}/{pending_count} 个")
-
-            # 主循环结束后，强制等待所有剩余 END 回调到达，确保最后一个 bin 的 continue 真正被 RCS 响应后再标记完成
-            # 防止 END 还在队列里未被消费时任务就标记 completed，导致 RCS 收不到最后一个 END 而一直等待
-            remaining = pending_count - len(inventory_results)
-            if remaining > 0:
-                logger.info(f"主循环结束，已处理 {len(inventory_results)}/{pending_count} 个，"
-                            f"还有 {remaining} 个 END 未收到，等待它们到达...")
-                valid_robot_codes = set(bin_to_task_code.values())
-                waited_count = 0
-                while waited_count < remaining:
-                    try:
-                        ctu_status = await wait_for_robot_status("end", timeout=120, valid_robot_codes=valid_robot_codes)
+                        ctu_status = await wait_for_robot_status("end", timeout=600, valid_robot_codes=valid_robot_codes)
                         bin_code = ctu_status.get("binCode", "")
+                        # 优先用回调中的 binCode，若取不到则按顺序匹配
                         if not bin_code:
-                            bin_code = submitted_bins[len(inventory_results)] if len(inventory_results) < len(submitted_bins) else ""
-                        expected_rt_code = bin_to_task_code.get(bin_code, "")
+                            idx = len(inventory_results)
+                            bin_location = submitted_bins[idx] if idx < len(submitted_bins) else ""
+                            logger.warning(f"END 回调未含 binCode，按顺序匹配为: {bin_location}")
+                        else:
+                            bin_location = bin_code
+                            logger.info(f"END 回调携带 binCode: {bin_location}")
+    
+                        # robotTaskCode 始终从 bin_to_task_code 映射中取，不信任回调里的值
+                        expected_rt_code = bin_to_task_code.get(bin_location, "")
                         callback_rt_code = ctu_status.get("robotTaskCode", "")
-                        logger.info(f"[END 校验-尾声] bin={bin_code}，映射 rt_code={expected_rt_code}，回调 rt_code={callback_rt_code}")
+                        logger.info(f"[END 校验] bin={bin_location}，映射 rt_code={expected_rt_code}，回调 rt_code={callback_rt_code}")
+    
                         # 校验 1：bin 去重
-                        if bin_code in completed_bins:
-                            logger.warning(f"[END 校验-尾声] bin={bin_code} 已处理过，跳过")
+                        if bin_location in completed_bins:
+                            logger.warning(f"[END 校验] bin={bin_location} 已处理过，跳过本次 END 回调，不发 continue")
                             continue
+    
                         # 校验 2：robotTaskCode 去重
                         if expected_rt_code and expected_rt_code in completed_robot_codes:
-                            logger.warning(f"[END 校验-尾声] rt_code={expected_rt_code} 已响应过，跳过")
+                            logger.warning(f"[END 校验] rt_code={expected_rt_code} 已响应过，跳过本次 END 回调，不发 continue")
                             continue
-                        logger.info(f"[END 校验-尾声] 校验通过，bin={bin_code}，rt_code={expected_rt_code}，追加结果")
-                        completed_bins.add(bin_code)
-                        completed_robot_codes.add(expected_rt_code)
-                        # 最后一轮的 END 不再拍照，直接追加成功状态
-                        inventory_results.append({
-                            "binLocation": bin_code,
-                            "status": "成功",
-                            "actualQuantity": 0,
-                            "actualSpec": "",
-                            "photo3dPath": None,
-                            "photoDepthPath": None,
-                            "photoScan1Path": "",
-                            "photoScan2Path": "",
-                            "error": None,
-                            "specName": "",
-                            "systemQuantity": 0,
-                            "difference": 0,
-                        })
-                        waited_count += 1
-                        update_progress(task_no, len(inventory_results))
-                        logger.info(f"追加 END 结果，已处理 {len(inventory_results)}/{pending_count} 个")
+    
+                        # 校验 3：回调中的 robotTaskCode 与映射中的 expected_rt_code 校验一致性
+                        if callback_rt_code and expected_rt_code and callback_rt_code != expected_rt_code:
+                            logger.warning(f"[END 校验] 回调 rt_code={callback_rt_code} 与映射 rt_code={expected_rt_code} 不一致，以映射为准，继续处理")
+    
+                        rt_code = expected_rt_code
+                        logger.info(f"[END 校验] 校验通过，bin={bin_location}，rt_code={rt_code}，开始处理")
+    
+                        # 标记为已处理，防止 RCS 重复 END 导致重复处理
+                        completed_bins.add(bin_location)
+                        completed_robot_codes.add(rt_code)
+    
+                        # 更新进度：反映实际已收到 END 的数量
+                        _inventory_tasks[task_no].current_step = len(inventory_results) + 1
+    
+                        logger.info(f"等待库位 END 完成: {bin_location}，拍照...")
+                        result = await process_single_bin_location(task_no, bin_location, 0, len(bin_locations), is_sim=False)
                     except asyncio.TimeoutError:
-                        logger.warning(f"等待尾声 END 超时（{remaining - waited_count} 个未收到），跳过")
+                        logger.error(f"等待 END 超时，跳过库位")
+                        _inventory_tasks[task_no].current_step = len(inventory_results)
+                        # 超时时按顺序推算 bin_location（用 bin_to_task_code 的第一个未完成项兜底）
+                        idx = len(inventory_results)
+                        bin_location = submitted_bins[idx] if idx < len(submitted_bins) else ""
+                        rt_code = bin_to_task_code.get(bin_location, "")
+                        result = {
+                            "status": "异常", "error": "等待 END 超时",
+                            "actualQuantity": None, "actualSpec": "无",
+                            "photo3dPath": None, "photoDepthPath": None,
+                            "photoScan1Path": "", "photoScan2Path": "",
+                        }
+                        timeout_occurred = True
+                    except Exception as e:
+                        logger.error(f"处理库位 {bin_location} 时发生异常: {str(e)}")
+                        result = {
+                            "status": "异常", "error": f"处理库位异常: {str(e)}",
+                            "actualQuantity": None, "actualSpec": "无",
+                            "photo3dPath": None, "photoDepthPath": None,
+                            "photoScan1Path": "", "photoScan2Path": "",
+                        }
+    
+                    # 更新 bin 状态
+                    if bin_location and task_no in _inventory_task_bins:
+                        for bs in _inventory_task_bins[task_no]:
+                            if bs.bin_location == bin_location:
+                                bs.status = "completed" if result and result.get("status") == "成功" else "failed"
+                                break
+    
+                    # 取消后不再发送 continue，避免 RCS 卡在等待继续指令的状态
+                    if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                        logger.warning(f"任务 {task_no} 已被取消，跳过 continue，退出等待循环")
                         break
-
-            logger.info(f"所有 {len(bin_locations)} 个储位处理完成")
+                    # 拍照完成后，用该 bin 对应的 robot_task_code 发送 continue
+                    # 发 continue 前再次确认 rt_code 与当前任务有效集合一致，防止旧任务代码残留
+                    if not rt_code:
+                        logger.error(f"[continue 校验] rt_code 为空，拒绝发送 continue（bin={bin_location}）")
+                    elif rt_code not in valid_robot_codes:
+                        logger.error(f"[continue 校验] rt_code={rt_code} 不在当前任务有效集合中，拒绝发送 continue（bin={bin_location}）")
+                    else:
+                        logger.info(f"[continue 校验] 校验通过，发送 continue → bin={bin_location}, rt_code={rt_code}")
+                        try:
+                            continue_result = await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
+                            logger.info(f"continue 调用结果 (bin={bin_location}, robotTaskCode={rt_code}): {continue_result}")
+                        except Exception as e:
+                            logger.error(f"发送 continue 失败: {str(e)}")
+    
+                    if timeout_occurred:
+                        continue
+    
+                    # 查找匹配储位信息
+                    inventory_item = None
+                    if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
+                        for item in _inventory_task_details[task_no]["inventoryItems"]:
+                            if item.get("locationName") == bin_location:
+                                inventory_item = item
+                                break
+    
+                    actual_qty = int(result.get("actualQuantity", 0) or 0)
+                    system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
+                    inventory_results.append({
+                        "binLocation": bin_location,
+                        "status": result.get("status"),
+                        "actualQuantity": result.get("actualQuantity"),
+                        "actualSpec": result.get("actualSpec"),
+                        "photo3dPath": result.get("photo3dPath"),
+                        "photoDepthPath": result.get("photoDepthPath"),
+                        "photoScan1Path": result.get("photoScan1Path", ""),
+                        "photoScan2Path": result.get("photoScan2Path", ""),
+                        "error": result.get("error"),
+                        "specName": inventory_item.get("productName", "") if inventory_item else "",
+                        "systemQuantity": system_qty,
+                        "difference": actual_qty - system_qty,
+                    })
+                    update_progress(task_no, len(inventory_results))
+                    logger.info(f"库位 {bin_location} 处理完毕，已处理 {len(inventory_results)}/{pending_count} 个")
+    
+                # 主循环结束后，强制等待所有剩余 END 回调到达，确保最后一个 bin 的 continue 真正被 RCS 响应后再标记完成
+                # 防止 END 还在队列里未被消费时任务就标记 completed，导致 RCS 收不到最后一个 END 而一直等待
+                remaining = pending_count - len(inventory_results)
+                if remaining > 0:
+                    logger.info(f"主循环结束，已处理 {len(inventory_results)}/{pending_count} 个，"
+                                f"还有 {remaining} 个 END 未收到，等待它们到达...")
+                    valid_robot_codes = set(bin_to_task_code.values())
+                    waited_count = 0
+                    while waited_count < remaining:
+                        try:
+                            ctu_status = await wait_for_robot_status("end", timeout=120, valid_robot_codes=valid_robot_codes)
+                            bin_code = ctu_status.get("binCode", "")
+                            if not bin_code:
+                                bin_code = submitted_bins[len(inventory_results)] if len(inventory_results) < len(submitted_bins) else ""
+                            expected_rt_code = bin_to_task_code.get(bin_code, "")
+                            callback_rt_code = ctu_status.get("robotTaskCode", "")
+                            logger.info(f"[END 校验-尾声] bin={bin_code}，映射 rt_code={expected_rt_code}，回调 rt_code={callback_rt_code}")
+                            # 校验 1：bin 去重
+                            if bin_code in completed_bins:
+                                logger.warning(f"[END 校验-尾声] bin={bin_code} 已处理过，跳过")
+                                continue
+                            # 校验 2：robotTaskCode 去重
+                            if expected_rt_code and expected_rt_code in completed_robot_codes:
+                                logger.warning(f"[END 校验-尾声] rt_code={expected_rt_code} 已响应过，跳过")
+                                continue
+                            logger.info(f"[END 校验-尾声] 校验通过，bin={bin_code}，rt_code={expected_rt_code}，追加结果")
+                            completed_bins.add(bin_code)
+                            completed_robot_codes.add(expected_rt_code)
+                            # 最后一轮的 END 不再拍照，直接追加成功状态
+                            inventory_results.append({
+                                "binLocation": bin_code,
+                                "status": "成功",
+                                "actualQuantity": 0,
+                                "actualSpec": "",
+                                "photo3dPath": None,
+                                "photoDepthPath": None,
+                                "photoScan1Path": "",
+                                "photoScan2Path": "",
+                                "error": None,
+                                "specName": "",
+                                "systemQuantity": 0,
+                                "difference": 0,
+                            })
+                            waited_count += 1
+                            update_progress(task_no, len(inventory_results))
+                            logger.info(f"追加 END 结果，已处理 {len(inventory_results)}/{pending_count} 个")
+                        except asyncio.TimeoutError:
+                            logger.warning(f"等待尾声 END 超时（{remaining - waited_count} 个未收到），跳过")
+                            break
+    
+                logger.info(f"所有 {len(bin_locations)} 个储位处理完成")
 
         # 判断任务整体状态：全部成功 / 部分失败 / 全部失败
         success_count = sum(1 for r in inventory_results if r.get("status") == "成功")
