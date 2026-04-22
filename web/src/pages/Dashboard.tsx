@@ -24,6 +24,7 @@ const Dashboard = () => {
     startTime: string;
     totalBins: number;
     completedBins: number;
+    isOwnTask: boolean;  // true=自己的任务，false=其他用户的任务
   } | null>(null);
 
   // 设置当前日期
@@ -54,7 +55,7 @@ const Dashboard = () => {
         if (response.ok) {
           const result = await response.json();
           if (result.code === 200 && result.data) {
-            setResumeTask(result.data);
+            setResumeTask({ ...result.data, isOwnTask: true });
           }
         }
       } catch {
@@ -73,6 +74,7 @@ const Dashboard = () => {
           startTime: msg.data.startTime || "",
           totalBins: msg.data.totalBins || 0,
           completedBins: 0,
+          isOwnTask: false,
         });
       }
     };
@@ -811,7 +813,7 @@ const Dashboard = () => {
 
       {/* 继续盘点弹窗 */}
       <Modal
-        title="📋 您有正在进行的盘点任务"
+        title={resumeTask?.isOwnTask ? "📋 您有正在进行的盘点任务" : "📋 有用户发起了盘点任务"}
         open={!!resumeTask}
         onCancel={() => setResumeTask(null)}
         footer={[
@@ -846,7 +848,9 @@ const Dashboard = () => {
           <div className="py-2">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
               <p className="text-blue-800 font-medium mb-2">
-                您有一个盘点任务尚未完成，是否继续？
+                {resumeTask.isOwnTask
+                  ? "您有一个盘点任务尚未完成，是否继续？"
+                  : `${resumeTask.operatorName} 发起了一个盘点任务，是否查看？`}
               </p>
             </div>
             <div className="space-y-2 text-sm text-gray-700">
