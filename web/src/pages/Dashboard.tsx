@@ -16,7 +16,7 @@ const Dashboard = () => {
   const [operationLogs, setOperationLogs] = useState<OperationLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [showAllLogs, setShowAllLogs] = useState(false); // 控制是否显示全部操作记录
-  const { authToken, logout, userLevel, userName } = useAuth();
+  const { authToken, logout, userLevel, userName, userId } = useAuth();
   const navigate = useNavigate();
   const [resumeTask, setResumeTask] = useState<{
     taskNo: string;
@@ -41,9 +41,11 @@ const Dashboard = () => {
     }
   }, []);
 
-  // 检查当前用户是否有正在进行的盘点任务
+  // 检查当前用户是否有正在进行的盘点任务（初始轮询 + 实时推送）
   useEffect(() => {
-    if (!authToken) return;
+    if (!authToken || !userId) return;
+
+    // 1. 初始轮询：页面加载时检查当前用户是否有运行中的任务
     const checkRunningTask = async () => {
       try {
         const response = await fetch(`${GATEWAY_URL}/api/inventory/running-task`, {
@@ -60,7 +62,23 @@ const Dashboard = () => {
       }
     };
     checkRunningTask();
-  }, [authToken]);
+
+    // 2. WebSocket 实时推送：其他页面发起任务时立即收到通知
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (msg.event === "task_running" && msg.data?.userId === userId) {
+        setResumeTask({
+          taskNo: msg.taskNo,
+          operatorName: msg.data.userName || "",
+          startTime: msg.data.startTime || "",
+          totalBins: msg.data.totalBins || 0,
+          completedBins: 0,
+        });
+      }
+    };
+    window.addEventListener("remote-task-event", handler as EventListener);
+    return () => window.removeEventListener("remote-task-event", handler as EventListener);
+  }, [authToken, userId]);
 
   // 从后端API获取储位数和品类数统计数据
   useEffect(() => {

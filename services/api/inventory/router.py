@@ -3,6 +3,7 @@
 """
 import os
 import json
+import asyncio
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -184,6 +185,18 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
                 "is_sim": is_sim
             }
         )
+
+        # 广播任务运行事件，通知所有在线用户
+        asyncio.create_task(ws_manager.broadcast_task_event(
+            event="task_running",
+            task_no=task_no,
+            data={
+                "userId": user_info.get("userId", ""),
+                "userName": user_info.get("userName", ""),
+                "totalBins": len(bin_locations),
+                "startTime": datetime.now().isoformat(),
+            }
+        ))
 
         # 在后台异步执行盘点任务
         background_tasks.add_task(
