@@ -15,7 +15,7 @@ service_prefix = "/rcs/rtas"
 
 
 class RCSClient:
-    def __init__(self, base_url: str = "http://10.16.82.95:4001"):
+    def __init__(self, base_url: str = "http://localhost:4001"):
         """
         初始化RCS客户端
 
@@ -100,7 +100,7 @@ def main():
     """主函数 - 演示如何使用RCS客户端"""
 
     # 初始化客户端
-    client = RCSClient("http://10.16.82.95:4001")
+    client = RCSClient("http://localhost:4001")
 
     print("=" * 50)
     print("RCS-2000 任务组接口调用演示")

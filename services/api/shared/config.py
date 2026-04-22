@@ -118,9 +118,8 @@ ENABLE_VISUALIZATION = _config.get("enable_visualization", False)
 # CORS 配置（从 JSON 文件读取）
 CORS_ORIGINS = _config.get("cors_origins", [
     f"http://{_HOST}", f"http://{_HOST}:{GATEWAY_PORT}",
-    f"http://{_HOST}:{FRONTEND_PORT}", "http://10.16.82.95", f"http://10.16.82.95:{GATEWAY_PORT}",
-    f"http://10.16.82.95:{FRONTEND_PORT}", "http://10.16.82.95", f"http://10.16.82.95:{GATEWAY_PORT}",
-    f"http://10.16.82.95:{FRONTEND_PORT}",
+    f"http://{_HOST}:{FRONTEND_PORT}", "http://localhost", f"http://localhost:{GATEWAY_PORT}",
+    f"http://localhost:{FRONTEND_PORT}",
 ])
 
 # 模拟用户配置（LMS 不可用时使用）

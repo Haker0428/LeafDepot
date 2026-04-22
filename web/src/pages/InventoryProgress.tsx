@@ -293,7 +293,7 @@ export default function InventoryProgress() {
   // }
 
   // // 构建 WebSocket URL，根据你的网关地址调整
-  // const wsUrl = `ws://10.16.82.95:8000/ws/inventory/${currentTaskNo}`;
+  // const wsUrl = `ws://localhost:8000/ws/inventory/${currentTaskNo}`;
   // console.log("尝试连接 WebSocket:", wsUrl);
 
   // const ws = new WebSocket(wsUrl);

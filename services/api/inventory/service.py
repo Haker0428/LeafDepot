@@ -192,7 +192,7 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "10.16.82.95")
+                    host = real_cfg.get("host", "localhost")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     url = f"{base_url}{RCS_PREFIX}/api/robot/controller/task/submit"
@@ -298,7 +298,7 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "10.16.82.95")
+                    host = real_cfg.get("host", "localhost")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     continue_path = real_cfg.get("continue_url", "/rcs/rtas/api/robot/controller/task/extend/continue")
@@ -410,7 +410,7 @@ async def abort_inventory_task(robot_task_code: str, is_sim: bool = True, max_re
                     # ====== 真实模式 ======
                     real_cfg = RCS_REAL or {}
                     protocol = "https" if real_cfg.get("use_ssl", True) else "http"
-                    host = real_cfg.get("host", "10.16.82.95")
+                    host = real_cfg.get("host", "localhost")
                     port = real_cfg.get("port", 443)
                     base_url = f"{protocol}://{host}:{port}"
                     # TODO: 等 RCS 确认 cancel 接口路径，cancel_url 可在 config 中配置
