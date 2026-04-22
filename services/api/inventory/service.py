@@ -27,6 +27,7 @@ from services.api.shared.config import (
     logger,
     rcs_logger,
     project_root,
+    logs_dir,
     RCS_BASE_URL,
     RCS_PREFIX,
     RCS_FULL_URL,
@@ -54,7 +55,7 @@ from services.api.inventory.task_state import (
 )
 
 # RCS REQUEST-ID 递增计数器（持久化到文件，进程重启不丢失）
-_COUNTER_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs", "request_id_counter.txt")
+_COUNTER_FILE = str(logs_dir / "request_id_counter.txt")
 
 def _get_next_request_id() -> str:
     """获取下一个递增的 REQUEST-ID，格式: TASK_ + 12位16进制大写（每进程互斥写）"""
@@ -75,7 +76,7 @@ def _get_next_request_id() -> str:
 
 
 # 盘点任务号计数器（按日递增，跨进程互斥写）
-_TASKNO_COUNTER_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs", "task_no_counter.txt")
+_TASKNO_COUNTER_FILE = str(logs_dir / "task_no_counter.txt")
 
 def _get_next_task_no() -> str:
     """获取下一个盘点任务号，格式: HS{YYYYMMDD}{NN}，每日从1开始递增"""
