@@ -49,10 +49,10 @@ get_service_config() {
             echo "gateway:app --host 0.0.0.0 --port 8000"
             ;;
         lms)
-            echo "sim_lms_server:app --host 0.0.0.0 --port 6000"
+            echo "services.sim.lms.sim_lms_server:app --host 0.0.0.0 --port 6000"
             ;;
         rcs)
-            echo "sim_rcs_server:app --host 0.0.0.0 --port 4001"
+            echo "services.sim.rcs.sim_rcs_server:app --host 0.0.0.0 --port 4001"
             ;;
     esac
 }
@@ -78,13 +78,13 @@ get_service_url() {
     local service=$1
     case "$service" in
         gateway)
-            echo "http://localhost:8000/docs"
+            echo "http://10.16.82.95:8000/docs"
             ;;
         lms)
-            echo "http://localhost:6000"
+            echo "http://10.16.82.95:6000"
             ;;
         rcs)
-            echo "http://localhost:4001"
+            echo "http://10.16.82.95:4001"
             ;;
     esac
 }
