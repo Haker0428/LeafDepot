@@ -63,31 +63,41 @@ else:
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 
+# ==================== 任务号生成 ====================
+
+@router.get("/next-task-no")
+async def get_next_task_no():
+    """获取下一个盘点任务号（服务端递增计数器，保证全局唯一无间隔）"""
+    return {"taskNo": _get_next_task_no()}
+
+
 # ==================== 用户进行中任务查询 ====================
 
 @router.get("/running-task")
 async def get_running_task(request: Request):
-    """查询当前登录用户是否有正在进行的盘点任务，有则返回任务信息"""
+    """查询当前登录用户是否有运行中或已完成待确认的盘点任务，有则返回任务信息"""
     auth_token = request.headers.get("authToken")
     user_info = await get_user_info_from_token(auth_token) if auth_token else {}
     user_id = user_info.get("userId", "")
     if not user_id:
         return JSONResponse(status_code=200, content={"code": 200, "data": None})
 
-    for running_task_no, task_status in inventory_tasks.items():
-        if task_status.status == "running":
-            task_user_info = inventory_task_details.get(running_task_no, {}).get("userInfo", {})
+    for task_no, task_status in inventory_tasks.items():
+        # confirmed = 已确认，cancelled = 已取消，均不推送弹窗
+        if task_status.status in ("running", "completed", "partial", "failed"):
+            task_user_info = inventory_task_details.get(task_no, {}).get("userInfo", {})
             if task_user_info.get("userId") == user_id:
                 return JSONResponse(
                     status_code=200,
                     content={
                         "code": 200,
                         "data": {
-                            "taskNo": running_task_no,
+                            "taskNo": task_no,
                             "operatorName": task_user_info.get("userName", ""),
                             "startTime": task_status.start_time or "",
-                            "totalBins": task_status.total_bins or 0,
-                            "completedBins": task_status.completed_bins or 0,
+                            "totalBins": task_status.total_steps or 0,
+                            "completedBins": task_status.current_step or 0,
+                            "taskStatus": task_status.status,  # 用于前端区分弹窗文案
                         }
                     }
                 )
@@ -750,6 +760,10 @@ async def save_inventory_results(request: Request):
         # 写入 Excel 文件
         write_excel(task_no, df, output_dir)
 
+        # 确认后标记任务状态为 confirmed，不再推送弹窗
+        if task_no in inventory_tasks:
+            inventory_tasks[task_no].status = "confirmed"
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -933,22 +947,50 @@ async def get_local_bins():
 
 @router.post("/cancel-inventory")
 async def cancel_inventory(taskNo: str):
-    """取消正在运行的盘点任务"""
+    """取消盘点任务"""
     robot_task_code = ""
+    was_completed = False
+    user_info_data = {}
+
     if taskNo in inventory_tasks:
         robot_task_code = inventory_tasks[taskNo].robot_task_code or ""
-        inventory_tasks[taskNo].status = "cancelled"
-        clear_task(taskNo)
-        logger.info(f"任务已取消: {taskNo}, robotTaskCode={robot_task_code}")
+        current_status = inventory_tasks[taskNo].status
+        user_info_data = inventory_task_details.get(taskNo, {}).get("userInfo", {})
+
+        # 判断任务是否已执行完毕：执行完毕的取消写入无效记录，未执行完毕的不记录
+        if current_status in ("completed", "partial", "failed"):
+            was_completed = True
+            inventory_results = inventory_task_details.get(taskNo, {}).get("inventoryResults", [])
+            if inventory_results:
+                operator_name = user_info_data.get("userName", "")
+                output_dir = project_root / "output" / "history_data"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                df = build_excel_data(
+                    task_no=taskNo,
+                    inventory_results=inventory_results,
+                    operator_name=operator_name,
+                    is_valid=False,
+                )
+                write_excel(taskNo, df, output_dir)
+                logger.info(f"盘点已完成但未确认，取消时写入无效记录: {taskNo}")
+            # 已完成的任务取消后从内存中清除
+            inventory_tasks.pop(taskNo, None)
+            inventory_task_details.pop(taskNo, None)
+            inventory_task_bins.pop(taskNo, None)
+        else:
+            # 执行中取消：只从内存清除，不写 Excel
+            inventory_tasks.pop(taskNo, None)
+            inventory_task_details.pop(taskNo, None)
+            inventory_task_bins.pop(taskNo, None)
+            logger.info(f"任务已取消: {taskNo}（执行中取消，不记录）")
 
         # 广播任务取消通知
-        user_info = inventory_task_details.get(taskNo, {}).get("userInfo", {})
         await ws_manager.broadcast_task_event(
             "task_cancelled",
             taskNo,
             {
                 "taskNo": taskNo,
-                "operatorName": user_info.get("userName", ""),
+                "operatorName": user_info_data.get("userName", ""),
             }
         )
 

@@ -1103,7 +1103,11 @@ async def process_single_bin_location(
                 result["actualSpec"] = _get_actual_spec(barcode_result, None)
 
                 result["status"] = "成功"
-                result["actualQuantity"] = detect_result.get("total_count", 0)
+                # 品规未识别时，数量不可信，强制归零
+                if result["actualSpec"] == "未识别":
+                    result["actualQuantity"] = 0
+                else:
+                    result["actualQuantity"] = detect_result.get("total_count", 0)
                 result["barcodeResult"] = barcode_result
                 result["detectResult"] = detect_result
                 result["photos"] = recognition_result.get("photos", [])
@@ -1216,7 +1220,11 @@ async def process_single_bin_location(
             result["actualSpec"] = _get_actual_spec(barcode_result, None)
 
             result["status"] = "成功"
-            result["actualQuantity"] = detect_result.get("total_count", 0)
+            # 品规未识别时，数量不可信，强制归零
+            if result["actualSpec"] == "未识别":
+                result["actualQuantity"] = 0
+            else:
+                result["actualQuantity"] = detect_result.get("total_count", 0)
             result["barcodeResult"] = barcode_result
             result["detectResult"] = detect_result
             result["photos"] = recognition_result.get("photos", [])
@@ -1336,7 +1344,11 @@ async def process_single_bin_location(
                 result["actualSpec"] = _get_actual_spec(barcode_result, None)
 
                 result["status"] = "成功"
-                result["actualQuantity"] = detect_result.get("total_count", 0)
+                # 品规未识别时，数量不可信，强制归零
+                if result["actualSpec"] == "未识别":
+                    result["actualQuantity"] = 0
+                else:
+                    result["actualQuantity"] = detect_result.get("total_count", 0)
                 result["barcodeResult"] = barcode_result
                 result["detectResult"] = detect_result
                 result["photos"] = recognition_result.get("photos", [])
@@ -1827,6 +1839,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
 
         # 广播任务状态变更通知，所有连接的客户端都会收到（用于其他用户的任务完成提示）
         user_info = _inventory_task_details.get(task_no, {}).get("userInfo", {})
+        logger.info(f"[task_completed broadcast] task_no={task_no}, user_info={user_info}, userName={user_info.get('userName', '')!r}")
         broadcast_data = {
             "taskNo": task_no,
             "status": task_status,
@@ -1874,14 +1887,12 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             }
         )
 
-        # 自动保存：只要相机拍了照片（capture_img 目录存在），就将结果写入历史 Excel
-        capture_img_dir = project_root / "capture_img" / task_no
-        if capture_img_dir.exists() and inventory_results:
+        # 自动保存：只要任务执行完毕，就将结果写入历史 Excel，标记为无效
+        # server 重启后内存丢失，靠这份 Excel 恢复已完成但未确认的任务
+        if inventory_results:
             try:
-                # 从任务详情中获取操作员信息
                 user_info = _inventory_task_details.get(task_no, {}).get("userInfo", {})
                 operator_name = user_info.get("userName", "")
-
                 df = build_excel_data(
                     task_no=task_no,
                     inventory_results=inventory_results,
@@ -1889,7 +1900,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     is_valid=False,
                 )
                 write_excel(task_no, df)
-                logger.info(f"自动保存盘点结果到历史: {task_no}")
+                logger.info(f"自动保存盘点结果（无效）: {task_no}")
             except Exception as save_err:
                 logger.error(f"自动保存失败 {task_no}: {save_err}")
 

@@ -3,14 +3,18 @@ import subprocess
 import json
 import datetime
 import errno
+import cv2
 from typing import List, Dict, Any
 from pathlib import Path
+
+from core.vision.yolo_detector import YoloDetection
 
 
 class BarcodeRecognizer:
     def __init__(self,
                  barcode_reader_path: str = None,
-                 code_type: str = 'ucc128'):
+                 code_type: str = 'ucc128',
+                 barcode_model_path: str = None):
         """
         初始化条形码识别器
 
@@ -48,6 +52,20 @@ class BarcodeRecognizer:
         self.code_type = code_type
         self.results = []  # 存储识别结果
 
+        # 初始化 YOLO 条码检测器（使用 barcode.pt）
+        self.yolo_detector = None
+        if barcode_model_path is None:
+            project_root = Path(__file__).parent.parent.parent
+            barcode_model_path = project_root / "shared" / "models" / "yolo" / "barcode.pt"
+        barcode_model_path = str(barcode_model_path)
+        if os.path.exists(barcode_model_path):
+            self.yolo_detector = YoloDetection(
+                model_path=barcode_model_path,
+                class_mapping={0: 'barcode', 1: 'QR'},
+                confidence_threshold=0.5,
+                padding=30
+            )
+
     def process_folder(self, input_dir: str, output_json: str = None) -> List[Dict[str, Any]]:
         """
         处理指定文件夹中的所有图片
@@ -69,9 +87,10 @@ class BarcodeRecognizer:
                 continue
 
             image_path = os.path.join(input_dir, filename)
-            # 调用预处理函数（预留，当前返回原始路径）
-            processed_path = self.preprocess_image(image_path)
-            self._process_image(processed_path, filename)
+            # YOLO 检测并裁剪条形码区域，返回裁剪后的图像路径列表
+            cropped_paths = self.preprocess_image(image_path)
+            for cropped_path in cropped_paths:
+                self._process_image(cropped_path, filename)
 
         # 保存到JSON文件 (如果指定了输出路径)
         if output_json:
@@ -99,22 +118,57 @@ class BarcodeRecognizer:
         name_without_ext = os.path.splitext(filename)[0].lower()
         return name_without_ext not in self.EXCLUDED_BASENAMES
 
-    def preprocess_image(self, image_path: str) -> str:
+    def preprocess_image(self, image_path: str) -> List[str]:
         """
-        预留图像预处理函数（未来可扩展）
-
-        当前实现：不进行任何处理，返回原始图像路径
-        未来可添加图像增强、裁剪、对比度调整等操作
+        使用 YOLO 模型检测图像中的条形码区域并裁剪
 
         :param image_path: 原始图像路径
-        :return: 处理后的图像路径（当前为原始路径）
+        :return: 裁剪后的条形码图像路径列表（检测到多个时返回多个）
+                 若未检测到则返回原始图像路径
         """
-        # === 预留位置 ===
-        # 未来可在此实现图像预处理逻辑
-        # 例如：
-        #   return self._enhance_image(image_path)
-        # 但当前保持原样
-        return image_path
+        if self.yolo_detector is None:
+            return [image_path]
+
+        original_image = cv2.imread(image_path)
+        if original_image is None:
+            return [image_path]
+
+        # 执行 YOLO 预测
+        results = self.yolo_detector.model.predict(
+            source=original_image,
+            conf=self.yolo_detector.confidence_threshold
+        )
+
+        cropped_paths = []
+        crop_index = 0
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                cls = int(box.cls)
+                if cls not in self.yolo_detector.class_mapping:
+                    continue
+                category = self.yolo_detector.class_mapping[cls]
+                if category not in ('barcode', 'QR'):
+                    continue
+
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                # 扩展边界
+                x1_pad = max(0, x1 - self.yolo_detector.padding)
+                y1_pad = max(0, y1 - self.yolo_detector.padding)
+                x2_pad = min(original_image.shape[1], x2 + self.yolo_detector.padding)
+                y2_pad = min(original_image.shape[0], y2 + self.yolo_detector.padding)
+
+                # 裁剪条形码区域
+                cropped = original_image[y1_pad:y2_pad, x1_pad:x2_pad]
+                cropped_dir = os.path.dirname(image_path)
+                name, ext = os.path.splitext(os.path.basename(image_path))
+                crop_filename = f"{name}_barcode_crop_{crop_index}{ext}"
+                crop_path = os.path.join(cropped_dir, crop_filename)
+                cv2.imwrite(crop_path, cropped)
+                cropped_paths.append(crop_path)
+                crop_index += 1
+
+        return cropped_paths if cropped_paths else [image_path]
 
     def _process_image(self, image_path: str, filename: str):
         """处理单张图片的条形码识别"""

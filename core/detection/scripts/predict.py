@@ -31,7 +31,7 @@ from core.detection.visualization import prepare_scene
 # 从项目根目录计算路径
 _project_root = Path(__file__).resolve().parent.parent.parent.parent
 img_path = str(_project_root / "tests" / "test_images" / "full" / "sample1.jpg")
-model_path = str(_project_root / "shared" / "models" / "yolo" / "best.pt")
+model_path = str(_project_root / "shared" / "models" / "yolo" / "pile+box.pt")
 model = YOLO(model_path)
 results = model.predict(source=img_path, save=False)  # 不保存YOLO默认输出
 

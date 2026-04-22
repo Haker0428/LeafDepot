@@ -1,0 +1,6 @@
+path: datasets/box+top+pile
+train: ../images/train
+val: ../images/val
+
+nc: 3
+names: ['box', 'pile', 'top']

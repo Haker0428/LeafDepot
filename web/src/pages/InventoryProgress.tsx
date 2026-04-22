@@ -270,6 +270,11 @@ export default function InventoryProgress() {
   // 记录最新完成（获得新照片）的 bin，用于解决多 bin 同时完成时的行选择问题
   const latestCompletedBinRef = useRef<{ index: number; key: string } | null>(null);
 
+  // 组件挂载时清空旧任务完成通知，防止收到上一个任务的延迟完成弹窗
+  useEffect(() => {
+    window.dispatchEvent(new Event("clear-task-notify"));
+  }, []);
+
   // 在已有的状态后面添加 WebSocket 相关状态
   const [webSocket, setWebSocket] = useState<WebSocket | null>(null);
   const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
@@ -1219,13 +1224,52 @@ export default function InventoryProgress() {
     const loadTaskManifest = () => {
       const isResumeMode = location.state?.resumeMode;
 
-      // 继续盘点模式：从后端加载任务状态
+      // 继续盘点模式：从后端加载任务状态，同时从 localStorage 恢复清单数据
       if (isResumeMode) {
         const resumeTaskNo = location.state.taskNo;
         if (resumeTaskNo) {
           setCurrentTaskNo(resumeTaskNo);
           localStorage.setItem("currentTaskNo", resumeTaskNo);
           toast.info(`正在加载任务 ${resumeTaskNo} 的进度...`);
+        }
+        // 从 localStorage 恢复清单数据，显示所有储位
+        try {
+          const manifestData = localStorage.getItem("currentTaskManifest");
+          if (manifestData) {
+            const manifest: TaskManifest = JSON.parse(manifestData);
+            setCurrentTaskManifest(manifest);
+            const inventoryData: InventoryItem[] = manifest.tasks.map(
+              (task, index) => ({
+                id: `${task.taskID}_${task.binCode}_${index}`,
+                productName: task.tobaccoName,
+                specification: task.binDesc,
+                systemQuantity: task.tobaccoQty,
+                actualQuantity: null,
+                unit: "件",
+                locationId: task.binCode,
+                locationName: task.binDesc,
+                taskNo: task.taskID,
+                startTime: Date.now(),
+                whCode: task.whCode,
+                areaCode: task.areaCode,
+                areaName: task.areaName,
+                binCode: task.binCode,
+                binDesc: task.binDesc,
+                binStatus: task.binStatus,
+                tobaccoCode: task.tobaccoCode,
+                rcsCode: task.rcsCode,
+                photo3dPath: "",
+                photoDepthPath: "",
+                photoScan1Path: "",
+                photoScan2Path: "",
+              }),
+            );
+            setInventoryItems(inventoryData);
+            setCalibrationRecords({});
+            toast.success(`已加载任务清单，包含 ${manifest.tasks.length} 个储位`);
+          }
+        } catch {
+          toast.error("加载任务清单失败");
         }
         return;
       }
@@ -1296,7 +1340,7 @@ export default function InventoryProgress() {
     loadTaskManifest();
   }, [location]);
 
-  // 页面加载时检测任务是否已被取消或中断
+  // 页面加载时检测任务状态：取消/中断则提示；resume 模式则立即加载结果或启动轮询
   useEffect(() => {
     const checkTaskStatus = async () => {
       if (!currentTaskNo) return;
@@ -1304,9 +1348,52 @@ export default function InventoryProgress() {
         const res = await fetch(
           `${GATEWAY_URL}/api/inventory/progress?taskNo=${encodeURIComponent(currentTaskNo)}`
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          // resume 模式下任务不在内存中（如服务端重启），清除弹窗状态并提示
+          if (location.state?.resumeMode) {
+            window.dispatchEvent(new Event("clear-task-notify"));
+            toast.error("任务已不存在于服务器内存中，请从历史记录页面查看");
+          }
+          return;
+        }
         const data = await res.json();
         const status = data.data?.status;
+
+        // resume 模式：立即加载已完成的结果或启动轮询
+        if (location.state?.resumeMode) {
+          if (status === "completed" || status === "partial") {
+            // 已完成，直接加载结果
+            const resultsRes = await fetch(
+              `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(currentTaskNo)}`
+            );
+            const resultsData = await resultsRes.json();
+            const inventoryResults = resultsData.data?.inventoryResults || [];
+            const newItems = inventoryItems.map((item) => {
+              const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
+              if (!ir) return item;
+              return {
+                ...item,
+                actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
+                actualSpec: ir.actualSpec || "未识别",
+                photo3dPath: ir.photo3dPath,
+                photoDepthPath: ir.photoDepthPath,
+                photoScan1Path: ir.photoScan1Path,
+                photoScan2Path: ir.photoScan2Path,
+              };
+            });
+            setInventoryItems(newItems);
+            setIsTaskCompleted(true);
+            setIsTaskStarted(true);  // 标记为已启动，防止出现"下发"按钮和阻止编辑
+            setProgress(100);
+            toast.success("任务已完成，已加载盘点结果");
+          } else if (status === "running") {
+            // 进行中，设置已启动状态并启动轮询
+            setIsTaskStarted(true);
+            setIsStartingTask(false);
+          }
+          return;
+        }
+
         if (status === "cancelled" || status === "interrupted") {
           localStorage.removeItem("currentTaskManifest");
           localStorage.removeItem("currentTaskNo");
@@ -1316,6 +1403,57 @@ export default function InventoryProgress() {
       } catch {}
     };
     checkTaskStatus();
+  }, [currentTaskNo]);
+
+  // resume 模式：启动轮询，实时更新进度和结果
+  useEffect(() => {
+    if (!currentTaskNo || !location.state?.resumeMode) return;
+    if (location.state?.taskStatus === "completed" || location.state?.taskStatus === "partial") return; // 已在 checkTaskStatus 中处理
+
+    const pollIntervalId = setInterval(async () => {
+      try {
+        const progressResponse = await fetch(
+          `${GATEWAY_URL}/api/inventory/progress?taskNo=${encodeURIComponent(currentTaskNo)}`
+        );
+        if (!progressResponse.ok) return;
+        const progressResult = await progressResponse.json();
+        if (progressResult.code !== 200) return;
+
+        const taskStatus = progressResult.data?.status;
+        const currentStep = progressResult.data?.current_step || 0;
+        const totalSteps = progressResult.data?.total_steps || inventoryItems.length || 1;
+        setProgress(Math.round((currentStep / totalSteps) * 100));
+
+        if (taskStatus === "completed" || taskStatus === "partial") {
+          clearInterval(pollIntervalId);
+          const resultsResponse = await fetch(
+            `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(currentTaskNo)}`
+          );
+          const resultsData = await resultsResponse.json();
+          const inventoryResults = resultsData.data?.inventoryResults || [];
+          const newItems = inventoryItems.map((item) => {
+            const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
+            if (!ir) return item;
+            return {
+              ...item,
+              actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
+              actualSpec: ir.actualSpec || "未识别",
+              photo3dPath: ir.photo3dPath,
+              photoDepthPath: ir.photoDepthPath,
+              photoScan1Path: ir.photoScan1Path,
+              photoScan2Path: ir.photoScan2Path,
+            };
+          });
+          setInventoryItems(newItems);
+          setIsTaskCompleted(true);
+          setIsTaskStarted(true);
+          setProgress(100);
+          toast.success("任务已完成，已加载盘点结果");
+        }
+      } catch {}
+    }, 3000);
+
+    return () => clearInterval(pollIntervalId);
   }, [currentTaskNo]);
 
   // 图片加载处理
@@ -2042,6 +2180,8 @@ export default function InventoryProgress() {
 
       if (result.code === 200) {
         toast.success("盘点结果保存成功！");
+        // 保存成功后立即清除弹窗状态，防止 30 秒轮询再次弹出
+        window.dispatchEvent(new Event("clear-task-notify"));
 
         // 下载Excel文件
         if (result.data.xlsxUrl) {
@@ -2178,6 +2318,8 @@ export default function InventoryProgress() {
         throw new Error(saveResult.message || "保存盘点结果失败");
       }
       console.log("盘点结果已保存到历史记录:", saveResult.data?.xlsxFile);
+      // 保存成功后立即清除弹窗状态
+      window.dispatchEvent(new Event("clear-task-notify"));
 
       // 2. 更新 bins_data.xlsx 中的数量和品规
       const updateResponse = await fetch(`${GATEWAY_URL}/api/inventory/update-bins-data`, {

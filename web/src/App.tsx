@@ -8,8 +8,8 @@
  *
  * Copyright (c) 2025 by lizh, All Rights Reserved.
  */
-import React, { useEffect, useState } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import React, { useEffect, useState, useRef } from "react";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import InventoryStart from "./pages/InventoryStart";
@@ -29,6 +29,16 @@ interface TaskNotification {
   eventType: TaskEventType;
   taskNo: string;
   operatorName: string;
+}
+
+interface ResumeTask {
+  taskNo: string;
+  operatorName: string;
+  startTime: string;
+  totalBins: number;
+  completedBins: number;
+  isOwnTask: boolean;
+  taskStatus: string;
 }
 
 function TaskNotifyDialog({ notify, onClose }: { notify: TaskNotification; onClose: () => void }) {
@@ -148,7 +158,7 @@ function TaskNotifyDialog({ notify, onClose }: { notify: TaskNotification; onClo
 // ==================== 受保护路由组件 ====================
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, isVerifying } = useAuth();
+  const { isAuthenticated, isVerifying, userId } = useAuth();
   if (isVerifying) return null;
   if (!isAuthenticated) return <Navigate to="/" replace />;
   return <>{children}</>;
@@ -158,6 +168,61 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 export default function App() {
   const [pendingNotify, setPendingNotify] = useState<TaskNotification | null>(null);
+  const [resumeTask, setResumeTask] = useState<ResumeTask | null>(null);
+  const { userId, authToken } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const isProgressPage = location.pathname === "/inventory/progress";
+  // 弹窗显示时暂停轮询，用户点"忽略"后恢复
+  const pollingPaused = useRef(false);
+
+  // 1. 每 30 秒轮询一次，检查自己是否有待处理任务
+  useEffect(() => {
+    if (!authToken || !userId) return;
+
+    const checkRunningTask = async () => {
+      if (pollingPaused.current) return;
+      try {
+        const response = await fetch(`${GATEWAY_URL}/api/inventory/running-task`, {
+          headers: { authToken },
+        });
+        if (response.ok) {
+          const result = await response.json();
+          if (result.code === 200 && result.data) {
+            pollingPaused.current = true; // 弹窗出来后暂停轮询
+            setResumeTask({ ...result.data, isOwnTask: true });
+          }
+        }
+      } catch {}
+    };
+
+    checkRunningTask(); // 立即查一次
+    const intervalId = setInterval(checkRunningTask, 30000);
+    return () => clearInterval(intervalId);
+  }, [authToken, userId]);
+
+  // 2. WebSocket task_running：其他用户发起任务时弹窗提示（同样暂停轮询）
+  // 注意：handler 3 中的 userId 过滤已覆盖此逻辑，此处保留仅用于暂停轮询
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (msg.event !== "task_running" || !msg.data?.userId || msg.data.userId === userId) return;
+      // 其他用户发起了任务，弹窗提示
+      pollingPaused.current = true;
+      setResumeTask({
+        taskNo: msg.taskNo,
+        operatorName: msg.data.userName || "",
+        startTime: msg.data.startTime || "",
+        totalBins: msg.data.totalBins || 0,
+        completedBins: 0,
+        isOwnTask: false,
+        taskStatus: "running",
+      });
+    };
+    window.addEventListener("remote-task-event", handler as EventListener);
+    return () => window.removeEventListener("remote-task-event", handler as EventListener);
+  }, [userId]);
 
   // 全局 WebSocket 连接
   useEffect(() => {
@@ -186,11 +251,14 @@ export default function App() {
     };
   }, []);
 
-  // 监听任务完成事件，弹出通知
+  // 3. 监听任务完成事件，其他用户任务完成时弹通知（盘点页面不弹）
   useEffect(() => {
+    if (isProgressPage) return;
     const handler = (e: Event) => {
       const msg = (e as CustomEvent).detail;
       const { event: eventType, taskNo, data } = msg;
+      if (eventType === "task_running") return; // task_running 由 resume 弹窗处理
+      if (data?.userId && data.userId === userId) return; // 忽略自己的广播
       setPendingNotify({
         eventType: eventType.replace("task_", "") as TaskEventType,
         taskNo,
@@ -199,15 +267,105 @@ export default function App() {
     };
     window.addEventListener("remote-task-event", handler as EventListener);
     return () => window.removeEventListener("remote-task-event", handler as EventListener);
+  }, [userId, isProgressPage]);
+
+  // 4. 清空弹窗事件（盘点页面提交任务时调用，防止旧任务完成通知误弹）
+  useEffect(() => {
+    const clearHandler = () => { setPendingNotify(null); setResumeTask(null); };
+    window.addEventListener("clear-task-notify", clearHandler);
+    return () => window.removeEventListener("clear-task-notify", clearHandler);
   }, []);
 
   return (
     <>
-      {pendingNotify && (
+      {/* 全局任务通知弹窗（其他用户任务完成） */}
+      {pendingNotify && !isProgressPage && (
         <TaskNotifyDialog
           notify={pendingNotify}
           onClose={() => setPendingNotify(null)}
         />
+      )}
+
+      {/* 继续盘点弹窗（自己有待处理任务时显示，除盘点页面外所有页面） */}
+      {resumeTask && !isProgressPage && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            zIndex: 9999, background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div style={{ background: "#fff", borderRadius: 12, width: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.18)", fontFamily: "-apple-system, sans-serif", overflow: "hidden" }}>
+            <div style={{ height: 4, background: "linear-gradient(90deg, #10b981, #34d399)" }} />
+            <div style={{ padding: "24px 28px 20px" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+                <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#ecfdf5", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg style={{ width: 20, height: 20, color: "#10b981" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 4 }}>
+                    {resumeTask.isOwnTask
+                      ? resumeTask.taskStatus === "running"
+                        ? "您有正在进行的盘点任务"
+                        : "您有待确认的盘点任务"
+                      : "有用户发起了盘点任务"}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>
+                    {resumeTask.isOwnTask
+                      ? resumeTask.taskStatus === "running"
+                        ? "是否继续进行该盘点任务？"
+                        : "任务已完成，请确认盘点结果。"
+                      : `${resumeTask.operatorName} 发起了一个盘点任务，是否查看？`}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ background: "#f9fafb", borderRadius: 8, padding: "10px 14px", marginBottom: 20, fontSize: 13, color: "#374151" }}>
+                <div style={{ display: "flex", gap: 16, marginBottom: 4 }}>
+                  <span style={{ color: "#6b7280", flexShrink: 0 }}>任务号：</span>
+                  <span style={{ fontFamily: "monospace", fontWeight: 500 }}>{resumeTask.taskNo}</span>
+                </div>
+                <div style={{ display: "flex", gap: 16 }}>
+                  <span style={{ color: "#6b7280", flexShrink: 0 }}>操作人：</span>
+                  <span>{resumeTask.operatorName}</span>
+                </div>
+                <div style={{ display: "flex", gap: 16 }}>
+                  <span style={{ color: "#6b7280", flexShrink: 0 }}>储位进度：</span>
+                  <span>{resumeTask.completedBins} / {resumeTask.totalBins} 个</span>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => {
+                    pollingPaused.current = false; // 恢复轮询
+                    setResumeTask(null);
+                  }}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#374151", cursor: "pointer", fontSize: 14 }}
+                >
+                  忽略（30秒后再提示）
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/inventory/progress", {
+                      state: {
+                        taskNo: resumeTask.taskNo,
+                        resumeMode: true,
+                        taskStatus: resumeTask.taskStatus,
+                      },
+                    });
+                    setResumeTask(null);
+                  }}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#10b981", color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 500 }}
+                >
+                  {resumeTask.taskStatus === "running" ? "继续盘点" : "查看结果"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <Routes>

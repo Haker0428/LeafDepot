@@ -23,7 +23,7 @@ class OperationLog(BaseModel):
 class TaskStatus(BaseModel):
     """任务状态模型"""
     task_no: str
-    status: str  # init, running, completed, failed
+    status: str  # init, running, completed, partial, failed, confirmed, cancelled
     current_step: int = 0
     total_steps: int = 0
     start_time: Optional[str] = None

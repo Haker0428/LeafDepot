@@ -36,7 +36,7 @@ class BoxCountService:
         """
         初始化箱体计数服务
         
-        :param model_path: YOLO模型路径，默认使用 shared/models/yolo/best.pt
+        :param model_path: YOLO模型路径，默认使用 shared/models/yolo/pile+box.pt
         :param pile_config_path: 堆垛配置路径，默认使用 core/config/pile_config.json
         :param work_dir: 工作目录，用于保存临时图片和处理结果
         :param confidence_threshold: 置信度阈值
@@ -44,7 +44,7 @@ class BoxCountService:
         # 设置默认路径
         if model_path is None:
             project_root = Path(__file__).resolve().parent.parent.parent
-            model_path = project_root / "shared" / "models" / "yolo" / "best.pt"
+            model_path = project_root / "shared" / "models" / "yolo" / "pile+box.pt"
         self.model_path = str(model_path)
         
         if pile_config_path is None:

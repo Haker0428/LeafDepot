@@ -81,7 +81,7 @@ def test_count_boxes_custom_config():
     
     try:
         # 使用自定义模型路径和配置路径
-        model_path = _project_root / "shared" / "models" / "yolo" / "best.pt"
+        model_path = _project_root / "shared" / "models" / "yolo" / "pile+box.pt"
         config_path = _project_root / "core" / "config" / "pile_config.json"
         
         total = count_boxes(

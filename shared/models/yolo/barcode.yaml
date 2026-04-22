@@ -1,0 +1,6 @@
+path: datasets/barcode+QR
+train: ../images/train
+val: ../images/val
+
+nc: 2
+names: ['barcode', 'QR']

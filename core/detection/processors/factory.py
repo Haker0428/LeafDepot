@@ -363,7 +363,7 @@ class StackProcessorFactory:
         # 初始化模型和数据库（如果未初始化）
         if self.model is None:
             project_root = Path(__file__).resolve().parent.parent.parent.parent
-            default_model_path = project_root / "shared" / "models" / "yolo" / "best.pt"
+            default_model_path = project_root / "shared" / "models" / "yolo" / "pile+box.pt"
             self._init_model(default_model_path)
         
         if self.pile_db is None:
@@ -827,7 +827,7 @@ def count_boxes(image_path: Union[str, Path], pile_id: int,
     :param image_path: 图片路径（RGB图片）
     :param pile_id: 堆垛ID
     :param depth_image_path: 深度图路径（可选，预留参数）
-    :param model_path: YOLO模型路径（可选，默认使用 shared/models/yolo/best.pt）
+    :param model_path: YOLO模型路径（可选，默认使用 shared/models/yolo/pile+box.pt）
     :param pile_config_path: 堆垛配置路径（可选，默认使用 core/config/pile_config.json）
     :param enable_debug: 是否启用调试输出（打印日志）
     :param enable_visualization: 是否启用可视化（保存效果图到output目录）

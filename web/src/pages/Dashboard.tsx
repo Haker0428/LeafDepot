@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/authContext";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Modal } from "antd";
 import { getRecentOperationLogs, getOperationLogs, clearAllOperationLogs, OperationLog } from "../lib/operationLog";
 import { GATEWAY_URL } from "../config/ip_address";
 
@@ -17,15 +16,6 @@ const Dashboard = () => {
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [showAllLogs, setShowAllLogs] = useState(false); // 控制是否显示全部操作记录
   const { authToken, logout, userLevel, userName, userId } = useAuth();
-  const navigate = useNavigate();
-  const [resumeTask, setResumeTask] = useState<{
-    taskNo: string;
-    operatorName: string;
-    startTime: string;
-    totalBins: number;
-    completedBins: number;
-    isOwnTask: boolean;  // true=自己的任务，false=其他用户的任务
-  } | null>(null);
 
   // 设置当前日期
   useEffect(() => {
@@ -41,46 +31,6 @@ const Dashboard = () => {
       dateElement.textContent = currentDate;
     }
   }, []);
-
-  // 检查当前用户是否有正在进行的盘点任务（初始轮询 + 实时推送）
-  useEffect(() => {
-    if (!authToken || !userId) return;
-
-    // 1. 初始轮询：页面加载时检查当前用户是否有运行中的任务
-    const checkRunningTask = async () => {
-      try {
-        const response = await fetch(`${GATEWAY_URL}/api/inventory/running-task`, {
-          headers: { authToken },
-        });
-        if (response.ok) {
-          const result = await response.json();
-          if (result.code === 200 && result.data) {
-            setResumeTask({ ...result.data, isOwnTask: true });
-          }
-        }
-      } catch {
-        // 静默失败，不影响页面加载
-      }
-    };
-    checkRunningTask();
-
-    // 2. WebSocket 实时推送：其他页面发起任务时立即收到通知
-    const handler = (e: Event) => {
-      const msg = (e as CustomEvent).detail;
-      if (msg.event === "task_running" && msg.data?.userId && msg.data?.userId !== userId) {
-        setResumeTask({
-          taskNo: msg.taskNo,
-          operatorName: msg.data.userName || "",
-          startTime: msg.data.startTime || "",
-          totalBins: msg.data.totalBins || 0,
-          completedBins: 0,
-          isOwnTask: false,
-        });
-      }
-    };
-    window.addEventListener("remote-task-event", handler as EventListener);
-    return () => window.removeEventListener("remote-task-event", handler as EventListener);
-  }, [authToken, userId]);
 
   // 从后端API获取储位数和品类数统计数据
   useEffect(() => {
@@ -811,75 +761,6 @@ const Dashboard = () => {
         </div>
       </footer>
 
-      {/* 继续盘点弹窗 */}
-      <Modal
-        title={resumeTask?.isOwnTask ? "📋 您有正在进行的盘点任务" : "📋 有用户发起了盘点任务"}
-        open={!!resumeTask}
-        onCancel={() => setResumeTask(null)}
-        footer={[
-          <button
-            key="resume"
-            onClick={() => {
-              if (resumeTask) {
-                navigate("/inventory/progress", {
-                  state: {
-                    taskNo: resumeTask.taskNo,
-                    resumeMode: true,
-                  },
-                });
-              }
-              setResumeTask(null);
-            }}
-            className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-          >
-            回到盘点
-          </button>,
-          <button
-            key="skip"
-            onClick={() => setResumeTask(null)}
-            className="px-5 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-          >
-            不回到当前盘点
-          </button>,
-        ]}
-        width={480}
-      >
-        {resumeTask && (
-          <div className="py-2">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-              <p className="text-blue-800 font-medium mb-2">
-                {resumeTask.isOwnTask
-                  ? "您有一个盘点任务尚未完成，是否继续？"
-                  : `${resumeTask.operatorName} 发起了一个盘点任务，是否查看？`}
-              </p>
-            </div>
-            <div className="space-y-2 text-sm text-gray-700">
-              <div className="flex gap-2">
-                <span className="text-gray-500 w-20 flex-shrink-0">任务号：</span>
-                <span className="font-mono font-medium">{resumeTask.taskNo}</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-gray-500 w-20 flex-shrink-0">操作人：</span>
-                <span>{resumeTask.operatorName}</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-gray-500 w-20 flex-shrink-0">开始时间：</span>
-                <span>
-                  {resumeTask.startTime
-                    ? new Date(resumeTask.startTime).toLocaleString("zh-CN")
-                    : "—"}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-gray-500 w-20 flex-shrink-0">进度：</span>
-                <span>
-                  {resumeTask.completedBins} / {resumeTask.totalBins} 个储位
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 };

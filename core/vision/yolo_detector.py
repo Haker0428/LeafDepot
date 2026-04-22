@@ -170,12 +170,10 @@ class YoloDetection:
 if __name__ == "__main__":
     # 初始化检测器（包含padding参数）
     detector = YoloDetection(
-        model_path='../../shared/models/yolo/best.pt',
+        model_path='../../shared/models/yolo/barcode.pt',
         class_mapping={
             0: 'barcode',
-            1: 'box',
-            2: 'piles',
-            3: 'QR'
+            1: 'QR'
         },
         confidence_threshold=0.7,
         padding=50
