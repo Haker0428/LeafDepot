@@ -66,7 +66,7 @@ const Dashboard = () => {
     // 2. WebSocket 实时推送：其他页面发起任务时立即收到通知
     const handler = (e: Event) => {
       const msg = (e as CustomEvent).detail;
-      if (msg.event === "task_running" && msg.data?.userId === userId) {
+      if (msg.event === "task_running" && msg.data?.userId && msg.data?.userId !== userId) {
         setResumeTask({
           taskNo: msg.taskNo,
           operatorName: msg.data.userName || "",
