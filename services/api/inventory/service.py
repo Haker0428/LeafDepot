@@ -61,9 +61,10 @@ def _get_next_request_id() -> str:
     """获取下一个递增的 REQUEST-ID，格式: TASK_ + 12位16进制大写（每进程互斥写）"""
     import fcntl
     os.makedirs(os.path.dirname(_COUNTER_FILE), exist_ok=True)
-    with open(_COUNTER_FILE, "r+") as f:
+    with open(_COUNTER_FILE, "a+") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
+            f.seek(0)
             current = f.read().strip()
             counter = int(current, 16) if current else 0
             counter += 1
@@ -83,9 +84,10 @@ def _get_next_task_no() -> str:
     import fcntl
     today = datetime.now().strftime("%Y%m%d")
     os.makedirs(os.path.dirname(_TASKNO_COUNTER_FILE), exist_ok=True)
-    with open(_TASKNO_COUNTER_FILE, "r+") as f:
+    with open(_TASKNO_COUNTER_FILE, "a+") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
+            f.seek(0)
             current = f.read().strip()
             if current:
                 parts = current.split(":", 1)
