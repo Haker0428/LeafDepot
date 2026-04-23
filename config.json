@@ -1,5 +1,5 @@
 {
-  "host": "localhost",
+  "host": "10.16.82.95",
   "ports": {
     "gateway": 8000,
     "lms": 6000,
@@ -15,7 +15,7 @@
   "rcs_prefix": "/rcs/rtas",
   "lms_prefix": "/lms/srm",
   "rcs_real": {
-    "host": "localhost",
+    "host": "10.16.82.95",
     "port": 443,
     "use_ssl": true,
     "task_type": "PF-CTU-HS-H-DETECT-NOTIFY-2",
