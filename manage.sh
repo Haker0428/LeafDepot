@@ -78,13 +78,13 @@ get_service_url() {
     local service=$1
     case "$service" in
         gateway)
-            echo "http://10.16.82.95:8000/docs"
+            echo "http://localhost:8000/docs"
             ;;
         lms)
-            echo "http://10.16.82.95:6000"
+            echo "http://localhost:6000"
             ;;
         rcs)
-            echo "http://10.16.82.95:4001"
+            echo "http://localhost:4001"
             ;;
     esac
 }
