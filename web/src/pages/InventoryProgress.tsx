@@ -186,6 +186,8 @@ export default function InventoryProgress() {
   const [isCalculate, setIsCalculate] = useState(false);
   const [isTaskCompleted, setIsTaskCompleted] = useState(false);
   const [taskStartTime, setTaskStartTime] = useState<number | null>(null);
+  // useRef 保证闭包中始终能读到最新值（不受 async await + setInterval 闭包陷阱影响）
+  const taskStartTimeRef = useRef<number | null>(null);
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [isStatisticsModalOpen, setIsStatisticsModalOpen] = useState(false);
@@ -1361,6 +1363,14 @@ export default function InventoryProgress() {
 
         // resume 模式：立即加载已完成的结果或启动轮询
         if (location.state?.resumeMode) {
+          // 从服务端恢复任务开始时间（用于计算耗时）
+          const startTimeStr = data.data?.start_time;
+          if (startTimeStr) {
+            const t = new Date(startTimeStr).getTime();
+            setTaskStartTime(t);
+            taskStartTimeRef.current = t;
+          }
+
           if (status === "completed" || status === "partial") {
             // 已完成，直接加载结果
             const resultsRes = await fetch(
@@ -1602,7 +1612,9 @@ export default function InventoryProgress() {
 
   // 启动盘点任务 - 与内部网关程序交互
   const handleStartCountingTask = async () => {
-    setTaskStartTime(Date.now());
+    const now = Date.now();
+    setTaskStartTime(now);
+    taskStartTimeRef.current = now;
     setIsStartingTask(true);
     setIsTaskStarted(true);
 
@@ -1785,7 +1797,7 @@ export default function InventoryProgress() {
                   toast.error(`${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`);
                 } else {
                   // 无失败库位，自动弹出统计窗口
-                  showStatisticsModal(newItems);
+                  showStatisticsModal(newItems, taskStartTimeRef.current ? Date.now() - taskStartTimeRef.current : undefined);
                 }
 
                 loadedPhotoKeysRef.current.clear();
@@ -1898,7 +1910,7 @@ export default function InventoryProgress() {
                   });
                   toast.error(`${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`);
                 } else {
-                  showStatisticsModal(newItems);
+                  showStatisticsModal(newItems, taskStartTimeRef.current ? Date.now() - taskStartTimeRef.current : undefined);
                 }
                 return;
               }
@@ -2412,7 +2424,7 @@ export default function InventoryProgress() {
       toast.error("没有盘点数据可供统计");
       return;
     }
-    showStatisticsModal(inventoryItems);
+    showStatisticsModal(inventoryItems, taskStartTime ?? undefined);
   };
 
   // 一键重新盘点
@@ -2509,7 +2521,7 @@ export default function InventoryProgress() {
           toast.error(`${failedBins.length} 个库位盘点失败`);
         } else {
           toast.success(`重新盘点完成，已更新 ${selectedIds.length} 个库位`);
-          showStatisticsModal(newItems);
+          showStatisticsModal(newItems, taskStartTimeRef.current ? Date.now() - taskStartTimeRef.current : undefined);
         }
 
         // 合并保存到原任务号的 Excel 文件
@@ -2610,8 +2622,8 @@ export default function InventoryProgress() {
     }
   };
 
-  // 核心统计函数，接受 items 作为参数，避免闭包陷阱
-  const showStatisticsModal = (items: InventoryItem[]) => {
+  // 核心统计函数，直接接收 totalTimeMs，避免闭包捕获旧 state
+  const showStatisticsModal = (items: InventoryItem[], totalTimeMs?: number) => {
     if (items.length === 0) {
       toast.error("没有盘点数据可供统计");
       return;
@@ -2636,10 +2648,7 @@ export default function InventoryProgress() {
 
     const totalItems = items.length;
     const diffRate = totalItems > 0 ? (abnormalTasks.length / totalItems) * 100 : 0;
-    let totalTime = statisticsData.totalTime;
-    if (!isTaskCompleted && taskStartTime) {
-      totalTime = Date.now() - taskStartTime;
-    }
+    const totalTime = totalTimeMs ?? 0;
 
     setStatisticsData({ totalTime, diffRate, abnormalTasks });
     setPendingSaveAction(null);
@@ -2648,7 +2657,8 @@ export default function InventoryProgress() {
 
   // 带确认回调的统计（用于"保存并进行下次盘点"场景）
   const openStatisticsWithConfirm = (onConfirm: () => void) => {
-    showStatisticsModal(inventoryItems);
+    const ms = taskStartTime ? Date.now() - taskStartTime : undefined;
+    showStatisticsModal(inventoryItems, ms);
     setPendingSaveAction(() => onConfirm);
   };
   // 处理返回

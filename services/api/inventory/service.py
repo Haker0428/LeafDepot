@@ -1797,7 +1797,15 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                             logger.info(f"[END 校验-尾声] 校验通过，bin={bin_code}，rt_code={expected_rt_code}，追加结果")
                             completed_bins.add(bin_code)
                             completed_robot_codes.add(expected_rt_code)
-                            # 最后一轮的 END 不再拍照，直接追加成功状态
+
+                            # 发送 continue（即使没有照片也必须发，否则 RCS 等待继续指令会卡住）
+                            if expected_rt_code:
+                                try:
+                                    cr = await continue_inventory_task(is_sim=False, robot_task_code=expected_rt_code)
+                                    logger.info(f"[尾声] continue 发送结果 bin={bin_code}, rt={expected_rt_code}: {cr}")
+                                except Exception as e:
+                                    logger.error(f"[尾声] 发送 continue 失败: {str(e)}")
+
                             inventory_results.append({
                                 "binLocation": bin_code,
                                 "status": "成功",
