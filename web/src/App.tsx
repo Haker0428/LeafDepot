@@ -177,11 +177,23 @@ export default function App() {
   // 弹窗显示时暂停轮询，用户点"忽略"后恢复
   const pollingPaused = useRef(false);
 
+  // 监听进度页卸载事件：用户离开进度页时自动恢复轮询
+  useEffect(() => {
+    const handler = () => { pollingPaused.current = false; };
+    window.addEventListener("resume-polling", handler);
+    return () => window.removeEventListener("resume-polling", handler);
+  }, []);
+
   // 1. 每 30 秒轮询一次，检查自己是否有待处理任务
   useEffect(() => {
     if (!authToken || !userId) return;
 
     const checkRunningTask = async () => {
+      // 从 DOM 动态判断当前是否在进度页（避免闭包捕获问题）
+      const onProgress = window.location.pathname === "/inventory/progress";
+      if (!onProgress) {
+        pollingPaused.current = false;
+      }
       if (pollingPaused.current) return;
       try {
         const response = await fetch(`${GATEWAY_URL}/api/inventory/running-task`, {

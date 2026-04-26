@@ -176,9 +176,9 @@ class CoverageBasedDetector(FullLayerDetector):
             top_layer["boxes"] = top_layer_boxes
             
             return {
-                "status": "single_layer",
-                "full": False,  # 单层不算满层
-                "reason": "single_layer_detected",
+                "status": "full",
+                "full": True,
+                "reason": "single_layer_always_proceed",
                 "top_layer": {
                     "index": 1,
                     "expected": template_layers[0] if template_layers else 0,
@@ -208,19 +208,10 @@ class CoverageBasedDetector(FullLayerDetector):
         cv_gap = self._calc_cv_gap(top_layer_boxes)
         cv_width = self._calc_cv_width(top_layer_boxes)
         
-        # 满层判断逻辑
-        if O_top == C_top:
-            full = True
-            status = "full"
-            reason = "match_template"
-        elif coverage > self.coverage_threshold and cv_gap < self.cv_gap_threshold:
-            full = True
-            status = "full"
-            reason = "continuous_filled"
-        else:
-            full = False
-            status = "partial"
-            reason = "low_coverage_or_gap"
+        # 满层判断逻辑：顶层无论如何都进入深度比对，不在此处做满层判断
+        full = True
+        status = "full"
+        reason = "always_proceed"
         
         result = {
             "status": status,
@@ -237,7 +228,7 @@ class CoverageBasedDetector(FullLayerDetector):
         if self.enable_debug:
             status_emoji = {"full": "✅ 满层", "partial": "❌ 非满层", "single_layer": "🔵 单层"}
             status_text = status_emoji.get(status, "❓ 未知")
-            logger.debug(f"[Detection] 满层判断: {status_text} (顶层: {O_top}/{C_top}, 依据: {reason})")
+            logger.debug(f"[Detection] 满层判断: {status_text} (顶层: {O_top}/{C_top}, 依据: {reason}), 覆盖: {coverage:.2f}, 间距CV: {cv_gap:.2f}")
         
         return result
 

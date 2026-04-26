@@ -181,9 +181,7 @@ class StackProcessorFactory:
             logger.warning("[Detection] YOLO未检测到任何目标（pile可能为空或不可见）")
             return 0
 
-        logger.info(f"[Detection] YOLO检测到 {len(detections)} 个目标, 类别: {set(d.get('cls') for d in detections)}")
-        for i, det in enumerate(detections):
-            logger.info(f"[Detection]   YOLO[{i}]: cls={det.get('cls')}, roi=({det.get('x1', 0):.0f},{det.get('y1', 0):.0f},{det.get('x2', 0):.0f},{det.get('y2', 0):.0f}), conf={det.get('conf', 0):.4f}")
+        logger.info(f"[Detection] YOLO检测到 {len(detections)} 个目标")
 
         # Step 1.5: 深度图处理（在 pile 检测之前，以便生成 depth_color.jpg）
         self._process_depth_image(processing_image_path, vis_output_dir)
@@ -195,9 +193,6 @@ class StackProcessorFactory:
             return 0
         boxes, pile_roi = prepared["boxes"], prepared["pile_roi"]
         logger.info(f"[Detection] 场景准备成功: pile_roi={pile_roi}, pile内box数={len(boxes)}")
-        for i, b in enumerate(boxes):
-            x1, y1, x2, y2 = b.get("x1", 0), b.get("y1", 0), b.get("x2", 0), b.get("y2", 0)
-            logger.info(f"[Detection]   提取box[{i}]: roi=({x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}), 中心=({(x1+x2)/2:.0f},{(y1+y2)/2:.0f}), 宽高=({x2-x1:.0f}x{y2-y1:.0f})")
 
         # 添加图像尺寸信息到pile_roi（用于深度处理，使用旋转后的图像）
         img = cv2.imread(str(processing_image_path))
@@ -622,7 +617,8 @@ class StackProcessorFactory:
             processing_result = self.full_processor.process(
                 layers, template_layers, detection_result,
                 depth_image=self.depth_image,
-                depth_matrix_csv_path=self.depth_matrix_csv_path
+                depth_matrix_csv_path=self.depth_matrix_csv_path,
+                pile_id=pile_id
             )
         else:  # status == "partial"
             logger.info("[Detection] 进入非满层处理模块")

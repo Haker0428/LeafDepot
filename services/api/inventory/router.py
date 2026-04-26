@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Set
 
-from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, status, Body
+from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, status, Body, Query
 from fastapi.responses import JSONResponse, Response
 import pandas as pd
 
@@ -44,7 +44,7 @@ from services.api.inventory.service import (
     _get_next_task_no,
 )
 from services.api.shared.websocket_manager import ws_manager
-from services.api.inventory.task_state import on_server_startup, clear_task
+from services.api.inventory.task_state import on_server_startup, clear_task, get_running_tasks, _load as load_task_state
 
 from services.api.auth.router import get_user_info_from_token
 
@@ -147,21 +147,27 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"获取到的 user_info: {user_info}")
 
         # ===== 全局并发检查：不允许两个盘点任务同时运行 =====
+        # 检查1: 内存中的 inventory_tasks
+        BLOCKED_STATUSES = {"running", "completed", "partial", "failed"}
         for running_task_no, task_status in inventory_tasks.items():
-            if task_status.status == "running":
-                # 获取正在运行任务的操作人信息
-                running_user_info = {}
-                if running_task_no in inventory_task_details:
-                    running_user_info = inventory_task_details[running_task_no].get("userInfo", {})
+            if task_status.status in BLOCKED_STATUSES:
+                running_user_info = inventory_task_details.get(running_task_no, {}).get("userInfo", {})
                 operator_name = running_user_info.get("userName", "未知")
                 operator_id = running_user_info.get("userId", "")
                 start_time = task_status.start_time or ""
-                conflict_msg = (
-                    f"有其他盘点任务正在进行中（任务号: {running_task_no}，"
-                    f"操作人: {operator_name}{f'（{operator_id}）' if operator_id else ''}，"
-                    f"开始时间: {start_time}），请等待该任务结束后再下发新任务。"
-                )
-                logger.warning(f"[并发冲突] 用户 {user_info.get('userName','未知')} 试图下发任务 {task_no}，但任务 {running_task_no} 正在运行")
+                if task_status.status == "running":
+                    conflict_msg = (
+                        f"有其他盘点任务正在进行中（任务号: {running_task_no}，"
+                        f"操作人: {operator_name}{f'（{operator_id}）' if operator_id else ''}，"
+                        f"开始时间: {start_time}），请等待该任务结束后再下发新任务。"
+                    )
+                else:
+                    conflict_msg = (
+                        f"存在未确认的盘点任务（任务号: {running_task_no}，状态: {task_status.status}），"
+                        f"请先确认或取消该任务后再下发新任务。"
+                    )
+                logger.warning(f"[并发冲突] 用户 {user_info.get('userName','未知')} 试图下发任务 {task_no}，"
+                               f"但任务 {running_task_no} 状态为 {task_status.status}")
                 return JSONResponse(
                     status_code=status.HTTP_409_CONFLICT,
                     content={
@@ -172,6 +178,34 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
                             "operatorName": operator_name,
                             "operatorId": operator_id,
                             "startTime": start_time,
+                        }
+                    }
+                )
+
+        # 检查2: task_state.json 中的未完成任务
+        task_state_data = load_task_state()
+        for task_no_check, task_info in task_state_data.items():
+            task_status = task_info.get("status", "")
+            if task_status in BLOCKED_STATUSES:
+                if task_status == "running":
+                    conflict_msg = (
+                        f"有其他盘点任务正在进行中（任务号: {task_no_check}），"
+                        f"请等待该任务结束后再下发新任务。"
+                    )
+                else:
+                    conflict_msg = (
+                        f"存在未确认的盘点任务（任务号: {task_no_check}，状态: {task_status}），"
+                        f"请先确认或取消该任务后再下发新任务。"
+                    )
+                logger.warning(f"[并发冲突] 用户 {user_info.get('userName','未知')} 试图下发任务 {task_no}，"
+                               f"但 task_state.json 中任务 {task_no_check} 状态为 {task_status}")
+                return JSONResponse(
+                    status_code=status.HTTP_409_CONFLICT,
+                    content={
+                        "code": 409,
+                        "message": conflict_msg,
+                        "data": {
+                            "runningTaskNo": task_no_check,
                         }
                     }
                 )
@@ -274,6 +308,11 @@ async def get_inventory_progress(taskNo: str):
         if task_status.status == "failed":
             response_data["error_type"] = task_status.error_type or "other"
             response_data["message"] = task_status.error_message or "任务失败"
+
+        # 返回 manifest（inventoryItems），便于前端 resume 时恢复取消按钮
+        task_details = inventory_task_details.get(taskNo, {})
+        if task_details.get("inventoryItems"):
+            response_data["inventoryItems"] = task_details["inventoryItems"]
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -763,6 +802,7 @@ async def save_inventory_results(request: Request):
         # 确认后标记任务状态为 confirmed，不再推送弹窗
         if task_no in inventory_tasks:
             inventory_tasks[task_no].status = "confirmed"
+        clear_task(task_no)  # 同步清除 task_state.json，允许下发新任务
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -946,11 +986,14 @@ async def get_local_bins():
 # ==================== 取消任务接口 ====================
 
 @router.post("/cancel-inventory")
-async def cancel_inventory(taskNo: str):
+async def cancel_inventory(taskNo: str = Query(..., description="任务编号")):
     """取消盘点任务"""
     robot_task_code = ""
     was_completed = False
     user_info_data = {}
+
+    # 无论任务是否在内存中，都尝试从文件中清除
+    clear_task(taskNo)
 
     if taskNo in inventory_tasks:
         robot_task_code = inventory_tasks[taskNo].robot_task_code or ""
@@ -993,6 +1036,8 @@ async def cancel_inventory(taskNo: str):
                 "operatorName": user_info_data.get("userName", ""),
             }
         )
+    else:
+        logger.info(f"任务不在内存中，仅清除 task_state.json 中的记录: {taskNo}")
 
     # TODO: RCS 提供 cancel API 后，在此调用 abort_inventory_task
     # 等 RCS 接口到位后，取消时会主动通知 RCS 停止所有进行中的任务

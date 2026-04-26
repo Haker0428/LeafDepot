@@ -15,18 +15,20 @@ class FullStackProcessor(ABC):
     """满层堆垛处理器抽象基类"""
     
     @abstractmethod
-    def process(self, layers: List[Dict], template_layers: List[int], 
-                detection_result: Dict, 
+    def process(self, layers: List[Dict], template_layers: List[int],
+                detection_result: Dict,
                 depth_image: Optional[np.ndarray] = None,
-                depth_matrix_csv_path: Optional[str] = None) -> Dict:
+                depth_matrix_csv_path: Optional[str] = None,
+                pile_id: Optional[int] = None) -> Dict:
         """
         处理满层堆垛，计算总箱数
-        
+
         :param layers: 分层结果列表
         :param template_layers: 模板层配置（每层期望的箱数）
         :param detection_result: 满层判断结果
         :param depth_image: 深度图（可选，numpy数组）
         :param depth_matrix_csv_path: 深度矩阵CSV路径（可选，从深度处理中获取）
+        :param pile_id: 垛型ID（可选，用于深度匹配）
         :return: 处理结果字典，包含 total(int), details(dict) 等
         """
         pass
@@ -35,106 +37,260 @@ class FullStackProcessor(ABC):
 class TemplateBasedFullProcessor(FullStackProcessor):
     """
     基于模板的满层处理器（当前默认实现）
-    
-    处理逻辑：
-    1. 检测层数 = 模板层数 → 总箱数 = 所有模板层之和
-    2. 检测层数 < 模板层数 → 总箱数 = 已检测层的模板之和
+
+    处理逻辑：顶层无论如何都通过深度比对确定箱数，下层使用模板
+    1. 顶层 → 深度算法匹配 pile JSON（与 PartialProcessor 相同逻辑）
+    2. 下层 → 模板层数之和
     """
-    
+
     def __init__(self, enable_debug: bool = True):
         """
         :param enable_debug: 是否启用调试输出
         """
         self.enable_debug = enable_debug
-    
-    def process(self, layers: List[Dict], template_layers: List[int], 
-                detection_result: Dict, 
+
+    def _calculate_top_layer_count_with_depth(self,
+                                               top_layer: Dict,
+                                               top_layer_boxes: List[Dict],
+                                               pile_roi: Dict[str, float],
+                                               pile_id: Optional[int],
+                                               depth_image: Optional[np.ndarray],
+                                               depth_matrix_csv_path: Optional[str]) -> int:
+        """顶层箱数计算（与 TemplateBasedPartialProcessor 相同逻辑）"""
+        import json, re
+        from core.detection.depth import DepthProcessor
+
+        pile_json_path = None
+        pile_patterns = None
+        if pile_id is not None:
+            config_dir = Path(__file__).parent.parent.parent / "config"
+            for f in config_dir.glob(f"pile_ID_{pile_id}_*.json"):
+                pile_json_path = f
+                break
+
+        if pile_json_path is None or not pile_json_path.exists():
+            count = len(top_layer_boxes)
+            logger.info(f"[FullProcessor] 未找到pile_ID_{pile_id}配置，回落YOLO: {count}")
+            return count
+
+        with open(pile_json_path, "r", encoding="utf-8") as f:
+            pile_patterns = json.load(f)
+
+        logger.info(f"[FullProcessor] 加载pile_ID={pile_id}配置: {pile_json_path.name}, 共{len(pile_patterns)}条规则")
+        logger.info(f"[FullProcessor] YOLO顶层箱数: {len(top_layer_boxes)}")
+
+        # 加载深度矩阵
+        depth_matrix = None
+        if depth_matrix_csv_path and Path(depth_matrix_csv_path).exists():
+            try:
+                dp = DepthProcessor(enable_debug=self.enable_debug)
+                depth_matrix = dp.load_depth_matrix(depth_matrix_csv_path)
+                logger.info(f"[FullProcessor] 深度矩阵尺寸: {depth_matrix.shape}")
+            except Exception as e:
+                logger.info(f"[FullProcessor] 加载深度矩阵失败: {e}")
+
+        if depth_matrix is None and depth_image is not None:
+            depth_matrix = depth_image
+
+        pile_w = float(pile_roi["x2"]) - float(pile_roi["x1"])
+        image_width = pile_roi.get("image_width", pile_w)
+        image_height = pile_roi.get("image_height", 0)
+
+        sorted_boxes = sorted(top_layer_boxes, key=lambda b: (
+            (b.get("roi", b).get("x1", 0) + b.get("roi", b).get("x2", 0)) / 2.0
+        ))
+
+        box_data = []
+        for i, box in enumerate(sorted_boxes):
+            roi = box.get("roi", box)
+            bx1, by1 = roi.get("x1", 0), roi.get("y1", 0)
+            bx2, by2 = roi.get("x2", 0), roi.get("y2", 0)
+            box_w = bx2 - bx1
+            box_h = by2 - by1
+            cx = (bx1 + bx2) / 2.0
+            cy = (by1 + by2) / 2.0
+            norm_w = box_w / pile_w if pile_w > 0 else 0
+
+            depth_mm = None
+            if depth_matrix is not None:
+                cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
+                cy_n = max(0.0, min(1.0, cy / image_height)) if image_height > 0 else 0
+                dp2 = DepthProcessor(enable_debug=False)
+                res = dp2.extract_depth_at_position(depth_matrix, cx_n, cy_n)
+                if res.get("success") and res.get("value", 0) > 0:
+                    depth_mm = res["value"]
+
+            box_data.append({
+                "idx": i,
+                "roi": (bx1, by1, bx2, by2),
+                "width_px": box_w,
+                "height_px": box_h,
+                "center": (cx, cy),
+                "norm_width": norm_w,
+                "depth_mm": depth_mm,
+            })
+            logger.info(f"[FullProcessor] box[{i}]: norm_w={norm_w:.4f}, depth={depth_mm:.0f}mm" if depth_mm
+                        else f"[FullProcessor] box[{i}]: norm_w={norm_w:.4f}, depth=None")
+
+        # 匹配 pattern
+        detected_count = len(box_data)
+        patterns_by_count = {}
+        for p in pile_patterns:
+            vc = p.get("visible_count", 1)
+            patterns_by_count.setdefault(vc, []).append(p)
+
+        logger.info(f"[FullProcessor] 检测到{detected_count}个box，尝试匹配visible_count={detected_count}的patterns")
+        if detected_count in patterns_by_count:
+            candidates = patterns_by_count[detected_count]
+            logger.info(f"[FullProcessor] 命中{len(candidates)}条候选规则，逐条匹配...")
+            for p in candidates:
+                pid = p.get("pattern_id", "?")
+                w_ranges = p.get("match", {}).get("width_ranges", [])
+                d_ranges = p.get("match", {}).get("depth_ranges", [])
+
+                if len(w_ranges) != detected_count or len(d_ranges) != detected_count:
+                    continue
+
+                match_ok = True
+                for j, bd in enumerate(box_data):
+                    w_lo, w_hi = w_ranges[j]
+                    if not (w_lo <= bd["norm_width"] <= w_hi):
+                        match_ok = False
+                        logger.info(f"[FullProcessor] ❌ {pid}: box[{j}] width={bd['norm_width']:.4f} not in [{w_lo:.4f},{w_hi:.4f}]")
+                        break
+                    if bd["depth_mm"] is not None:
+                        d_lo, d_hi = d_ranges[j]
+                        if not (d_lo <= bd["depth_mm"] <= d_hi):
+                            match_ok = False
+                            logger.info(f"[FullProcessor] ❌ {pid}: box[{j}] depth={bd['depth_mm']:.0f} not in [{d_lo:.0f},{d_hi:.0f}]")
+                            break
+
+                if match_ok:
+                    nums = re.findall(r'\d+', pid)
+                    matched = int(nums[-1]) if nums else detected_count
+                    logger.info(f"[FullProcessor] ✅ {pid} 匹配成功，箱数={matched}")
+                    return matched
+
+        logger.info(f"[FullProcessor] 未匹配到任何规则，回落YOLO: {detected_count}")
+        return detected_count
+
+    def process(self, layers: List[Dict], template_layers: List[int],
+                detection_result: Dict,
                 depth_image: Optional[np.ndarray] = None,
-                depth_matrix_csv_path: Optional[str] = None) -> Dict:
+                depth_matrix_csv_path: Optional[str] = None,
+                pile_id: Optional[int] = None) -> Dict:
         """
-        处理满层堆垛
-        
+        处理满层堆垛：顶层深度比对 + 下层模板求和
+
         :param depth_image: 深度图（可选，numpy数组）
         :param depth_matrix_csv_path: 深度矩阵CSV路径（可选）
+        :param pile_id: 垛型ID（可选，用于加载pile_ID_X.json匹配规则）
         :return: {
-            "total": int,  # 总箱数
-            "strategy": str,  # 使用的策略
+            "total": int,
+            "strategy": str,
             "details": {
-                "n_detected": int,  # 检测到的层数
-                "n_template": int,  # 模板层数
-                "template_sum": int,  # 模板总和
-                "calculation": str  # 计算说明
+                "n_detected": int,
+                "n_template": int,
+                "top_layer_count": int,
+                "lower_layers_sum": int,
+                "calculation": str
             }
         }
         """
         n_detected = len(layers)
         n_template = len(template_layers)
-        
-        if n_detected == n_template:
-            # 完整匹配 → 满堆
-            total = sum(template_layers)
-            strategy = "full_match"
-            calculation = f"检测层数({n_detected}) = 模板层数({n_template}) → 使用完整模板"
-        elif n_detected < n_template:
-            # 少拍了上层（相机视角），但可见部分是满层
-            total = sum(template_layers[:n_detected])
-            strategy = "partial_visible"
-            calculation = f"检测层数({n_detected}) < 模板层数({n_template}) → 使用前{n_detected}层模板"
-        else:
-            # 检测层数 > 模板层数（异常情况，使用模板总和）
-            total = sum(template_layers)
-            strategy = "exceed_template"
-            calculation = f"检测层数({n_detected}) > 模板层数({n_template}) → 使用完整模板（异常）"
-        
-        result = {
-            "total": int(total),
-            "strategy": strategy,
-            "details": {
-                "n_detected": n_detected,
-                "n_template": n_template,
-                "template_sum": sum(template_layers),
-                "calculation": calculation
-            }
-        }
-        
+
+        if not layers:
+            return {"total": 0, "strategy": "empty", "details": {}}
+
+        top_layer = layers[0]
+        top_layer_boxes = top_layer.get("boxes", [])
+        pile_roi = detection_result.get("pile_roi")
+
+        if pile_roi is None:
+            if top_layer_boxes:
+                x_coords, y_coords = [], []
+                for box in top_layer_boxes:
+                    roi = box.get("roi", box)
+                    x_coords.extend([roi.get("x1", 0), roi.get("x2", 0)])
+                    y_coords.extend([roi.get("y1", 0), roi.get("y2", 0)])
+                pile_roi = {
+                    "x1": min(x_coords), "y1": min(y_coords),
+                    "x2": max(x_coords), "y2": max(y_coords)
+                }
+            else:
+                pile_roi = {"x1": 0, "y1": 0, "x2": 1000, "y2": 1000}
+
+        # 顶层始终通过深度算法计算
+        top_count = self._calculate_top_layer_count_with_depth(
+            top_layer, top_layer_boxes, pile_roi, pile_id,
+            depth_image, depth_matrix_csv_path
+        )
+
+        # 下层：检测到的层数中，顶层以下的部分用模板值
+        # 例如检测2层：顶层深度+第2层模板(=template_layers[0])，第3层不可见不计入
+        # 检测3层：顶层深度+第2层模板+第3层模板(=template_layers[0]+template_layers[1])
+        lower_sum = sum(template_layers[:n_detected - 1]) if n_detected > 1 else 0
+        total = lower_sum + top_count
+
+        strategy = "full_with_depth_top"
+        calculation = (
+            f"顶层深度算法={top_count} + 下层模板({lower_sum}) = {total}"
+        )
+
         if self.enable_debug:
             logger.info("\n" + "="*50)
             logger.info("📦 满层处理模块 - 处理结果")
             logger.info("="*50)
             logger.info(f"🎯 处理策略: {strategy}")
             logger.info(f"📊 检测层数: {n_detected}, 模板层数: {n_template}")
-            logger.info(f"💡 计算说明: {calculation}")
+            logger.info(f"🔝 顶层箱数: {top_count}（深度算法）")
+            logger.info(f"📉 下层模板总和: {lower_sum}")
+            logger.info(f"💡 {calculation}")
             logger.info(f"✅ 总箱数: {total}")
             logger.info("="*50 + "\n")
-        
-        return result
+
+        return {
+            "total": int(total),
+            "strategy": strategy,
+            "details": {
+                "n_detected": n_detected,
+                "n_template": n_template,
+                "top_layer_count": top_count,
+                "lower_layers_sum": lower_sum,
+                "calculation": calculation
+            }
+        }
 
 
 # 默认满层处理器实例
 _default_full_processor = TemplateBasedFullProcessor()
 
 
-def process_full_stack(layers: List[Dict], template_layers: List[int], 
+def process_full_stack(layers: List[Dict], template_layers: List[int],
                       detection_result: Dict,
                       processor: FullStackProcessor = None,
                       depth_image: Optional[np.ndarray] = None,
-                      depth_matrix_csv_path: Optional[str] = None) -> Dict:
+                      depth_matrix_csv_path: Optional[str] = None,
+                      pile_id: Optional[int] = None) -> Dict:
     """
     处理满层堆垛（便捷函数）
-    
+
     :param layers: 分层结果列表
     :param template_layers: 模板层配置
     :param detection_result: 满层判断结果
     :param processor: 自定义处理器（可选，默认使用 TemplateBasedFullProcessor）
     :param depth_image: 深度图（可选，numpy数组）
     :param depth_matrix_csv_path: 深度矩阵CSV路径（可选）
+    :param pile_id: 垛型ID（可选，用于深度匹配）
     :return: 处理结果字典
     """
     if processor is None:
         processor = _default_full_processor
-    return processor.process(layers, template_layers, detection_result, 
+    return processor.process(layers, template_layers, detection_result,
                             depth_image=depth_image,
-                            depth_matrix_csv_path=depth_matrix_csv_path)
+                            depth_matrix_csv_path=depth_matrix_csv_path,
+                            pile_id=pile_id)
 
 
 # ==================== 非满层处理器 ====================
@@ -367,9 +523,14 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
         image_width = pile_roi.get("image_width", pile_w)
         image_height = pile_roi.get("image_height", 0)
 
+        # 按中心 x 坐标从左到右排序（确保 box[0]、[1]、[2] 对应照片从左到右的顺序）
+        sorted_boxes = sorted(top_layer_boxes, key=lambda b: (
+            (b.get("roi", b).get("x1", 0) + b.get("roi", b).get("x2", 0)) / 2.0
+        ))
+
         # 提取每个 box 的 (norm_width, depth)
         box_data = []
-        for i, box in enumerate(top_layer_boxes):
+        for i, box in enumerate(sorted_boxes):
             roi = box.get("roi", box)
             bx1, by1 = roi.get("x1", 0), roi.get("y1", 0)
             bx2, by2 = roi.get("x2", 0), roi.get("y2", 0)
@@ -519,10 +680,13 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
         # 注意：顶层箱子已经在满层判断时过滤过了，这里直接使用过滤后的结果
         top_layer_boxes = top_layer.get("boxes", [])  # 顶层的所有烟箱boxes（已过滤）
 
-        # ========== 顶层 box 详情 ==========
+        # ========== 顶层 box 详情（已按从左到右排序） ==========
         if self.enable_debug:
-            logger.info(f"  [顶层 box 详情]  共 {len(top_layer_boxes)} 个:")
-            for i, box in enumerate(top_layer_boxes):
+            sorted_top_boxes = sorted(top_layer_boxes, key=lambda b: (
+                (b.get("roi", b).get("x1", 0) + b.get("roi", b).get("x2", 0)) / 2.0
+            ))
+            logger.info(f"  [顶层 box 详情]  共 {len(top_layer_boxes)} 个（从左到右）:")
+            for i, box in enumerate(sorted_top_boxes):
                 roi = box.get("roi", box)
                 cx = (roi.get("x1",0) + roi.get("x2",0)) / 2
                 cy = (roi.get("y1",0) + roi.get("y2",0)) / 2

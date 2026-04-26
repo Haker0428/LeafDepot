@@ -449,8 +449,8 @@ export default function InventoryProgress() {
     // 检查是否所有任务都已完成
     const allTasksCompleted = completedCount === inventoryItems.length;
 
-    // 如果全部完成且当前状态不是已完成，则设置为已完成
-    if (allTasksCompleted && !isTaskCompleted) {
+    // 检查是否所有任务都已完成（排除空列表的误判）
+    if (inventoryItems.length > 0 && allTasksCompleted) {
       setIsTaskCompleted(true);
       toast.success("所有盘点任务已完成！");
 
@@ -490,12 +490,10 @@ export default function InventoryProgress() {
           abnormalTasks,
         });
       }
-    }
-    // 如果有未完成任务但状态是已完成，重置状态
-    else if (!allTasksCompleted && isTaskCompleted) {
+    } else if (inventoryItems.length > 0) {
+      // 有任务但未全部完成，重置为进行中
       setIsTaskCompleted(false);
     }
-
     console.log(
       "进度已更新:",
       completedCount,
@@ -506,7 +504,7 @@ export default function InventoryProgress() {
       "%",
     );
     console.log("任务完成状态:", allTasksCompleted ? "已完成" : "进行中");
-  }, [inventoryItems, isTaskCompleted, taskStartTime]);
+  }, [inventoryItems, taskStartTime]);
 
   // 在组件中添加调试效果
   useEffect(() => {
@@ -1234,7 +1232,7 @@ export default function InventoryProgress() {
           localStorage.setItem("currentTaskNo", resumeTaskNo);
           toast.info(`正在加载任务 ${resumeTaskNo} 的进度...`);
         }
-        // 从 localStorage 恢复清单数据，显示所有储位
+        // 优先从 localStorage 恢复清单数据
         try {
           const manifestData = localStorage.getItem("currentTaskManifest");
           if (manifestData) {
@@ -1269,10 +1267,62 @@ export default function InventoryProgress() {
             setInventoryItems(inventoryData);
             setCalibrationRecords({});
             toast.success(`已加载任务清单，包含 ${manifest.tasks.length} 个储位`);
+            return;
           }
         } catch {
-          toast.error("加载任务清单失败");
+          // localStorage 读取失败，继续尝试从后端获取
         }
+
+        // localStorage 无 manifest，从后端 progress 接口获取（WebSocket 弹窗跳转场景）
+        fetch(`${GATEWAY_URL}/api/inventory/progress?taskNo=${encodeURIComponent(resumeTaskNo || "")}`)
+          .then(res => res.json())
+          .then(data => {
+            const items: any[] = data.data?.inventoryItems || [];
+            if (items.length === 0) return;
+            const manifest: TaskManifest = {
+              taskNo: resumeTaskNo || "",
+              operatorName: "",
+              operatorId: "",
+              startTime: Date.now(),
+              stats: {
+                totalBins: items.length,
+                totalQuantity: 0,
+                uniqueItems: 0,
+                uniqueLocations: 0,
+              },
+              tasks: items,
+            };
+            setCurrentTaskManifest(manifest);
+            localStorage.setItem("currentTaskManifest", JSON.stringify(manifest));
+            const inventoryData: InventoryItem[] = items.map((task: any, index: number) => ({
+              id: `${task.taskID || task.binCode}_${task.binCode}_${index}`,
+              productName: task.tobaccoName,
+              specification: task.binDesc,
+              systemQuantity: task.tobaccoQty,
+              actualQuantity: null,
+              unit: "件",
+              locationId: task.binCode,
+              locationName: task.binDesc,
+              taskNo: task.taskID || "",
+              startTime: Date.now(),
+              whCode: task.whCode,
+              areaCode: task.areaCode,
+              areaName: task.areaName,
+              binCode: task.binCode,
+              binDesc: task.binDesc,
+              binStatus: task.binStatus,
+              tobaccoCode: task.tobaccoCode,
+              rcsCode: task.rcsCode,
+              photo3dPath: "",
+              photoDepthPath: "",
+              photoScan1Path: "",
+              photoScan2Path: "",
+            }));
+            setInventoryItems(inventoryData);
+            setCalibrationRecords({});
+            toast.success(`已从服务端加载任务清单，包含 ${items.length} 个储位`);
+          })
+          .catch(() => toast.error("加载任务清单失败"));
         return;
       }
 
@@ -1465,6 +1515,13 @@ export default function InventoryProgress() {
 
     return () => clearInterval(pollIntervalId);
   }, [currentTaskNo]);
+
+  // 组件卸载时通知 App 恢复轮询（用户离开进度页时）
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(new Event("resume-polling"));
+    };
+  }, []);
 
   // 图片加载处理
   const handleImageLoad = () => {
@@ -2677,6 +2734,9 @@ export default function InventoryProgress() {
       if (data.code === 200) {
         localStorage.removeItem("currentTaskManifest");
         localStorage.removeItem("currentTaskNo");
+        // 主动清掉 App 层的弹窗状态，防止 websocket 推送触发弹窗
+        window.dispatchEvent(new Event("clear-task-notify"));
+        window.dispatchEvent(new Event("resume-polling"));
         toast.success("任务已取消");
         navigate("/inventory/start");
       }
@@ -2741,8 +2801,8 @@ export default function InventoryProgress() {
               <i className="fa-solid fa-arrow-left mr-2"></i>返回
             </button>
 
-            {/* 取消任务按钮（任务进行中时显示） */}
-            {!isTaskCompleted && currentTaskManifest && (
+            {/* 取消任务按钮（有任务时一直显示） */}
+            {currentTaskManifest && (
               <button
                 onClick={handleCancelTask}
                 className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-all flex items-center"

@@ -80,14 +80,16 @@ def clear_task(task_no: str):
 
 
 def on_server_startup():
-    """Gateway 启动时自动调用：把所有 running 任务标记为 interrupted"""
-    running = get_running_tasks()
-    if not running:
+    """Gateway 启动时自动调用：清空所有未完成任务，让系统处于干净状态"""
+    data = _load()
+    if not data:
         return
-    for task_no in list(running.keys()):
-        data = _load()
-        if task_no in data and data[task_no].get("status") == "running":
-            data[task_no]["status"] = "interrupted"
-            data[task_no]["finished_at"] = datetime.now().isoformat()
-            _save(data)
-            logger.info(f"[task_state] 检测到中断任务，已标记为 interrupted: {task_no}")
+    cleared = []
+    for task_no, info in data.items():
+        status = info.get("status", "")
+        # confirmed/cancelled 认为是已处理的，跳过；其余全部清掉
+        if status not in ("confirmed", "cancelled"):
+            cleared.append((task_no, status))
+    for task_no, status in cleared:
+        clear_task(task_no)
+        logger.info(f"[task_state] 重启清空未完成任务: {task_no} (原状态: {status})")

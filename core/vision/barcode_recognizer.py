@@ -81,9 +81,12 @@ class BarcodeRecognizer:
         # 收集结果
         self.results = []
 
-        # 遍历文件夹中的图片
+        # 遍历文件夹中的图片（跳过已生成的 barcode crop 文件，避免级联处理）
         for filename in os.listdir(input_dir):
             if not self._is_image_file(filename):
+                continue
+            # 跳过已经是裁剪产物的文件（避免 preprocess_image 保存的 crop 被再次当作原图处理）
+            if "_barcode_crop_" in filename:
                 continue
 
             image_path = os.path.join(input_dir, filename)
@@ -205,7 +208,17 @@ class BarcodeRecognizer:
             if cp.returncode == 0 and cp.stdout.strip():
                 output = cp.stdout.strip()
                 error = ""
-                logger.info(f"[Barcode] 识别成功 - 图片: {filename}, 条码内容: {output}")
+                # 简化日志：只打印 path, text, type
+                try:
+                    data = json.loads(output)
+                    for session in data.get("sessions", []):
+                        for bc in session.get("barcodes", []):
+                            if bc.get("text"):
+                                logger.info(f"[Barcode] path={filename}, text={bc['text']}, type={bc.get('type','')}")
+                                break
+                        break
+                except Exception:
+                    logger.info(f"[Barcode] 识别成功 - 图片: {filename}, 条码内容: {output[:100]}")
             else:
                 output = ""
                 error = cp.stderr.strip() if cp.stderr else f"返回码: {cp.returncode}"
