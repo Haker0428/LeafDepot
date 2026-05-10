@@ -16,31 +16,9 @@ import { Modal } from "antd";
 import { GATEWAY_URL } from "../config/ip_address";
 import { useAuth } from "../contexts/authContext";
 import { addOperationLog } from "../lib/operationLog";
-
-import { v4 as uuidv4 } from "uuid";
-import {
-  CreateTaskGroupRequest,
-  TaskData,
-  TargetRoute,
-  ApiResponse,
-} from "../hooks/types";
-
-// 创建模拟图片数据
-const createMockImages = (count: number, type: "original" | "postprocess") => {
-  return Array.from({ length: count }, (_, i) => {
-    // 使用空间生成的图片作为占位符
-    const prompt =
-      type === "original"
-        ? `warehouse%20storage%20bin%20${i + 1}`
-        : `processed%20warehouse%20image%20${i + 1}`;
-    return `https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_4_3&prompt=${prompt}&sign=e3fcd7c68f88aefd012cae7899ef119a`;
-  });
-};
-
-// 生成17张原始图片和17张处理后的图片
-const originalImages = createMockImages(17, "original");
-const postprocessImages = createMockImages(17, "postprocess");
-import { int } from "zod/v4";
+import { logger } from "../utils/logger";
+import PhotoGallery from "../components/InventoryProgress/PhotoGallery";
+import StatisticsModal from "../components/InventoryProgress/StatisticsModal";
 
 // 定义接口类型 - 根据InventoryStart.tsx中的InventoryTask接口
 interface InventoryItem {
@@ -105,54 +83,11 @@ interface TaskManifest {
 }
 
 // 盘点任务状态函数 - 从InventoryStart.tsx复制
-const taskStatus = (status: string) => {
-  switch (status) {
-    case "1":
-      return "未开始";
-    case "2":
-      return "进行中";
-    case "3":
-      return "已完成";
-    case "4":
-      return "异常任务状态";
-    default:
-      return "未开始";
-  }
-};
-
-// 库位状态函数 - 从InventoryStart.tsx复制
-const binStatus = (status: string) => {
-  switch (status) {
-    case "0":
-      return "停用";
-    case "1":
-      return "正常";
-    case "2":
-      return "仅移入（禁出）";
-    case "3":
-      return "仅移出（禁入）";
-    case "4":
-      return "冻结";
-    default:
-      return "正常";
-  }
-};
-
-// 新增：格式化时间函数
 const formatTime = (milliseconds: number) => {
   const seconds = Math.floor(milliseconds / 1000);
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   return `${minutes}分${remainingSeconds}秒`;
-};
-
-// 新增：计算差异率函数
-const calculateDiffRate = (
-  items: InventoryItem[],
-  abnormalTasks: any[],
-) => {
-  const totalItems = items.length;
-  return totalItems > 0 ? (abnormalTasks.length / totalItems) * 100 : 0;
 };
 
 export default function InventoryProgress() {
@@ -164,26 +99,14 @@ export default function InventoryProgress() {
   const [progress, setProgress] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingAndCreating, setIsSavingAndCreating] = useState(false);
-  const [isSaving2LMS, setIsSaving2LMS] = useState(false);
-  const [isIssuingTask, setIsIssuingTask] = useState(false);
   const [isStartingTask, setIsStartingTask] = useState(false);
   const [currentTaskNo, setCurrentTaskNo] = useState<string | null>(null);
   const [currentTaskManifest, setCurrentTaskManifest] =
     useState<TaskManifest | null>(null);
-  const [response, setResponse] = useState<ApiResponse | null>(null);
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
-  const [currentImage, setCurrentImage] = useState<string | null>(null);
-  const [postImage, setPostImage] = useState<string | null>(null);
 
-  const [currentCaptureImageIndex, setCaptureCurrentImageIndex] = useState(0);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  const [selectedCaptureRowIndex, setSelectedCaptureRowIndex] = useState<
-    number | null
-  >(null);
   const [isTaskStarted, setIsTaskStarted] = useState(false);
-  const [isCapture, setIsCapture] = useState(false);
-  const [isCalculate, setIsCalculate] = useState(false);
   const [isTaskCompleted, setIsTaskCompleted] = useState(false);
   const [taskStartTime, setTaskStartTime] = useState<number | null>(null);
   // useRef 保证闭包中始终能读到最新值（不受 async await + setInterval 闭包陷阱影响）
@@ -194,10 +117,6 @@ export default function InventoryProgress() {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   // pendingSaveAction: 点击"保存并进行下次盘点"时传入的保存回调，弹窗确认后才执行
   const [pendingSaveAction, setPendingSaveAction] = useState<(() => void) | null>(null);
-  const [currentExecutingTaskIndex, setCurrentExecutingTaskIndex] = useState<
-    number | null
-  >(null);
-
   // 盘点失败的库位弹窗状态
   const [failedBinsModal, setFailedBinsModal] = useState<{
     open: boolean;
@@ -269,28 +188,11 @@ export default function InventoryProgress() {
   // 防止并发加载照片的竞态问题：记录当前正在加载的 photoKey
   const photoLoadingKeyRef = useRef<string | null>(null);
 
-  // 记录最新完成（获得新照片）的 bin，用于解决多 bin 同时完成时的行选择问题
-  const latestCompletedBinRef = useRef<{ index: number; key: string } | null>(null);
-
   // 组件挂载时清空旧任务完成通知，防止收到上一个任务的延迟完成弹窗
   useEffect(() => {
     window.dispatchEvent(new Event("clear-task-notify"));
   }, []);
 
-  // 在已有的状态后面添加 WebSocket 相关状态
-  const [webSocket, setWebSocket] = useState<WebSocket | null>(null);
-  const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
-  const [receivedCSVData, setReceivedCSVData] = useState<
-    Array<{
-      taskNo: string;
-      binLocation: string;
-      number: number | null;
-      text: string | null;
-      success: boolean;
-      message: string;
-      timestamp: string;
-    }>
-  >([]);
 
   // 在组件中添加 WebSocket 连接函数
   // const connectWebSocket = () => {
@@ -347,97 +249,6 @@ export default function InventoryProgress() {
   // setWebSocket(ws);
   // };
 
-  // 处理接收到的 CSV 数据
-  // 修改 handleReceivedCSVData 函数
-  const handleReceivedCSVData = (data: any) => {
-    console.log("处理 CSV 数据:", data);
-    console.log("处理 success 数据:", data.success);
-    console.log("处理 number 数据:", data.number);
-    console.log("处理 text 数据:", data.text);
-
-    if (data.success) {
-      // 1. 更新 receivedCSVData
-      setReceivedCSVData((prev) => {
-        const existingIndex = prev.findIndex(
-          (item) =>
-            item.taskNo === data.taskNo &&
-            item.binLocation === data.binLocation,
-        );
-
-        if (existingIndex >= 0) {
-          const newData = [...prev];
-          newData[existingIndex] = data;
-          return newData;
-        } else {
-          return [...prev, data];
-        }
-      });
-
-      // 2. 同步更新 inventoryItems - 修复参数名冲突
-      setInventoryItems((prevItems) => {
-        console.log("当前 inventoryItems:", prevItems);
-        console.log(
-          "匹配条件: taskNo=",
-          data.taskNo,
-          "binLocation=",
-          data.binLocation,
-        );
-
-        const updatedItems = prevItems.map((item) => {
-          // 根据任务号和库位代码匹配
-          console.log("检查项目:", item.taskNo, item.binDesc);
-
-          if (
-            item.taskNo === data.taskNo &&
-            item.binDesc === data.binLocation
-          ) {
-            console.log("找到匹配项，开始更新:", item);
-
-            // 解析 number 值，确保是数字或 null
-            let actualQuantity = null;
-            if (
-              data.number !== undefined &&
-              data.number !== null &&
-              data.number !== ""
-            ) {
-              const num = Number(data.number);
-              actualQuantity = isNaN(num) ? null : num;
-              console.log("转换后的数量:", actualQuantity);
-            }
-
-            const updatedItem = {
-              ...item,
-              actualQuantity: actualQuantity,
-            };
-
-            // 如果有文本识别结果且不是空字符串，更新实际品规
-            if (
-              data.text !== undefined &&
-              data.text !== null &&
-              data.text.trim() !== ""
-            ) {
-              updatedItem.productName = data.text;
-              console.log("更新品规名称:", data.text);
-            }
-
-            console.log("更新后的项目:", updatedItem);
-            return updatedItem;
-          }
-          return item;
-        });
-
-        console.log("更新后的 inventoryItems:", updatedItems);
-        return updatedItems;
-      });
-
-      // 显示成功消息
-      toast.success(
-        `库位 ${data.binLocation} 数据更新成功: 数量=${data.number || 0}`,
-      );
-    } else {
-      toast.error(`库位 ${data.binLocation} 数据处理失败: ${data.message}`);
-    }
-  };
 
   useEffect(() => {
     const completedCount = inventoryItems.filter(
@@ -452,6 +263,7 @@ export default function InventoryProgress() {
     // 检查是否所有任务都已完成（排除空列表的误判）
     if (inventoryItems.length > 0 && allTasksCompleted) {
       setIsTaskCompleted(true);
+      logger.info("[INVENTORY] 所有库位盘点完成", { taskNo: currentTaskNo, totalItems: inventoryItems.length }, "inventory");
       toast.success("所有盘点任务已完成！");
 
       // 计算总耗时（从开始到现在的差值）
@@ -515,10 +327,6 @@ export default function InventoryProgress() {
     );
   }, [inventoryItems]);
 
-  useEffect(() => {
-    console.log("📥 receivedCSVData 已更新:", receivedCSVData);
-  }, [receivedCSVData]);
-
   // // 在组件挂载时连接 WebSocket
   // useEffect(() => {
   // if (currentTaskNo) {
@@ -543,12 +351,6 @@ export default function InventoryProgress() {
   // connectWebSocket();
   // };
 
-  const handleDisconnectWebSocket = () => {
-    if (webSocket) {
-      setIsWebSocketConnected(false);
-      webSocket.close();
-    }
-  };
 
   // 加载2组照片对（每组2张：上、下）
   const loadPhotoGroups = async (
@@ -586,12 +388,8 @@ export default function InventoryProgress() {
 
       for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
         const group = groups[groupIndex];
-        const topUrl = group.top
-          ? buildImageUrl(group.top, taskNo, binLocation)
-          : "";
-        const bottomUrl = group.bottom
-          ? buildImageUrl(group.bottom, taskNo, binLocation)
-          : "";
+        const topUrl = group.top ? buildImageUrl(group.top) : "";
+        const bottomUrl = group.bottom ? buildImageUrl(group.bottom) : "";
 
         let loadedTop = "";
         let loadedBottom = "";
@@ -655,119 +453,15 @@ export default function InventoryProgress() {
     }
   };
 
-  const handleRowClick = async (taskNo: string, binDesc: string) => {
-    console.log("🖱️ handleRowClick 被调用:", { taskNo, binDesc });
-
-    if (!isTaskStarted) {
-      console.log("⚠️ 任务未启动，无法加载照片");
-      toast.info("请先启动盘点任务");
-      return;
-    }
-
-    const rowIndex = inventoryItems.findIndex(
-      (item) => item.taskNo === taskNo && item.binDesc === binDesc,
-    );
-
-    if (rowIndex === -1) {
-      console.error("❌ 未找到对应的任务和储位");
-      toast.error("未找到对应的任务和储位");
-      return;
-    }
-
-    const item = inventoryItems[rowIndex];
-    console.log("✅ 找到对应的item:", item);
-
-    setSelectedRowIndex(rowIndex);
-    setCurrentExecutingTaskIndex(rowIndex);
-    setIsCapture(true);
-
-    // 清除该储位的已加载记录，允许重新加载
-    const photoKey = `${taskNo}-${binDesc}`;
-    loadedPhotoKeysRef.current.delete(photoKey);
-    photoPathsRef.current.delete(photoKey);
-    // 标记为正在加载，防止自动加载 effect 与手动点击竞态
-    photoLoadingKeyRef.current = photoKey;
-
-    console.log("🔄 开始加载照片组...");
-
-    // 加载照片组
-    await loadPhotoGroups(taskNo, binDesc, {
+  const handleRowClick = (item: InventoryItem, index: number) => {
+    setSelectedRowIndex(index);
+    loadPhotoGroups(item.taskNo, item.binDesc || "", {
       photo3dPath: item.photo3dPath,
       photoDepthPath: item.photoDepthPath,
       photoScan1Path: item.photoScan1Path,
       photoScan2Path: item.photoScan2Path,
     });
   };
-
-  // 保留原有的handleRowClickPost函数，但标记为废弃
-  /*
-  const handleRowClick = async (taskNo: string, binDesc: string) => {
-    if (!isTaskStarted) {
-      toast.info("请先启动盘点任务");
-      return;
-    }
-
-    const rowIndex = inventoryItems.findIndex(
-      (item) => item.taskNo === taskNo && item.binDesc === binDesc,
-    );
-
-    if (rowIndex === -1) {
-      toast.error("未找到对应的任务和储位");
-      return;
-    }
-
-    setSelectedRowIndex(rowIndex);
-    setCurrentExecutingTaskIndex(rowIndex);
-    setIsCapture(true);
-
-    // 确保每次点击前重置状态
-    setImageLoading(true);
-    setImageError(false);
-
-    // 清除之前的图片URL（如果存在）
-    if (currentImage) {
-      URL.revokeObjectURL(currentImage);
-      setCurrentImage(null);
-    }
-
-    try {
-      const response = await fetch(`${GATEWAY_URL}/api/get-image-original`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ taskNo, binDesc }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
-      const imageUrl = URL.createObjectURL(blob);
-
-      setCurrentImage(imageUrl);
-      setPostImage(null);
-
-      toast.success(`成功加载 ${taskNo} - ${binDesc} 的原始图片`);
-    } catch (error) {
-      console.error("加载图片失败:", error);
-      setImageError(true);
-      toast.error(`未找到 ${taskNo} - ${binDesc} 的图片文件`);
-      setCurrentImage(null);
-    } finally {
-      setImageLoading(false);
-    }
-  };
-  */
-
-  useEffect(() => {
-    return () => {
-      if (currentImage) {
-        URL.revokeObjectURL(currentImage);
-      }
-    };
-  }, [currentImage]);
 
   // 监听inventoryItems变化，自动加载新照片（不依赖selectedRowIndex）
   useEffect(() => {
@@ -897,83 +591,9 @@ export default function InventoryProgress() {
     }
   }, [isTaskStarted, currentTaskNo]);
 
-  const handleRowClickPost = async (taskNo: string, binDesc: string) => {
-    if (!isTaskStarted) {
-      toast.info("请先启动盘点任务");
-
-      return;
-    }
-
-    const rowIndex = inventoryItems.findIndex(
-      (item) => item.taskNo === taskNo && item.binDesc === binDesc,
-    );
-
-    if (rowIndex === -1) {
-      toast.error("未找到对应的任务和储位");
-
-      return;
-    }
-
-    // setSelectedRowIndex(rowIndex);
-
-    // setCurrentExecutingTaskIndex(rowIndex);
-
-    // setImageLoading(true);
-
-    // setImageError(false);
-
-    try {
-      const response = await fetch(`${GATEWAY_URL}/api/get-image-postprocess`, {
-        method: "POST",
-
-        headers: {
-          "Content-Type": "application/json",
-        },
-
-        body: JSON.stringify({ taskNo, binDesc }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
-
-      const imageUrl = URL.createObjectURL(blob);
-
-      console.info("imageUrl:", { imageUrl });
-
-      setIsCapture(true);
-
-      setPostImage(imageUrl); // 设置当前图片
-
-      toast.success(`成功加载 ${taskNo} - ${binDesc} 的计算后图片`);
-    } catch (error) {
-      console.error("加载图片失败:", error);
-
-      setImageError(true);
-
-      toast.error(`未找到 ${taskNo} - ${binDesc} 的图片文件`);
-
-      setPostImage(null);
-    } finally {
-      setImageLoading(false);
-    }
-  };
-  useEffect(() => {
-    return () => {
-      if (postImage) {
-        URL.revokeObjectURL(postImage);
-      }
-    };
-  }, [postImage]);
 
   // 辅助函数：构建图片URL（参考History.tsx的逻辑）
-  const buildImageUrl = (
-    photoPath: string,
-    taskNo: string,
-    binLocation: string,
-  ) => {
+  const buildImageUrl = (photoPath: string) => {
     if (!photoPath || photoPath.trim() === "") {
       return "";
     }
@@ -1010,105 +630,6 @@ export default function InventoryProgress() {
   };
 
   // 获取计算后的图片 - 调用gateway接口获取图片
-  const fetchCalculateImages = async (
-    taskNo: string,
-    binDesc: string,
-    photo3dPath?: string, // 3d_camera 图片路径
-    photoDepthPath?: string, // depth 图片路径
-  ) => {
-    if (!isTaskStarted) {
-      toast.info("请先启动盘点任务");
-      return;
-    }
-
-    setImageLoading(true);
-    setImageError(false);
-    setIsCapture(true);
-    setIsCalculate(true);
-
-    // 清除之前的图片URL（如果存在）
-    if (currentImage) {
-      URL.revokeObjectURL(currentImage);
-      setCurrentImage(null);
-    }
-    if (postImage) {
-      URL.revokeObjectURL(postImage);
-      setPostImage(null);
-    }
-
-    try {
-      // 如果提供了图片路径，使用构建的URL
-      if (photo3dPath && photoDepthPath) {
-        const imageUrl3d = buildImageUrl(photo3dPath, taskNo, binDesc);
-        const imageUrlDepth = buildImageUrl(photoDepthPath, taskNo, binDesc);
-
-        if (imageUrl3d) {
-          const response3d = await fetch(imageUrl3d);
-          if (response3d.ok) {
-            const blob = await response3d.blob();
-            setCurrentImage(URL.createObjectURL(blob));
-          }
-        }
-
-        if (imageUrlDepth) {
-          const responseDepth = await fetch(imageUrlDepth);
-          if (responseDepth.ok) {
-            const blob = await responseDepth.blob();
-            setPostImage(URL.createObjectURL(blob));
-            toast.success(`成功加载 ${taskNo} - ${binDesc} 的计算后图片`);
-          } else {
-            toast.warning(`部分图片加载失败: ${taskNo} - ${binDesc}`);
-          }
-        }
-      } else {
-        // 如果没有提供图片路径，使用默认的图片路径（兼容原有逻辑）
-        // 获取 main.jpg - 用于上半部分显示
-        const mainRotatedResponse = await fetch(
-          `${GATEWAY_URL}/api/inventory/image?taskNo=${encodeURIComponent(
-            taskNo,
-          )}&binLocation=${encodeURIComponent(
-            binDesc,
-          )}&cameraType=3d_camera&filename=main.jpg&source=capture_img`,
-        );
-
-        if (mainRotatedResponse.ok) {
-          const mainRotatedBlob = await mainRotatedResponse.blob();
-          const mainRotatedUrl = URL.createObjectURL(mainRotatedBlob);
-          setCurrentImage(mainRotatedUrl);
-        } else {
-          console.warn(
-            "获取 main_rotated.jpg 失败:",
-            mainRotatedResponse.status,
-          );
-        }
-
-        // 获取 depth.jpg - 用于下半部分显示
-        const depthColorResponse = await fetch(
-          `${GATEWAY_URL}/api/inventory/image?taskNo=${encodeURIComponent(
-            taskNo,
-          )}&binLocation=${encodeURIComponent(
-            binDesc,
-          )}&cameraType=3d_camera&filename=depth.jpg&source=capture_img`,
-        );
-
-        if (depthColorResponse.ok) {
-          const depthColorBlob = await depthColorResponse.blob();
-          const depthColorUrl = URL.createObjectURL(depthColorBlob);
-          setPostImage(depthColorUrl);
-          toast.success(`成功加载 ${taskNo} - ${binDesc} 的计算后图片`);
-        } else {
-          console.warn("获取 depth_color.jpg 失败:", depthColorResponse.status);
-          toast.warning(`部分图片加载失败: ${taskNo} - ${binDesc}`);
-        }
-      }
-    } catch (error) {
-      console.error("加载图片失败:", error);
-      setImageError(true);
-      toast.error(`未找到 ${taskNo} - ${binDesc} 的图片文件`);
-    } finally {
-      setImageLoading(false);
-    }
-  };
 
   const [statisticsData, setStatisticsData] = useState({
     totalTime: 0,
@@ -1135,82 +656,6 @@ export default function InventoryProgress() {
     Record<string, CalibrationRecord>
   >({});
 
-  // 在已有的状态后面添加
-  const [gatewayStatus, setGatewayStatus] = useState<string>("disconnected");
-  const [robotStatus, setRobotStatus] = useState<string>("idle");
-  const [captureStatus, setCaptureStatus] = useState<string>("idle");
-  const [calculationStatus, setCalculationStatus] = useState<string>("idle");
-
-  // 添加状态来存储从网关接收的图片
-  const [originalImagesFromGateway, setOriginalImagesFromGateway] = useState<
-    string[]
-  >([]);
-  const [processedImagesFromGateway, setProcessedImagesFromGateway] = useState<
-    string[]
-  >([]);
-
-  // 添加一个通用的轮询函数
-  const pollUntilCondition = async (
-    conditionFn: () => Promise<boolean>,
-    timeout: number = 30000,
-    interval: number = 1000,
-  ): Promise<boolean> => {
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < timeout) {
-      const conditionMet = await conditionFn();
-
-      if (conditionMet) {
-        return true;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, interval));
-    }
-
-    return false;
-  };
-
-  // 注释掉不存在的图片变量引用，使用之前创建的mock图片数组
-  // const originalImages = [
-  //   img1,
-  //   img2,
-  //   img3,
-  //   img4,
-  //   img5,
-  //   img6,
-  //   img7,
-  //   img8,
-  //   img9,
-  //   img10,
-  //   img11,
-  //   img12,
-  //   img13,
-  //   img14,
-  //   img15,
-  //   img16,
-  //   img17,
-  // ];
-
-  // const postprocessImages = [
-  //   img1out,
-  //   img2out,
-  //   img3out,
-  //   img4out,
-  //   img5out,
-  //   img6out,
-  //   img7out,
-  //   img8out,
-  //   img9out,
-  //   img10out,
-  //   img11out,
-  //   img12out,
-  //   img13out,
-  //   img14out,
-  //   img15out,
-  //   img16out,
-  //   img17out,
-  // ];
-
   // 监听 currentTaskNo 变化，清空校准记录，避免跨任务数据残留
   useEffect(() => {
     if (currentTaskNo) {
@@ -1236,10 +681,10 @@ export default function InventoryProgress() {
         try {
           const manifestData = localStorage.getItem("currentTaskManifest");
           if (manifestData) {
-            const manifest: TaskManifest = JSON.parse(manifestData);
+            const manifest: any = JSON.parse(manifestData);
             setCurrentTaskManifest(manifest);
             const inventoryData: InventoryItem[] = manifest.tasks.map(
-              (task, index) => ({
+              (task: any, index: number) => ({
                 id: `${task.taskID}_${task.binCode}_${index}`,
                 productName: task.tobaccoName,
                 specification: task.binDesc,
@@ -1279,11 +724,8 @@ export default function InventoryProgress() {
           .then(data => {
             const items: any[] = data.data?.inventoryItems || [];
             if (items.length === 0) return;
-            const manifest: TaskManifest = {
+            const manifest: any = {
               taskNo: resumeTaskNo || "",
-              operatorName: "",
-              operatorId: "",
-              startTime: Date.now(),
               stats: {
                 totalBins: items.length,
                 totalQuantity: 0,
@@ -1322,7 +764,10 @@ export default function InventoryProgress() {
             setCalibrationRecords({});
             toast.success(`已从服务端加载任务清单，包含 ${items.length} 个储位`);
           })
-          .catch(() => toast.error("加载任务清单失败"));
+          .catch((err) => {
+            logger.error("[API] 加载任务清单失败", { error: String(err), taskNo: resumeTaskNo }, "api");
+            toast.error("加载任务清单失败");
+          });
         return;
       }
 
@@ -1534,139 +979,7 @@ export default function InventoryProgress() {
     setImageError(true);
   };
 
-  // 手动抓图功能
-  const handleManualCapture = (
-    taskNo: string,
-    locationName: string,
-    rowIndex: number,
-  ) => {
-    console.log(
-      `手动抓图 - 任务号: ${taskNo}, 货位名称: ${locationName}, 行号: ${
-        rowIndex + 1
-      }`,
-    );
-
-    if (rowIndex >= 0 && rowIndex < originalImages.length) {
-      setCurrentImageIndex(rowIndex);
-      setSelectedRowIndex(rowIndex);
-      toast.success(`已加载 ${locationName} 的图像（${rowIndex + 1}.jpg）`);
-    } else {
-      toast.error(`没有找到行号 ${rowIndex + 1} 对应的图片`);
-    }
-
-    setIsCapture(true);
-  };
-
   // 计算功能 - 调用扫码+识别接口 + 保留模拟API调用
-  const handleCalculate = async (
-    taskNo: string,
-    binDesc: string,
-    rowIndex: number,
-  ) => {
-    console.log(
-      `计算 - 任务号: ${taskNo}, 储位编号: ${binDesc}, 行号: ${rowIndex + 1}`,
-    );
-
-    if (!isTaskStarted) {
-      toast.error("请先启动盘点任务");
-      return;
-    }
-
-    toast.info(`开始计算: 任务 ${taskNo} - 储位 ${binDesc}`);
-
-    // 从完整任务编号中提取基础任务编号（去掉下划线后的部分）
-    // 例如：HS2026013151_1769870025644_0 -> HS2026013151
-    const baseTaskNo = taskNo.split("_")[0];
-    console.log(`基础任务编号: ${baseTaskNo} (完整任务编号: ${taskNo})`);
-
-    let photo3dPath: string | undefined = undefined;
-    let photoDepthPath: string | undefined = undefined;
-
-    // 调用扫码+识别接口（真实接口）
-    try {
-      const response = await fetch(
-        `${GATEWAY_URL}/api/inventory/scan-and-recognize`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            taskNo: baseTaskNo, // 使用基础任务编号
-            binLocation: binDesc,
-            pile_id: 1, // 默认堆垛ID为1
-            code_type: "ucc128", // 默认条码类型
-          }),
-        },
-      );
-
-      // 检查响应状态
-      if (response.ok) {
-        // 接口调用成功，处理返回结果
-        const result = await response.json();
-        console.log("扫码+识别接口调用成功，结果:", result);
-
-        // 从返回结果中提取图片路径
-        if (result.data && result.data.photos) {
-          // 假设返回格式为：{ data: { photos: ["/3D_CAMERA/MAIN.JPEG", "/DEPTH/COLOR.JPEG"] } }
-          if (result.data.photos.length >= 1) {
-            photo3dPath = result.data.photos[0];
-          }
-          if (result.data.photos.length >= 2) {
-            photoDepthPath = result.data.photos[1];
-          }
-        } else if (result.photo1_path && result.photo2_path) {
-          // 假设返回格式为：{ photo1_path: "/3D_CAMERA/MAIN.JPEG", photo2_path: "/DEPTH/COLOR.JPEG" }
-          photo3dPath = result.photo1_path;
-          photoDepthPath = result.photo2_path;
-        }
-      } else {
-        // 尝试解析错误信息
-        try {
-          const errorData = await response.json();
-          console.error("扫码+识别接口调用失败:", errorData);
-          // 即使真实接口失败，也继续执行模拟逻辑
-        } catch {
-          console.error(`计算请求发送失败，状态码: ${response.status}`);
-        }
-      }
-    } catch (error) {
-      console.error("调用扫码+识别接口失败:", error);
-      // 即使真实接口失败，也继续执行模拟逻辑
-    }
-
-    // 保留原有的模拟API调用逻辑
-    setIsCalculate(true);
-
-    // 模拟API调用
-    setTimeout(() => {
-      // 更新该行的实际数量（示例数据 - 无误差，实际数量等于系统数量）
-      setInventoryItems((prevItems) => {
-        const newItems = [...prevItems];
-
-        // 模拟数据无误差：实际数量等于系统数量
-        const calculatedQuantity = newItems[rowIndex].systemQuantity;
-
-        newItems[rowIndex] = {
-          ...newItems[rowIndex],
-          actualQuantity: calculatedQuantity,
-        };
-
-        return newItems;
-      });
-
-      toast.success(`计算完成: 任务 ${taskNo} - 储位 ${binDesc}`);
-    }, 1500);
-
-    // 调用gateway接口获取图片：传入从后端获取的图片路径，使用基础任务编号
-    await fetchCalculateImages(
-      baseTaskNo,
-      String(binDesc),
-      photo3dPath,
-      photoDepthPath,
-    );
-  };
-
   // 启动盘点任务 - 与内部网关程序交互
   const handleStartCountingTask = async () => {
     const now = Date.now();
@@ -1936,6 +1249,7 @@ export default function InventoryProgress() {
                 const inventoryResults = resultsData.data?.inventoryResults || [];
 
                 toast.success("盘点任务完成");
+                logger.info("[INVENTORY] 轮询检测到任务完成", { taskNo: currentTaskNo }, "inventory");
                 setIsTaskCompleted(true);
 
                 // 先在外部计算失败库位和 newItems，避免闭包陷阱
@@ -2023,13 +1337,11 @@ export default function InventoryProgress() {
   // try {
   // const startTime = Date.now();
   // setTaskStartTime(startTime);
-  // setCurrentExecutingTaskIndex(null);
 
   // await new Promise((resolve) => setTimeout(resolve, 1000));
 
   // // 模拟盘点过程
   // for (let i = 0; i < inventoryItems.length; i++) {
-  // setCurrentExecutingTaskIndex(i);
   // setCurrentImageIndex(i % originalImages.length);
 
   // const delay = 2000 + Math.floor(Math.random() * 1000);
@@ -2094,7 +1406,6 @@ export default function InventoryProgress() {
   // });
   // }
 
-  // setCurrentExecutingTaskIndex(null);
   // setIsTaskStarted(true);
   // setIsTaskCompleted(true);
 
@@ -2124,59 +1435,6 @@ export default function InventoryProgress() {
   // };
 
   // 处理实际数量输入变化
-  const handleActualQuantityChange = (id: string, value: string) => {
-    const numericValue = value ? parseInt(value, 10) : null;
-
-    // 检查是否已有接收的 CSV 数据
-    const item = inventoryItems.find((item) => item.id === id);
-    if (item) {
-      const csvData = receivedCSVData.find(
-        (data) =>
-          data.taskNo === item.taskNo && data.binLocation === item.binCode,
-      );
-
-      // 如果有接收的数据，提示用户
-      if (csvData && csvData.number !== null) {
-        const confirmed = window.confirm(
-          `此库位已有自动识别的数量 ${csvData.number}，确定要手动修改为 ${numericValue} 吗？`,
-        );
-
-        if (!confirmed) {
-          return;
-        }
-      }
-    }
-
-    // 更新数量
-    setInventoryItems((prevItems) =>
-      prevItems.map((item) => {
-        if (item.id === id) {
-          const newItem = { ...item, actualQuantity: numericValue };
-          return newItem;
-        }
-        return item;
-      }),
-    );
-
-    // 更新进度
-    const completedCount = inventoryItems.filter(
-      (item) => item.actualQuantity !== null,
-    ).length;
-    const newProgress = (completedCount / inventoryItems.length) * 100;
-    setProgress(Math.min(Math.round(newProgress), 100));
-  };
-
-  // 处理行点击事件
-  // const handleRowClick = (index: number) => {
-  // if (!isTaskStarted) {
-  // toast.info("请先启动盘点任务");
-  // return;
-  // }
-  // setSelectedRowIndex(index);
-  // setCurrentExecutingTaskIndex(index);
-  // };
-
-  // 保存盘点结果
   const handleSaveInventory = async () => {
     const incompleteItems = inventoryItems.filter(
       (item) => item.actualQuantity === null,
@@ -2427,62 +1685,6 @@ export default function InventoryProgress() {
   };
 
   // 保存盘点结果到LMS
-  const handleSaveInventoryToLMS = async () => {
-    if (isSaving2LMS) return;
-
-    try {
-      setIsSaving2LMS(true);
-
-      const inventoryResults = inventoryItems
-        .filter((item) => item.actualQuantity !== null)
-        .map((item) => ({
-          taskDetailId: item.id,
-          itemId: item.tobaccoCode || item.id.replace("INV", "ITEM"),
-          countQty: item.actualQuantity || 0,
-        }));
-
-      if (inventoryResults.length === 0) {
-        toast.error("请先完成盘点数据录入");
-        return;
-      }
-
-      const response = await fetch(`${GATEWAY_URL}/lms/setTaskResults`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          authToken: authToken || "",
-        },
-        body: JSON.stringify(inventoryResults),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          toast.success("盘点结果已成功上传至LMS");
-          setProgress(100);
-        } else {
-          throw new Error(result.message || "上传失败");
-        }
-      } else {
-        const errorText = await response.text();
-        throw new Error(`LMS上传失败: ${errorText}`);
-      }
-    } catch (error) {
-      console.error("上传盘点结果失败:", error);
-      toast.error(`上传失败`);
-    } finally {
-      setIsSaving2LMS(false);
-    }
-  };
-
-  // 盘点结果统计（使用当前 state 中的 inventoryItems）
-  const handleInventoryStatistics = () => {
-    if (inventoryItems.length === 0) {
-      toast.error("没有盘点数据可供统计");
-      return;
-    }
-    showStatisticsModal(inventoryItems, taskStartTime ?? undefined);
-  };
 
   // 一键重新盘点
   const [isRecounting, setIsRecounting] = useState(false);
@@ -2727,16 +1929,16 @@ export default function InventoryProgress() {
   const handleCancelTask = async () => {
     try {
       const res = await fetch(
-        `${GATEWAY_URL}/api/inventory/cancel-inventory?taskNo=${encodeURIComponent(currentTaskNo)}`,
+        `${GATEWAY_URL}/api/inventory/cancel-inventory?taskNo=${encodeURIComponent(currentTaskNo || "")}`,
         { method: "POST" }
       );
       const data = await res.json();
       if (data.code === 200) {
         localStorage.removeItem("currentTaskManifest");
         localStorage.removeItem("currentTaskNo");
-        // 主动清掉 App 层的弹窗状态，防止 websocket 推送触发弹窗
         window.dispatchEvent(new Event("clear-task-notify"));
         window.dispatchEvent(new Event("resume-polling"));
+        logger.info("[INVENTORY] 取消盘点任务", { taskNo: currentTaskNo }, "inventory");
         toast.success("任务已取消");
         navigate("/inventory/start");
       }
@@ -3033,7 +2235,7 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                   ? "bg-blue-50 border-l-4 border-blue-500"
                                   : ""
                               }`}
-                              onClick={() => handleRowClick(item.taskNo, String(item.binDesc))}
+                              onClick={() => handleRowClick(item, index)}
                             >
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 <input
@@ -3400,324 +2602,28 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
             </motion.div>
           </div>
 
-          {/* 右侧观察窗口 - 占据1列 */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="lg:col-span-1"
-          >
-            <div className="bg-white rounded-xl shadow-md border border-gray-100 h-full flex flex-col">
-              <div className="p-6 border-b border-gray-100">
-                <h3 className="text-xl font-bold text-green-800 flex items-center">
-                  <i className="fa-solid fa-eye mr-2 text-green-600"></i>
-                  观察窗口
-                </h3>
-              </div>
-
-              {/* 观察窗口内容 */}
-
-              <div className="flex-1 p-4 flex flex-col gap-4">
-                {/* 上半部分 - 显示当前组的上方图片 */}
-                <div className="bg-gray-100 rounded-lg border border-gray-300 overflow-hidden flex-1 flex items-center justify-center">
-                  <div className="relative w-full h-full max-w-md mx-auto">
-                    {isCapture ? (
-                      <>
-                        {imageLoading ? (
-                          // 加载状态
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
-                          </div>
-                        ) : photoGroups[currentGroupIndex]?.top ? (
-                          // 成功加载图片
-                          <>
-                            <img
-                              src={photoGroups[currentGroupIndex].top}
-                              alt={currentGroupIndex === 0 ? "3D相机-主图" : "扫码相机-扫码图1"}
-                              className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700 cursor-zoom-in"
-                              onLoad={handleImageLoad}
-                              onError={handleImageError}
-                              onClick={() => setLightboxImage(photoGroups[currentGroupIndex].top)}
-                            />
-                            <div className="absolute top-2 left-2 bg-green-700 text-white text-xs font-bold px-2 py-1 rounded-full">
-                              {currentGroupIndex === 0 ? "主图" : "扫码图1"}
-                            </div>
-                          </>
-                        ) : (
-                          // 无图片状态
-                          <div className="flex flex-col items-center justify-center h-full text-center p-4">
-                            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-2">
-                              <i className="fa-solid fa-camera text-gray-500 text-2xl"></i>
-                            </div>
-                            <p className="text-gray-500 text-sm">
-                              等待照片加载...
-                            </p>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      // 未连接状态
-                      <div className="flex flex-col items-center justify-center h-full text-center p-4">
-                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-2">
-                          <i className="fa-solid fa-camera text-gray-500 text-2xl"></i>
-                        </div>
-                        <p className="text-gray-500 text-sm">画面未连接</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 下半部分 - 显示当前组的下方图片 */}
-                <div className="bg-gray-100 rounded-lg border border-gray-300 overflow-hidden flex-1 flex items-center justify-center">
-                  <div className="relative w-full h-full max-w-md mx-auto">
-                    {isCapture && photoGroups[currentGroupIndex]?.bottom ? (
-                      <>
-                        <img
-                          src={photoGroups[currentGroupIndex].bottom}
-                          alt={currentGroupIndex === 0 ? "3D相机-深度图" : "扫码相机-扫码图2"}
-                          className="max-w-full max-h-full object-contain rounded-lg border-2 border-green-700 cursor-zoom-in"
-                          onLoad={handleImageLoad}
-                          onError={handleImageError}
-                          onClick={() => setLightboxImage(photoGroups[currentGroupIndex].bottom)}
-                        />
-                        <div className="absolute top-2 left-2 bg-blue-700 text-white text-xs font-bold px-2 py-1 rounded-full">
-                          {currentGroupIndex === 0 ? "深度图" : "扫码图2"}
-                        </div>
-                      </>
-                    ) : (
-                      // 无图片状态
-                      <div className="flex flex-col items-center justify-center h-full text-center p-4">
-                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-2">
-                          <i className="fa-solid fa-camera text-gray-500 text-2xl"></i>
-                        </div>
-                        <p className="text-gray-500 text-sm">等待照片加载...</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 照片组切换按钮 */}
-                <div className="flex justify-center gap-2">
-                  {[
-                    { index: 0, label: "3D相机", subLabel: "主图/深度图" },
-                    { index: 1, label: "扫码相机", subLabel: "扫码图1/图2" },
-                  ].map(({ index, label, subLabel }) => {
-                    const group = photoGroups[index];
-                    const hasPhoto = group.top || group.bottom;
-                    return (
-                      <button
-                        key={index}
-                        onClick={() => setCurrentGroupIndex(index)}
-                        disabled={!hasPhoto}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                          currentGroupIndex === index
-                            ? "bg-green-700 text-white"
-                            : hasPhoto
-                              ? "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                              : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                        }`}
-                      >
-                        <span>{label}</span>
-                        {hasPhoto && (
-                          <span className="block text-xs opacity-75 font-normal">
-                            {subLabel}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </motion.div>
+          <PhotoGallery
+            photoGroups={photoGroups}
+            currentGroupIndex={currentGroupIndex}
+            setCurrentGroupIndex={setCurrentGroupIndex}
+            imageLoading={imageLoading}
+            imageError={imageError}
+            handleImageLoad={handleImageLoad}
+            handleImageError={handleImageError}
+            setLightboxImage={setLightboxImage}
+          />
         </div>
       </main>
 
-      {/* 盘点结果统计模态框 */}
       {isStatisticsModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4"
-          >
-            {/* 模态框头部 */}
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-bold text-green-800 flex items-center">
-                  <i className="fa-solid fa-chart-pie mr-3 text-green-600"></i>
-                  盘点结果统计
-                </h3>
-                <button
-                  onClick={() => setIsStatisticsModalOpen(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <i className="fa-solid fa-times text-xl"></i>
-                </button>
-              </div>
-            </div>
-
-            {/* 模态框内容 */}
-            <div className="p-6">
-              {/* 统计概览 */}
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-blue-50 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-blue-700">
-                    {formatTime(statisticsData.totalTime)}
-                  </div>
-                  <div className="text-sm text-blue-600 mt-1">总耗时</div>
-                </div>
-                <div className={`rounded-lg p-4 text-center ${statisticsData.diffRate <= 10 ? "bg-green-50" : statisticsData.diffRate <= 50 ? "bg-yellow-50" : "bg-red-50"}`}>
-                  <div className={`text-2xl font-bold ${statisticsData.diffRate <= 10 ? "text-green-700" : statisticsData.diffRate <= 50 ? "text-yellow-700" : "text-red-700"}`}>
-                    {statisticsData.diffRate.toFixed(1)}%
-                  </div>
-                  <div className={`text-sm mt-1 ${statisticsData.diffRate <= 10 ? "text-green-600" : statisticsData.diffRate <= 50 ? "text-yellow-600" : "text-red-600"}`}>差异率</div>
-                </div>
-                <div className="bg-red-50 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-red-700">
-                    {statisticsData.abnormalTasks.length}
-                  </div>
-                  <div className="text-sm text-red-600 mt-1">差异任务</div>
-                </div>
-              </div>
-
-              {/* 差异任务列表 */}
-              {statisticsData.abnormalTasks.length > 0 ? (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-                    <h4 className="font-semibold text-gray-800 flex items-center">
-                      <i className="fa-solid fa-exclamation-triangle text-orange-500 mr-2"></i>
-                      差异任务详情
-                    </h4>
-                  </div>
-                  <div className="max-h-60 overflow-y-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                            任务编号
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                            库位
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                            系统数量
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                            实际数量
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                            差异
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {statisticsData.abnormalTasks.map((task, index) => (
-                          <tr
-                            key={index}
-                            className="hover:bg-red-50 transition-colors"
-                          >
-                            <td className="px-4 py-2 text-sm font-medium text-gray-900">
-                              {task.taskNo}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-700">
-                              {task.location}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-700">
-                              {task.expected}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-700">
-                              {task.actual}
-                            </td>
-                            <td className="px-4 py-2 text-sm font-medium text-red-600">
-                              {task.actual - task.expected > 0 ? "+" : ""}
-                              {task.actual - task.expected}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 border border-gray-200 rounded-lg bg-green-50">
-                  <i className="fa-solid fa-check-circle text-green-500 text-4xl mb-3"></i>
-                  <h4 className="text-lg font-medium text-green-800 mb-2">
-                    盘点结果完美
-                  </h4>
-                  <p className="text-green-600">所有任务均无差异</p>
-                </div>
-              )}
-
-              {/* 总结信息 */}
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h5 className="font-semibold text-gray-800">盘点总结</h5>
-                    <p className="text-sm text-gray-600">
-                      共完成 {inventoryItems.length} 个盘点任务
-                      {statisticsData.abnormalTasks.length > 0 &&
-                        `，其中 ${statisticsData.abnormalTasks.length} 个任务存在差异`}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <div
-                      className={`text-lg font-bold ${
-                        statisticsData.diffRate <= 10
-                          ? "text-green-600"
-                          : statisticsData.diffRate <= 50
-                            ? "text-yellow-600"
-                            : "text-red-600"
-                      }`}
-                    >
-                      总体评价:{" "}
-                      {statisticsData.diffRate <= 10
-                        ? "正常"
-                        : statisticsData.diffRate <= 50
-                          ? "偏差较大"
-                          : "严重异常"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 模态框底部 */}
-            <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
-              {pendingSaveAction ? (
-                <>
-                  <button
-                    onClick={() => {
-                      setIsStatisticsModalOpen(false);
-                      setPendingSaveAction(null);
-                    }}
-                    className="bg-gray-400 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
-                  >
-                    <i className="fa-solid fa-arrow-left mr-2"></i>返回
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsStatisticsModalOpen(false);
-                      setPendingSaveAction(null);
-                      pendingSaveAction();
-                    }}
-                    className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
-                  >
-                    <i className="fa-solid fa-check mr-2"></i>确认
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => setIsStatisticsModalOpen(false)}
-                  className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors flex items-center"
-                >
-                  <i className="fa-solid fa-check mr-2"></i>确认
-                </button>
-              )}
-            </div>
-          </motion.div>
-        </div>
+        <StatisticsModal
+          statisticsData={statisticsData}
+          inventoryItemsLength={inventoryItems.length}
+          setIsStatisticsModalOpen={setIsStatisticsModalOpen}
+          pendingSaveAction={pendingSaveAction}
+          setPendingSaveAction={setPendingSaveAction}
+          formatTime={formatTime}
+        />
       )}
 
       {/* 页脚 */}

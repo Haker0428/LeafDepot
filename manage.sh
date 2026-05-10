@@ -6,11 +6,15 @@
 #   ./manage.sh start lms       # 启动lms服务
 #   ./manage.sh start rcs       # 启动rcs服务
 #   ./manage.sh start web       # 启动web服务
+#   ./manage.sh start redis     # 启动Redis服务
+#   ./manage.sh start worker    # 启动盘点Worker服务
 #   ./manage.sh start all       # 启动所有服务
 #   ./manage.sh end gateway     # 停止gateway服务
 #   ./manage.sh end lms         # 停止lms服务
 #   ./manage.sh end rcs         # 停止rcs服务
 #   ./manage.sh end web         # 停止web服务
+#   ./manage.sh end redis       # 停止Redis服务
+#   ./manage.sh end worker      # 停止Worker服务
 #   ./manage.sh end all         # 停止所有服务
 #   ./manage.sh status          # 查看所有服务状态
 ###
@@ -78,13 +82,13 @@ get_service_url() {
     local service=$1
     case "$service" in
         gateway)
-            echo "http://10.16.82.95:8000/docs"
+            echo "http://localhost:8000/docs"
             ;;
         lms)
-            echo "http://10.16.82.95:6000"
+            echo "http://localhost:6000"
             ;;
         rcs)
-            echo "http://10.16.82.95:4001"
+            echo "http://localhost:4001"
             ;;
     esac
 }
@@ -130,6 +134,16 @@ start_service() {
     local service_config=$(get_service_config "$service")
     local service_url=$(get_service_url "$service")
 
+    # redis 和 worker 走单独函数
+    if [ "$service" = "redis" ]; then
+        start_redis
+        return $?
+    fi
+    if [ "$service" = "worker" ]; then
+        start_worker
+        return $?
+    fi
+
     if [ -z "$service_dir" ] || [ -z "$service_config" ]; then
         log_error "未知的服务: $service"
         return 1
@@ -153,6 +167,8 @@ start_service() {
             gateway)  pid=$(pgrep -f "uvicorn.*gateway:app" | head -1) ;;
             lms)      pid=$(pgrep -f "uvicorn.*sim_lms_server:app" | head -1) ;;
             rcs)      pid=$(pgrep -f "uvicorn.*sim_rcs_server:app" | head -1) ;;
+            redis)    pid=$(pgrep -f "redis-server" | head -1) ;;
+            worker)   pid=$(pgrep -f "inventory_worker" | head -1) ;;
         esac
     fi
 
@@ -173,6 +189,85 @@ start_service() {
     else
         log_error "$service 服务启动失败"
         log_error "请查看日志文件: $PROJECT_ROOT/logs/${service}_${DATE}.log"
+        rm -f "$pid_file"
+        return 1
+    fi
+}
+
+# 启动redis服务
+start_redis() {
+    local pid_file=$(get_pid_file "redis")
+
+    if [ -f "$pid_file" ]; then
+        local pid=$(cat "$pid_file")
+        if is_running "$pid"; then
+            log_warn "Redis 服务已经在运行 (PID: $pid)"
+            return 1
+        else
+            rm -f "$pid_file"
+        fi
+    fi
+
+    log_info "启动 Redis 服务..."
+    cd "$PROJECT_ROOT"
+    nohup redis-server > "$PROJECT_ROOT/logs/redis_${DATE}.log" 2>&1 &
+    local pid=$!
+
+    sleep 1
+    if is_running "$pid"; then
+        echo $pid > "$pid_file"
+        log_info "Redis 服务启动成功 (PID: $pid)"
+        log_info "日志文件: $PROJECT_ROOT/logs/redis_${DATE}.log"
+    elif redis-cli ping > /dev/null 2>&1; then
+        # 已被 systemd 或其他方式启动
+        log_info "Redis 服务已经在运行（端口 6379）"
+    else
+        log_error "Redis 服务启动失败"
+        log_error "请查看日志文件: $PROJECT_ROOT/logs/redis_${DATE}.log"
+        return 1
+    fi
+}
+
+# 启动盘点worker服务
+start_worker() {
+    local pid_file=$(get_pid_file "worker")
+
+    if [ -f "$pid_file" ]; then
+        local pid=$(cat "$pid_file")
+        if is_running "$pid"; then
+            log_warn "Worker 服务已经在运行 (PID: $pid)"
+            return 1
+        else
+            rm -f "$pid_file"
+        fi
+    fi
+
+    log_info "启动 Worker 服务..."
+    export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+    cd "$PROJECT_ROOT"
+    nohup conda run -n tobacco_env python services/worker/inventory_worker.py > "$PROJECT_ROOT/logs/worker_${DATE}.log" 2>&1 &
+    local nohup_pid=$!
+
+    sleep 2
+    local pid=$(ps --ppid $nohup_pid -o pid= 2>/dev/null | tr -d ' ' | head -1)
+    if [ -z "$pid" ] || ! is_running "$pid"; then
+        pid=$(pgrep -f "inventory_worker" | head -1)
+    fi
+
+    if [ -z "$pid" ]; then
+        log_error "Worker 服务启动失败（无法找到进程）"
+        log_error "请查看日志文件: $PROJECT_ROOT/logs/worker_${DATE}.log"
+        return 1
+    fi
+
+    echo $pid > "$pid_file"
+    sleep 1
+    if is_running "$pid"; then
+        log_info "Worker 服务启动成功 (PID: $pid)"
+        log_info "日志文件: $PROJECT_ROOT/logs/worker_${DATE}.log"
+    else
+        log_error "Worker 服务启动失败"
+        log_error "请查看日志文件: $PROJECT_ROOT/logs/worker_${DATE}.log"
         rm -f "$pid_file"
         return 1
     fi
@@ -220,6 +315,17 @@ stop_service() {
     local service=$1
     local pid_file=$(get_pid_file "$service")
 
+    # redis 走单独处理，不依赖 PID 文件
+    if [ "$service" = "redis" ]; then
+        if ! redis-cli ping > /dev/null 2>&1; then
+            log_warn "Redis 服务未运行"
+            return 1
+        fi
+        log_info "停止 Redis 服务（systemd 管理，不通过 manage.sh 停止）"
+        # 不停止 systemd 托管的 redis，只提示
+        return 0
+    fi
+
     if [ ! -f "$pid_file" ]; then
         log_warn "$service 服务未运行（PID文件不存在）"
         return 1
@@ -241,6 +347,7 @@ stop_service() {
         lms)      pkill -f "uvicorn.*sim_lms_server:app" 2>/dev/null ;;
         rcs)      pkill -f "uvicorn.*sim_rcs_server:app" 2>/dev/null ;;
         web)      pkill -f "npm.*dev" 2>/dev/null ;;
+        worker)   pkill -f "inventory_worker" 2>/dev/null ;;
     esac
 
     # 等待进程退出
@@ -264,6 +371,8 @@ stop_service() {
         lms)      pkill -9 -f "uvicorn.*sim_lms_server:app" 2>/dev/null ;;
         rcs)      pkill -9 -f "uvicorn.*sim_rcs_server:app" 2>/dev/null ;;
         web)      pkill -9 -f "npm.*dev" 2>/dev/null ;;
+        redis)    pkill -9 -f "redis-server" 2>/dev/null ;;
+        worker)   pkill -9 -f "inventory_worker" 2>/dev/null ;;
     esac
 
     if ! is_running "$pid"; then
@@ -281,7 +390,7 @@ show_status() {
     echo "=== 服务状态 ==="
     echo ""
 
-    local services=("gateway" "lms" "rcs" "web")
+    local services=("gateway" "lms" "rcs" "web" "redis" "worker")
     local all_stopped=true
 
     for service in "${services[@]}"; do
@@ -296,7 +405,12 @@ show_status() {
                 rm -f "$pid_file"
             fi
         else
-            echo -e "${RED}✗${NC} $service: 未运行"
+            if [ "$service" = "redis" ] && redis-cli ping > /dev/null 2>&1; then
+                echo -e "${GREEN}✓${NC} $service: 运行中（systemd）"
+                all_stopped=false
+            else
+                echo -e "${RED}✗${NC} $service: 未运行"
+            fi
         fi
     done
 
@@ -318,6 +432,8 @@ main() {
         start)
             if [ "$service" = "all" ]; then
                 log_info "启动所有服务..."
+                start_service "redis"
+                sleep 1
                 start_service "gateway"
                 sleep 3
                 start_service "lms"
@@ -325,11 +441,13 @@ main() {
                 start_service "rcs"
                 sleep 3
                 start_web
+                sleep 2
+                start_service "worker"
                 echo ""
                 show_status
             else
                 case "$service" in
-                    gateway|lms|rcs)
+                    gateway|lms|rcs|redis|worker)
                         start_service "$service"
                         ;;
                     web)
@@ -337,7 +455,7 @@ main() {
                         ;;
                     *)
                         log_error "未知的服务: $service"
-                        echo "用法: $0 start [gateway|lms|rcs|web|all]"
+                        echo "用法: $0 start [gateway|lms|rcs|web|redis|worker|all]"
                         exit 1
                         ;;
                 esac
@@ -346,18 +464,20 @@ main() {
         end|stop)
             if [ "$service" = "all" ]; then
                 log_info "停止所有服务..."
+                stop_service "worker"
                 stop_service "gateway"
                 stop_service "lms"
                 stop_service "rcs"
                 stop_service "web"
+                stop_service "redis"
             else
                 case "$service" in
-                    gateway|lms|rcs|web)
+                    gateway|lms|rcs|web|redis|worker)
                         stop_service "$service"
                         ;;
                     *)
                         log_error "未知的服务: $service"
-                        echo "用法: $0 end [gateway|lms|rcs|web|all]"
+                        echo "用法: $0 end [gateway|lms|rcs|web|redis|worker|all]"
                         exit 1
                         ;;
                 esac
@@ -366,30 +486,56 @@ main() {
         status)
             show_status
             ;;
+        restart-all)
+            log_info "定时重启：停止所有服务..."
+            stop_service "worker"
+            stop_service "gateway"
+            stop_service "lms"
+            stop_service "rcs"
+            stop_service "web"
+            stop_service "redis"
+            sleep 5
+            log_info "定时重启：启动所有服务..."
+            start_service "redis"
+            sleep 1
+            start_service "gateway"
+            sleep 3
+            start_service "lms"
+            sleep 3
+            start_service "rcs"
+            sleep 3
+            start_web
+            sleep 2
+            start_service "worker"
+            sleep 3
+            start_web
+            echo ""
+            show_status
+            ;;
         *)
-            echo "用法: $0 {start|end|status} [gateway|lms|rcs|web|all]"
+            echo "用法: $0 {start|end|status|restart-all} [gateway|lms|rcs|web|redis|worker|all]"
             echo ""
             echo "命令:"
             echo "  start <service>  启动指定服务（或使用 'all' 启动所有服务）"
             echo "  end <service>    停止指定服务（或使用 'all' 停止所有服务）"
             echo "  status           查看所有服务状态"
+            echo "  restart-all      重启所有服务（定时任务用）"
             echo ""
             echo "服务:"
             echo "  gateway          Gateway API服务 (端口 8000)"
             echo "  lms              LMS模拟服务 (端口 6000)"
             echo "  rcs              RCS模拟服务 (端口 4001)"
-            echo "  web              Web前端服务 (端口 3000)"
+            echo "  web              Web前端服务 (端口 5173)"
+            echo "  redis            Redis缓存服务 (端口 6379)"
+            echo "  worker           盘点检测Worker服务"
             echo "  all              所有服务"
             echo ""
             echo "示例:"
-            echo "  $0 start gateway      # 启动gateway服务"
-            echo "  $0 start lms          # 启动lms服务"
-            echo "  $0 start rcs          # 启动rcs服务"
-            echo "  $0 start web          # 启动web服务"
-            echo "  $0 start all          # 启动所有服务"
-            echo "  $0 end gateway        # 停止gateway服务"
-            echo "  $0 end all            # 停止所有服务"
-            echo "  $0 status             # 查看服务状态"
+            echo "  $0 start all         # 启动所有服务"
+            echo "  $0 end all           # 停止所有服务"
+            echo "  $0 status            # 查看服务状态"
+            echo "  $0 restart-all       # 重启所有服务"
+            echo "  $0 restart-all        # 重启所有服务"
             exit 1
             ;;
     esac
