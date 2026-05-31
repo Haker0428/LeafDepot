@@ -1782,7 +1782,12 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                             if bs.bin_location == bin_location:
                                 bs.status = "completed" if result and result.get("status") == "成功" else "failed"
                                 break
-    
+
+                    # END 超时后不再发送 continue：RCS 侧任务已超时不存在，发送 continue 会导致重试
+                    if timeout_occurred:
+                        logger.warning(f"END 超时，跳过发送 continue，直接继续下一库位")
+                        continue
+
                     # 取消后不再发送 continue，避免 RCS 卡在等待继续指令的状态
                     if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
                         logger.warning(f"任务 {task_no} 已被取消，跳过 continue，退出等待循环")
@@ -1800,9 +1805,6 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                             logger.info(f"continue 调用结果 (bin={bin_location}, robotTaskCode={rt_code}): {continue_result}")
                         except Exception as e:
                             logger.error(f"发送 continue 失败: {str(e)}")
-    
-                    if timeout_occurred:
-                        continue
     
                     # 查找匹配储位信息
                     inventory_item = None
