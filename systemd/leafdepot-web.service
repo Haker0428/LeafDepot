@@ -7,8 +7,7 @@ Type=simple
 User=zihui-lang
 Group=zihui-lang
 WorkingDirectory=/home/zihui-lang/code/LeafDepot/web
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
-ExecStart=/usr/bin/npm run dev
+ExecStart=/home/zihui-lang/.local/share/pnpm/pnpm dev
 StandardOutput=append:/home/zihui-lang/code/LeafDepot/logs/web_systemd.log
 StandardError=append:/home/zihui-lang/code/LeafDepot/logs/web_systemd.log
 Restart=always

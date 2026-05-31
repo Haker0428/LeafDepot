@@ -104,13 +104,9 @@ echo ""
 # ===== 生成 systemd unit 文件 =====
 echo "[INFO] 生成 systemd unit 文件..."
 
-# ===== Redis systemd 检测（无需 sudo） =====
-if [ -f /etc/systemd/system/redis-server.service ]; then
-    REDIS_UNIT_DEPS="After=network.target redis-server.service
-Wants=redis-server.service"
-else
-    REDIS_UNIT_DEPS="After=network.target"
-fi
+# ===== Redis 依赖 =====
+# Python 代码中 Redis 连接是懒加载自动重连，不需要 systemd 强依赖
+REDIS_UNIT_DEPS="After=network.target"
 
 # ========== gateway ==========
 cat > "$SYSTEMD_DIR/leafdepot-gateway.service" << EOF

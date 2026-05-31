@@ -1,7 +1,6 @@
 [Unit]
 Description=LeafDepot Gateway API Service
-After=network.target redis-server.service
-Wants=redis-server.service
+After=network.target
 
 [Service]
 Type=simple
@@ -9,8 +8,7 @@ User=zihui-lang
 Group=zihui-lang
 WorkingDirectory=/home/zihui-lang/code/LeafDepot
 Environment="PYTHONPATH=/home/zihui-lang/code/LeafDepot"
-Environment="PATH=/home/zihui-lang/.conda/envs/tobacco_env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
-ExecStart=/home/zihui-lang/.conda/envs/tobacco_env/bin/uvicorn gateway:app --host 0.0.0.0 --port 8000
+ExecStart=/home/zihui-lang/miniconda3/envs/tobacco_env/bin/uvicorn gateway:app --host 0.0.0.0 --port 8000
 StandardOutput=append:/home/zihui-lang/code/LeafDepot/logs/gateway_systemd.log
 StandardError=append:/home/zihui-lang/code/LeafDepot/logs/gateway_systemd.log
 Restart=always
