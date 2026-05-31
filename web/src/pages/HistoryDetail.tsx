@@ -1,8 +1,73 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { GATEWAY_URL } from "../config/ip_address";
 import { useAuth } from "../contexts/authContext";
+
+// ===== Lightbox 组件 =====
+function Lightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  const [scale, setScale] = useState(1);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    setScale(1);
+  }, [src]);
+
+  // Ctrl + 滚轮缩放
+  useEffect(() => {
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.1 : -0.1;
+      setScale(s => Math.min(Math.max(s + delta, 0.2), 5));
+    };
+    window.addEventListener("wheel", handler, { passive: false });
+    return () => window.removeEventListener("wheel", handler);
+  }, []);
+
+  // ESC 关闭
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div className="absolute top-4 right-4 flex items-center gap-3 text-white text-sm">
+        <span>滚轮缩放 · ESC 关闭 · 当前 {Math.round(scale * 100)}%</span>
+        <button onClick={onClose} className="ml-2 px-3 py-1 bg-white/20 hover:bg-white/30 rounded">
+          <i className="fa-solid fa-xmark mr-1"></i>关闭
+        </button>
+      </div>
+      <div
+        className="overflow-auto flex items-center justify-center w-full h-full cursor-zoom-out"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: "100vw", maxHeight: "100vh" }}
+      >
+        <img
+          ref={imgRef}
+          src={src}
+          alt={alt}
+          style={{
+            transform: `scale(${scale})`,
+            transition: "transform 0.1s ease-out",
+            maxWidth: "90vw",
+            maxHeight: "90vh",
+            objectFit: "contain",
+          }}
+          onWheel={e => {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.1 : -0.1;
+            setScale(s => Math.min(Math.max(s + delta, 0.2), 5));
+          }}
+        />
+      </div>
+    </div>
+  );
+}
 
 interface InventoryDetail {
   序号: number;
@@ -40,6 +105,8 @@ export default function HistoryDetail() {
   const [mainImgError, setMainImgError] = useState(false);
   const [failedThumbIdx, setFailedThumbIdx] = useState<Set<number>>(new Set());
   const [photoPanelStyle, setPhotoPanelStyle] = useState<React.CSSProperties>({});
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxAlt, setLightboxAlt] = useState<string>("");
 
   // 加载任务详情
   useEffect(() => {
@@ -390,7 +457,8 @@ export default function HistoryDetail() {
                           alt={`照片 ${selectedPhotoIdx + 1}`}
                           className="max-h-48 max-w-full object-contain cursor-pointer"
                           onClick={() => {
-                            window.open(photoUrls[selectedPhotoIdx], "_blank");
+                            setLightboxSrc(photoUrls[selectedPhotoIdx]);
+                            setLightboxAlt(`照片 ${selectedPhotoIdx + 1}`);
                           }}
                           onError={() => setMainImgError(true)}
                         />
@@ -425,7 +493,11 @@ export default function HistoryDetail() {
                               key={idx}
                               src={url}
                               alt={`照片 ${idx + 1}`}
-                              onClick={() => setSelectedPhotoIdx(idx)}
+                              onClick={() => {
+                                setSelectedPhotoIdx(idx);
+                                setLightboxSrc(url);
+                                setLightboxAlt(`照片 ${idx + 1}`);
+                              }}
                               className={`w-16 h-16 object-cover rounded cursor-pointer border-2 transition-all ${
                                 selectedPhotoIdx === idx ? "border-blue-500 opacity-100" : "border-gray-200 opacity-60 hover:opacity-100"
                               }`}
@@ -448,6 +520,15 @@ export default function HistoryDetail() {
           </div>
         )}
       </main>
+
+      {/* Lightbox */}
+      {lightboxSrc && (
+        <Lightbox
+          src={lightboxSrc}
+          alt={lightboxAlt}
+          onClose={() => setLightboxSrc(null)}
+        />
+      )}
     </div>
   );
 }
