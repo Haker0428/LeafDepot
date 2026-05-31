@@ -1,0 +1,16 @@
+[Unit]
+Description=LeafDepot LMS Simulator Service
+After=network.target
+
+[Service]
+Type=simple
+User=zihui-lang
+Group=zihui-lang
+WorkingDirectory=/home/zihui-lang/code/LeafDepot/services/sim/lms
+Environment="PYTHONPATH=/home/zihui-lang/code/LeafDepot"
+Environment="PATH=/home/zihui-lang/.conda/envs/tobacco_env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+ExecStart=/home/zihui-lang/.conda/envs/tobacco_env/bin/uvicorn sim_lms_server:app --host 0.0.0.0 --port 6000
+StandardOutput=append:/home/zihui-lang/code/LeafDepot/logs/lms_systemd.log
+StandardError=append:/home/zihui-lang/code/LeafDepot/logs/lms_systemd.log
+Restart=always
+RestartSec=10

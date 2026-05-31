@@ -1,0 +1,16 @@
+[Unit]
+Description=LeafDepot RCS Simulator Service
+After=network.target
+
+[Service]
+Type=simple
+User=zihui-lang
+Group=zihui-lang
+WorkingDirectory=/home/zihui-lang/code/LeafDepot/services/sim/rcs
+Environment="PYTHONPATH=/home/zihui-lang/code/LeafDepot"
+Environment="PATH=/home/zihui-lang/.conda/envs/tobacco_env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+ExecStart=/home/zihui-lang/.conda/envs/tobacco_env/bin/uvicorn sim_rcs_server:app --host 0.0.0.0 --port 4001
+StandardOutput=append:/home/zihui-lang/code/LeafDepot/logs/rcs_systemd.log
+StandardError=append:/home/zihui-lang/code/LeafDepot/logs/rcs_systemd.log
+Restart=always
+RestartSec=10
