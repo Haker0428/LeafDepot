@@ -82,13 +82,13 @@ get_service_url() {
     local service=$1
     case "$service" in
         gateway)
-            echo "http://localhost:8000/docs"
+            echo "http://10.16.82.95:8000/docs"
             ;;
         lms)
-            echo "http://localhost:6000"
+            echo "http://10.16.82.95:6000"
             ;;
         rcs)
-            echo "http://localhost:4001"
+            echo "http://10.16.82.95:4001"
             ;;
     esac
 }
@@ -302,7 +302,7 @@ start_web() {
     if is_running "$pid"; then
         log_info "Web服务启动成功 (PID: $pid)"
         log_info "日志文件: $PROJECT_ROOT/logs/web_${DATE}.log"
-        log_info "访问地址: http://localhost:5173"
+        log_info "访问地址: http://10.16.82.95:5173"
     else
         log_error "Web服务启动失败"
         rm -f "$pid_file"
