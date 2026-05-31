@@ -11,11 +11,11 @@
   "enable_debug": false,
   "enable_visualization": false,
   "with_camera": true,
-  "camera_test_dir": "/home/zihui-lang/code/LeafDepot/capture_img",
+  "camera_test_dir": "",
   "rcs_prefix": "/rcs/rtas",
   "lms_prefix": "/lms/srm",
   "rcs_real": {
-    "host": "10.16.82.95",
+    "host": "10.16.82.90",
     "port": 443,
     "use_ssl": true,
     "task_type": "ABCDEFG",
