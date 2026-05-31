@@ -198,6 +198,25 @@ start_service() {
 start_redis() {
     local pid_file=$(get_pid_file "redis")
 
+    # 查找 redis-server 路径
+    local redis_bin=""
+    for p in \
+        "/opt/redis-7.4/bin/redis-server" \
+        "/opt/redis-7.0/bin/redis-server" \
+        "/usr/bin/redis-server" \
+        "$HOME/miniconda3/envs/tobacco_env/bin/redis-server" \
+        "redis-server"; do
+        if [ -x "$p" ]; then
+            redis_bin="$p"
+            break
+        fi
+    done
+
+    if [ -z "$redis_bin" ]; then
+        log_error "找不到 redis-server，请先运行 ./install_redis.sh"
+        return 1
+    fi
+
     if [ -f "$pid_file" ]; then
         local pid=$(cat "$pid_file")
         if is_running "$pid"; then
@@ -210,7 +229,7 @@ start_redis() {
 
     log_info "启动 Redis 服务..."
     cd "$PROJECT_ROOT"
-    nohup redis-server > "$PROJECT_ROOT/logs/redis_${DATE}.log" 2>&1 &
+    nohup "$redis_bin" > "$PROJECT_ROOT/logs/redis_${DATE}.log" 2>&1 &
     local pid=$!
 
     sleep 1
@@ -316,8 +335,20 @@ stop_service() {
     local pid_file=$(get_pid_file "$service")
 
     # redis 走单独处理，不依赖 PID 文件
+    local redis_cli_bin=""
+    for p in \
+        "/opt/redis-7.4/bin/redis-cli" \
+        "/opt/redis-7.0/bin/redis-cli" \
+        "/usr/bin/redis-cli" \
+        "$HOME/miniconda3/envs/tobacco_env/bin/redis-cli" \
+        "redis-cli"; do
+        if [ -x "$p" ]; then
+            redis_cli_bin="$p"
+            break
+        fi
+    done
     if [ "$service" = "redis" ]; then
-        if ! redis-cli ping > /dev/null 2>&1; then
+        if ! "$redis_cli_bin" ping > /dev/null 2>&1; then
             log_warn "Redis 服务未运行"
             return 1
         fi
@@ -390,6 +421,20 @@ show_status() {
     echo "=== 服务状态 ==="
     echo ""
 
+    # 查找 redis-cli
+    local redis_cli_bin=""
+    for p in \
+        "/opt/redis-7.4/bin/redis-cli" \
+        "/opt/redis-7.0/bin/redis-cli" \
+        "/usr/bin/redis-cli" \
+        "$HOME/miniconda3/envs/tobacco_env/bin/redis-cli" \
+        "redis-cli"; do
+        if [ -x "$p" ]; then
+            redis_cli_bin="$p"
+            break
+        fi
+    done
+
     local services=("gateway" "lms" "rcs" "web" "redis" "worker")
     local all_stopped=true
 
@@ -405,7 +450,7 @@ show_status() {
                 rm -f "$pid_file"
             fi
         else
-            if [ "$service" = "redis" ] && redis-cli ping > /dev/null 2>&1; then
+            if [ "$service" = "redis" ] && [ -n "$redis_cli_bin" ] && "$redis_cli_bin" ping > /dev/null 2>&1; then
                 echo -e "${GREEN}✓${NC} $service: 运行中（systemd）"
                 all_stopped=false
             else

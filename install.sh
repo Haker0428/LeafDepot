@@ -45,6 +45,24 @@ CONDA_PREFIX="$(dirname "$(dirname "$CONDA_BIN")")"
 echo "[INFO] Conda 路径: $CONDA_BIN"
 echo "[INFO] Conda 前缀: $CONDA_PREFIX"
 
+# ===== 检测 Redis（优先 conda 环境，其次 /opt/redis-*） =====
+REDIS_CLI=""
+for p in \
+    "$CONDA_PREFIX/envs/tobacco_env/bin/redis-cli" \
+    "/opt/redis-7.4/bin/redis-cli" \
+    "/opt/redis-7.0/bin/redis-cli" \
+    "/usr/bin/redis-cli"; do
+    if [ -x "$p" ]; then
+        REDIS_CLI="$p"
+        break
+    fi
+done
+if [ -n "$REDIS_CLI" ]; then
+    echo "[INFO] Redis CLI: $REDIS_CLI"
+else
+    echo "[WARN] 未找到 redis-cli，请确保 Redis 已安装（参考 install_redis.sh）"
+fi
+
 # ===== 检测 pnpm =====
 PNPM_BIN=""
 for p in \
@@ -74,7 +92,6 @@ echo "[INFO] 运行用户: $RUN_USER"
 CONDA_ENV_BIN="$CONDA_PREFIX/envs/tobacco_env/bin"
 PYTHON_BIN="$CONDA_ENV_BIN/python"
 UVICORN_BIN="$CONDA_ENV_BIN/uvicorn"
-REDIS_CLI="$CONDA_ENV_BIN/redis-cli"
 LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR"
 
@@ -87,12 +104,19 @@ echo ""
 # ===== 生成 systemd unit 文件 =====
 echo "[INFO] 生成 systemd unit 文件..."
 
+# ===== Redis systemd 检测（无需 sudo） =====
+if [ -f /etc/systemd/system/redis-server.service ]; then
+    REDIS_UNIT_DEPS="After=network.target redis-server.service
+Wants=redis-server.service"
+else
+    REDIS_UNIT_DEPS="After=network.target"
+fi
+
 # ========== gateway ==========
 cat > "$SYSTEMD_DIR/leafdepot-gateway.service" << EOF
 [Unit]
 Description=LeafDepot Gateway API Service
-After=network.target redis-server.service
-Wants=redis-server.service
+$REDIS_UNIT_DEPS
 
 [Service]
 Type=simple
@@ -124,8 +148,7 @@ EOF
 cat > "$SYSTEMD_DIR/leafdepot-worker.service" << EOF
 [Unit]
 Description=LeafDepot Inventory Worker Service
-After=network.target redis-server.service
-Wants=redis-server.service
+$REDIS_UNIT_DEPS
 
 [Service]
 Type=simple
@@ -254,7 +277,7 @@ echo "[INFO] Unit 文件生成完成"
 echo ""
 echo "[INFO] 开始安装 systemd 服务（需要 sudo 权限）..."
 
-if $REDIS_CLI ping > /dev/null 2>&1; then
+if [ -n "$REDIS_CLI" ] && $REDIS_CLI ping > /dev/null 2>&1; then
     echo "[INFO] Redis 已在运行"
 else
     echo "[WARN] Redis 未运行，请确保 redis-server 已启动"
