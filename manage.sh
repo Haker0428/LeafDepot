@@ -201,7 +201,7 @@ start_redis() {
     # 查找 redis-server 路径
     local redis_bin=""
     for p in \
-        "/opt/redis-7.4/bin/redis-server" \
+        "/opt/redis-7.4.0/bin/redis-server" \
         "/opt/redis-7.0/bin/redis-server" \
         "/usr/bin/redis-server" \
         "$HOME/miniconda3/envs/tobacco_env/bin/redis-server" \
@@ -337,7 +337,7 @@ stop_service() {
     # redis 走单独处理，不依赖 PID 文件
     local redis_cli_bin=""
     for p in \
-        "/opt/redis-7.4/bin/redis-cli" \
+        "/opt/redis-7.4.0/bin/redis-cli" \
         "/opt/redis-7.0/bin/redis-cli" \
         "/usr/bin/redis-cli" \
         "$HOME/miniconda3/envs/tobacco_env/bin/redis-cli" \
@@ -424,7 +424,7 @@ show_status() {
     # 查找 redis-cli
     local redis_cli_bin=""
     for p in \
-        "/opt/redis-7.4/bin/redis-cli" \
+        "/opt/redis-7.4.0/bin/redis-cli" \
         "/opt/redis-7.0/bin/redis-cli" \
         "/usr/bin/redis-cli" \
         "$HOME/miniconda3/envs/tobacco_env/bin/redis-cli" \

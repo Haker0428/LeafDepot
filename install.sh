@@ -49,7 +49,7 @@ echo "[INFO] Conda 前缀: $CONDA_PREFIX"
 REDIS_CLI=""
 for p in \
     "$CONDA_PREFIX/envs/tobacco_env/bin/redis-cli" \
-    "/opt/redis-7.4/bin/redis-cli" \
+    "/opt/redis-7.4.0/bin/redis-cli" \
     "/opt/redis-7.0/bin/redis-cli" \
     "/usr/bin/redis-cli"; do
     if [ -x "$p" ]; then
