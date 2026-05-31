@@ -2,7 +2,7 @@
  * @Author: big box big box@qq.com
  * @Date: 2025-12-14 15:55:40
  * @LastEditors: big box big box@qq.com
- * @LastEditTime: 2026-04-04
+ * @LastEditTime: 2026-05-31
  * @FilePath: /gateway/home/ubuntu/Projects/LeafDepot/README.md
  * @Description:
  *
@@ -31,124 +31,164 @@ LeafDepot/
 ├── tests/             # 测试
 ├── tools/             # 开发工具
 ├── docs/              # 文档
+├── systemd/           # systemd unit 模板（install.sh 自动生成）
 └── scripts/           # 启动脚本
 ```
 
-## 首次部署配置
+---
 
-**后端服务地址从 `config.json` 管理，前端开发代理从 `web/.env.local` 管理。**
+## 服务管理（systemd）
 
-### 1. 修改前端代理地址
+所有服务通过 systemd 管理，支持开机自启、崩溃自动恢复、每日凌晨 4 点定时重启。
 
-复制 `.env.local.example` 为 `.env.local`，修改 `VITE_GATEWAY_URL` 为实际 Gateway 地址：
+### 涉及的 5 个服务
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| leafdepot-gateway | 8000 | API 网关 |
+| leafdepot-worker  | -     | 盘点任务后台处理 |
+| leafdepot-lms     | 6000 | LMS 模拟服务 |
+| leafdepot-rcs     | 4001 | RCS 模拟服务 |
+| leafdepot-web     | 5173 | 前端界面 |
+
+---
+
+## 部署步骤
+
+### 首次部署（新机器）
+
+#### 1. 安装 conda 环境
 
 ```bash
-cp web/.env.local.example web/.env.local
-# 编辑 web/.env.local，修改 VITE_GATEWAY_URL
+# 创建并激活 conda 环境
+conda env create -f environment.yml
+conda activate tobacco_env
+
+# 通过 conda 安装 pnpm（Node.js 工具，非 conda 包）
+npm install -g pnpm
 ```
 
-编辑 `config.json`，将 `host` 改为您部署服务器的 IP：
+#### 2. 修改配置
+
+编辑 `config.json`，将 `host` 改为服务器 IP：
 
 ```json
 {
-  "host": "10.16.82.95",   ← 修改这里，其他地址自动派生
-  "ports": {
-    "gateway": 8000,
-    "lms": 6000,
-    "rcs": 4001,
-    "camsys": 5000
-  },
-  "frontend_port": 5173,
+  "host": "10.16.82.95",
+  "is_sim": false,
   ...
 }
 ```
 
-修改后，Gateway、LMS、RCS 的 URL 全部自动派生：
-- Gateway: `http://{host}:8000`
-- LMS: `http://{host}:6000`
-- RCS: `http://{host}:4001`
-- CamSys: `http://{host}:5000`
+- `is_sim: true` = 模拟模式（不连真实机器人）
+- `is_sim: false` = 真实模式
 
-### 2. 修改运行模式
-
-```json
-{
-  "is_sim": true,      // true = 模拟模式（不连真实机器人），false = 真实模式
-  "with_camera": false // 模拟模式下是否执行真实相机脚本（跳过等待机器人）
-}
-```
-
-### 3. 编译相机驱动（如需真实相机）
-
-编辑 `hardware/cam_sys/CMakeLists.txt`，修改 Python 路径为本地 conda 环境路径（第 106-107 行）：
-
-```cmake
-# 根据您的 conda 环境修改以下两行
-set (Python_ROOT_DIR     "/your/conda/env/tobacco_env/bin/python3.10")
-set(pybind11_DIR        "/your/conda/env/tobacco_env/lib/python3.10/site-packages/pybind11/share/cmake/pybind11")
-```
-
-然后编译：
+#### 3. 部署 systemd 服务
 
 ```bash
-cd hardware/cam_sys/build
-cmake ..
-make -j$(nproc)
+./install.sh
 ```
 
-如不编译，盘点将使用模拟图片数据。
+`install.sh` 会自动检测 conda、pnpm、node 路径，生成所有 systemd unit 文件并启用服务。
 
-### 4. 启动服务
+#### 4. 启动所有服务
 
 ```bash
-# 启动 LMS 模拟服务（端口 6000）
-./scripts/start_lms_sim.sh
-
-# 启动网关服务（端口 8000）- 新终端
-./scripts/start_gateway.sh
-
-# 启动前端服务（端口 5173）- 新终端
-cd web && pnpm install && pnpm run dev
+sudo systemctl start leafdepot-gateway leafdepot-worker leafdepot-lms leafdepot-rcs leafdepot-web
 ```
 
-### 5. 验证
+---
+
+### 更新配置后重新部署
+
+修改了配置或更新了代码后，重新运行：
 
 ```bash
-./scripts/verify.sh
+./install.sh
 ```
 
-访问：
-- 前端界面：`http://{host}:5173`
-- 网关 API 文档：`http://{host}:8000/docs`
-- LMS API 文档：`http://{host}:6000/docs`
+会重新生成所有 systemd unit 文件并重启对应服务。
+
+---
+
+### 日常运维命令
+
+```bash
+# 启动
+sudo systemctl start leafdepot-gateway leafdepot-worker leafdepot-lms leafdepot-rcs leafdepot-web
+
+# 停止
+sudo systemctl stop leafdepot-gateway leafdepot-worker leafdepot-lms leafdepot-rcs leafdepot-web
+
+# 查看状态
+sudo systemctl status leafdepot-gateway
+sudo systemctl status leafdepot-worker
+
+# 查看所有服务状态
+sudo systemctl list-units 'leafdepot-*'
+
+# 查看定时器（每日凌晨4点重启）
+sudo systemctl list-timers | grep leafdepot
+
+# 查看日志
+tail -f /root/LDUI/software/LeafDepot/logs/gateway_systemd.log
+```
+
+---
+
+## 脚本说明
+
+| 脚本 | 用途 | 使用频率 |
+|------|------|---------|
+| `install.sh` | 生成并安装 systemd unit 文件 | 首次部署 + 更新时 |
+
+**为什么用 systemd 而不是其他方式？**
+
+systemd 是 Linux 标准服务管理方式，支持：
+- 开机自启
+- 进程崩溃自动恢复（Restart=always）
+- 每日定时重启（timer，清除内存积累）
+- 统一日志（journalctl）
+
+`install.sh` 生成的 unit 文件路径为相对路径（基于脚本所在目录），可在任意目录下运行。
+
+---
+
+## 验证
+
+```bash
+# 确认所有端口在监听
+ss -tlnp | grep -E '8000|6000|4001|5173'
+
+# 测试 API
+curl http://10.16.82.95:8000/docs
+
+# 浏览器访问
+http://10.16.82.95:5173
+```
 
 默认登录信息：
 - 用户名：`admin`
 - 密码：`admin`
 
-## 快速开始（本地开发）
+---
 
-如在本地机器直接运行（不连接真实机器人），服务均以 localhost 运行：
+## 维护
+
+### 更新 Python 依赖
 
 ```bash
-# 1. config.json 中 host 保持默认，is_sim 设为 true
-# 2. 启动服务
-./scripts/start_lms_sim.sh
-./scripts/start_gateway.sh
-cd web && pnpm install && pnpm run dev
-# 3. 浏览器访问 http://localhost:5173
+# 导出 conda 环境（推荐，只导出显式安装的包）
+conda env export --from-history > environment.yml
+
+# 完整导出
+conda env export > environment.yml
 ```
+
+---
 
 ## 详细文档
 
 - [启动和验证指南](docs/STARTUP_GUIDE.md) - 完整的启动步骤和验证方法
 - [架构文档](ARCHITECTURE_REFACTOR.md) - 项目架构说明
 - [重构总结](docs/REFACTOR_SUMMARY.md) - 架构重构详情
-
-## 维护
-
-后续如果有更新python库，在根目录使用如下命令:
-```bash
-conda env export --from-history > environment.yml(只更新conda包)
-conda env export > environment.yml(更新conda包和pip包)
-```

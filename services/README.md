@@ -20,11 +20,7 @@
 
 ```bash
 # 启动网关服务
-cd services/api
-python gateway.py
-
-# 或使用脚本
-../../scripts/start_gateway.sh
+sudo systemctl start leafdepot-gateway
 ```
 
 ## API 文档

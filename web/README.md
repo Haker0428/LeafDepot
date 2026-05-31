@@ -24,17 +24,13 @@ pnpm run dev
 - 启动 网关模块
 
 ```sh
-cd /home/ubuntu/LeafDepot/Intergration/app
-conda activate tobacco_env
-bash start_gateway.sh
+sudo systemctl start leafdepot-gateway
 ```
 
 - 启动 LMS服务端
 
 ```sh
-cd /home/ubuntu/LeafDepot/Intergration/app/sim/lms
-conda activate tobacco_env
-bash start_sim_lms_server.sh
+sudo systemctl start leafdepot-lms
 ```
 
-- 在浏览器访问 http://localhost:3000
+- 在浏览器访问 http://localhost:5173

@@ -1,5 +1,6 @@
 name: tobacco_env
 channels:
+  - conda-forge
   - defaults
 dependencies:
   - _libgcc_mutex=0.1=main
@@ -109,7 +110,6 @@ dependencies:
       - pymysql==1.1.2
       - pyparsing==3.2.4
       - pyqt5==5.15.11
-      - redis==7.4.0
       - pyqt5-qt5==5.15.17
       - pyqt5-sip==12.17.0
       - python-dateutil==2.9.0.post0

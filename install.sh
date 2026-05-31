@@ -45,12 +45,10 @@ CONDA_PREFIX="$(dirname "$(dirname "$CONDA_BIN")")"
 echo "[INFO] Conda 路径: $CONDA_BIN"
 echo "[INFO] Conda 前缀: $CONDA_PREFIX"
 
-# ===== 检测 Redis（优先 conda 环境，其次 /opt/redis-*） =====
+# ===== 检测 Redis CLI（用于状态检查） =====
 REDIS_CLI=""
 for p in \
     "$CONDA_PREFIX/envs/tobacco_env/bin/redis-cli" \
-    "/opt/redis-7.4.0/bin/redis-cli" \
-    "/opt/redis-7.0/bin/redis-cli" \
     "/usr/bin/redis-cli"; do
     if [ -x "$p" ]; then
         REDIS_CLI="$p"
@@ -60,7 +58,7 @@ done
 if [ -n "$REDIS_CLI" ]; then
     echo "[INFO] Redis CLI: $REDIS_CLI"
 else
-    echo "[WARN] 未找到 redis-cli，请确保 Redis 已安装（参考 install_redis.sh）"
+    echo "[WARN] 未找到 redis-cli，Redis 可能未安装"
 fi
 
 # ===== 检测 pnpm =====
@@ -118,9 +116,9 @@ $REDIS_UNIT_DEPS
 Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
-WorkingDirectory=$PROJECT_ROOT
+WorkingDirectory=$PROJECT_ROOT/services/api
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$UVICORN_BIN gateway:app --host 0.0.0.0 --port 8000
+ExecStart=$PYTHON_BIN -m uvicorn gateway:app --host 0.0.0.0 --port 8000
 StandardOutput=append:$LOG_DIR/gateway_systemd.log
 StandardError=append:$LOG_DIR/gateway_systemd.log
 Restart=always
@@ -184,7 +182,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/services/sim/lms
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$UVICORN_BIN sim_lms_server:app --host 0.0.0.0 --port 6000
+ExecStart=$PYTHON_BIN -m uvicorn sim_lms_server:app --host 0.0.0.0 --port 6000
 StandardOutput=append:$LOG_DIR/lms_systemd.log
 StandardError=append:$LOG_DIR/lms_systemd.log
 Restart=always
@@ -216,7 +214,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/services/sim/rcs
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$UVICORN_BIN sim_rcs_server:app --host 0.0.0.0 --port 4001
+ExecStart=$PYTHON_BIN -m uvicorn sim_rcs_server:app --host 0.0.0.0 --port 4001
 StandardOutput=append:$LOG_DIR/rcs_systemd.log
 StandardError=append:$LOG_DIR/rcs_systemd.log
 Restart=always
@@ -237,6 +235,24 @@ WantedBy=timers.target
 EOF
 
 # ========== web ==========
+# 自动检测 node 路径
+NODE_BIN=""
+for p in \
+    "/root/LDUI/thirdparty/node-v24.11.1-linux-x64/bin" \
+    "$HOME/LDUI/thirdparty/node-v24.11.1-linux-x64/bin" \
+    "$HOME/thirdparty/node-v24.11.1-linux-x64/bin" \
+    "$(dirname "$(dirname "$(which node 2>/dev/null)")")/bin"; do
+    if [ -x "$p/node" ]; then
+        NODE_BIN="$p"
+        break
+    fi
+done
+if [ -z "$NODE_BIN" ]; then
+    echo "[错误] 未找到 node，请确保 Node.js 已安装"
+    exit 1
+fi
+echo "[INFO] Node 路径: $NODE_BIN"
+NODE_PATH="${NODE_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 cat > "$SYSTEMD_DIR/leafdepot-web.service" << EOF
 [Unit]
 Description=LeafDepot Web Frontend Service
@@ -247,6 +263,7 @@ Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/web
+Environment="PATH=$NODE_PATH"
 ExecStart=$PNPM_BIN dev
 StandardOutput=append:$LOG_DIR/web_systemd.log
 StandardError=append:$LOG_DIR/web_systemd.log
