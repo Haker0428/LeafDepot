@@ -579,7 +579,7 @@ async def execute_capture_script(script_path: str, task_no: str, bin_location: s
     try:
         logger.info(f"在 Conda 环境 '{conda_env}' 中执行抓图脚本: {script_path}")
 
-        cmd = ["conda", "run", "-n", conda_env, "python", script_path,
+        cmd = [sys.executable, script_path,
                "--task-no", task_no, "--bin-location", bin_location]
 
         process = await asyncio.create_subprocess_exec(
