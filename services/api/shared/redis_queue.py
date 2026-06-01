@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Redis 连接（lazy init）
 _redis_client: Optional[Any] = None
-_REDIS_HOST = "localhost"
+_REDIS_HOST = "10.16.82.95"
 _REDIS_PORT = 6379
 
 # 队列/键名常量
