@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { GATEWAY_URL } from "../config/ip_address";
 import { useAuth } from "../contexts/authContext";
 import { addOperationLog } from "../lib/operationLog";
+import { logger } from "../utils/logger";
 
 // 库位信息结构体
 interface BinItem {
@@ -45,8 +46,6 @@ export default function InventoryStart() {
 
   const { authToken, userName, userLevel, userId } = useAuth();
   const [inventoryTasks, setInventoryTasks] = useState<InventoryTask[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [taskLoading, setTaskLoading] = useState(false);
   const [binsData, setBinsData] = useState<BinItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
@@ -117,121 +116,6 @@ export default function InventoryStart() {
     }));
   };
 
-  // 模拟库位数据
-  const mockBinData: BinItem[] = [
-    {
-      whCode: "WH001",
-      areaCode: "A",
-      areaName: "A区",
-      binCode: "A001",
-      binDesc: "A区001储位",
-      maxQty: 100,
-      binStatus: "1",
-      tobaccoQty: 50,
-      tobaccoCode: "C001",
-      tobaccoName: "黄鹤楼(硬盒)",
-      rcsCode: "RCS001",
-      id: "WH001_A_A001",
-    },
-    {
-      whCode: "WH001",
-      areaCode: "A",
-      areaName: "A区",
-      binCode: "A002",
-      binDesc: "A区002储位",
-      maxQty: 100,
-      binStatus: "1",
-      tobaccoQty: 35,
-      tobaccoCode: "C002",
-      tobaccoName: "玉溪(软盒)",
-      rcsCode: "RCS002",
-      id: "WH001_A_A002",
-    },
-    {
-      whCode: "WH001",
-      areaCode: "B",
-      areaName: "B区",
-      binCode: "B001",
-      binDesc: "B区001储位",
-      maxQty: 100,
-      binStatus: "1",
-      tobaccoQty: 28,
-      tobaccoCode: "C003",
-      tobaccoName: "荷花(细支)",
-      rcsCode: "RCS003",
-      id: "WH001_B_B001",
-    },
-    {
-      whCode: "WH001",
-      areaCode: "B",
-      areaName: "B区",
-      binCode: "B002",
-      binDesc: "B区002储位",
-      maxQty: 100,
-      binStatus: "1",
-      tobaccoQty: 42,
-      tobaccoCode: "C004",
-      tobaccoName: "利群(新版)",
-      rcsCode: "RCS004",
-      id: "WH001_B_B002",
-    },
-    {
-      whCode: "WH002",
-      areaCode: "A",
-      areaName: "A区",
-      binCode: "A001",
-      binDesc: "二号库A区001储位",
-      maxQty: 100,
-      binStatus: "1",
-      tobaccoQty: 60,
-      tobaccoCode: "C005",
-      tobaccoName: "ESSE(蓝盒)",
-      rcsCode: "RCS005",
-      id: "WH002_A_A001",
-    },
-    {
-      whCode: "WH002",
-      areaCode: "A",
-      areaName: "A区",
-      binCode: "A002",
-      binDesc: "二号库A区002储位",
-      maxQty: 100,
-      binStatus: "1",
-      tobaccoQty: 45,
-      tobaccoCode: "C006",
-      tobaccoName: "云烟(印象)",
-      rcsCode: "RCS006",
-      id: "WH002_A_A002",
-    },
-    {
-      whCode: "WH002",
-      areaCode: "B",
-      areaName: "B区",
-      binCode: "B001",
-      binDesc: "二号库B区001储位",
-      maxQty: 100,
-      binStatus: "1",
-      tobaccoQty: 30,
-      tobaccoCode: "C007",
-      tobaccoName: "南京(金陵十二钗)",
-      rcsCode: "RCS007",
-      id: "WH002_B_B001",
-    },
-    {
-      whCode: "WH002",
-      areaCode: "B",
-      areaName: "B区",
-      binCode: "B002",
-      binDesc: "二号库B区002储位",
-      maxQty: 100,
-      binStatus: "1",
-      tobaccoQty: 55,
-      tobaccoCode: "C008",
-      tobaccoName: "红塔山(经典)",
-      rcsCode: "RCS008",
-      id: "WH002_B_B002",
-    },
-  ];
 
   // 库位状态
   const binStatus = (status: string) => {
@@ -251,28 +135,39 @@ export default function InventoryStart() {
     }
   };
 
-  // 盘点任务状态
-  const taskStatus = (status: string) => {
-    switch (status) {
-      case "1":
-        return "未开始";
-      case "2":
-        return "进行中";
-      case "3":
-        return "已完成";
-      case "4":
-        return "异常任务状态";
-      default:
-        return "未开始";
-    }
-  };
 
   // 用于拖拽排序
   const dragItem = useRef<number | null>(null);
-  const dragOverItem = useRef<number | null>(null);
 
   // 用于管理选中任务
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+
+  // 检查是否有运行中的任务（网络断开重连后回到此页面时防止重复下发）
+  const [hasRunningTask, setHasRunningTask] = useState(false);
+  const [runningTaskInfo, setRunningTaskInfo] = useState<string>("");
+
+  useEffect(() => {
+    const checkRunning = async () => {
+      try {
+        const res = await fetch(`${GATEWAY_URL}/api/inventory/running-task`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.code === 200 && data.data && data.data.taskNo) {
+            setHasRunningTask(true);
+            setRunningTaskInfo(data.data.taskNo);
+          } else {
+            setHasRunningTask(false);
+            setRunningTaskInfo("");
+          }
+        }
+      } catch {
+        // 网络不可达时不阻塞，等网络恢复后下次检查会更新
+      }
+    };
+    checkRunning();
+    const intervalId = setInterval(checkRunning, 10000);
+    return () => clearInterval(intervalId);
+  }, []);
 
   // 组件加载时从服务端获取下一个任务号
   useEffect(() => {
@@ -303,18 +198,18 @@ export default function InventoryStart() {
         const binList = Array.isArray(result) ? result : (result.data || []);
 
         // 提取唯一的仓库编码
-        const whCodes = [...new Set(binList.map((b: BinItem) => b.whCode).filter(Boolean))];
+        const whCodes = [...new Set<string>(binList.map((b: BinItem) => b.whCode).filter(Boolean) as string[])];
         setWarehouseOptions(whCodes.map((code: string) => ({ value: code, label: code })));
 
         // 提取唯一的储区编码
-        const areaCodes = [...new Set(binList.map((b: BinItem) => b.areaCode).filter(Boolean))];
+        const areaCodes = [...new Set<string>(binList.map((b: BinItem) => b.areaCode).filter(Boolean) as string[])];
         setAreaOptions(areaCodes.map((code: string) => ({ value: code, label: code })));
 
         // 提取唯一的位号区域（binDesc 的 AA 部分，如 "01" 来自 "01-01-01"）
-        const positionCodes = [...new Set(
+        const positionCodes = [...new Set<string>(
           binList
             .map((b: BinItem) => b.binDesc?.split("-")[0])
-            .filter(Boolean)
+            .filter(Boolean) as string[]
         )];
         positionCodes.sort();
         setPositionOptions(positionCodes.map((code: string) => ({ value: code, label: code })));
@@ -401,7 +296,7 @@ export default function InventoryStart() {
       return { success: true, count: filteredData.length };
     } catch (error) {
       console.error("获取库位信息失败:", error);
-      toast.error(`获取库位信息失败: ${error.message}`);
+      toast.error(`获取库位信息失败: ${error instanceof Error ? error.message : String(error)}`);
       setBinsData([]); // 清空数据
       setSelectedBins([]);
       return { success: false, count: 0 };
@@ -410,47 +305,6 @@ export default function InventoryStart() {
     }
   };
   // 获取盘点任务
-  const fetchInventoryTask = async () => {
-    if (!authToken) {
-      toast.error("未找到认证令牌，请重新登录");
-      return;
-    }
-    setTaskLoading(true);
-    try {
-      // 模拟API请求延迟
-      setTimeout(() => {
-        // 使用库位数据的前3条作为模拟的盘点任务
-        const mockTasks: InventoryTask[] = mockBinData
-          .slice(0, 3)
-          .map((bin) => ({
-            ...bin,
-            taskID: `TASK_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-          }));
-
-        setInventoryTasks(mockTasks);
-        setTaskLoading(false);
-        toast.success("成功获取盘点任务");
-      }, 1000);
-    } catch (error) {
-      console.error("获取盘点任务失败:", error);
-      toast.error("获取盘点任务失败，使用模拟数据");
-
-      // 发生错误时，使用模拟数据
-      setTimeout(() => {
-        const mockTasks: InventoryTask[] = mockBinData
-          .slice(0, 3)
-          .map((bin) => ({
-            ...bin,
-            taskID: `TASK_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-          }));
-
-        setInventoryTasks(mockTasks);
-        setTaskLoading(false);
-        toast.info("已使用模拟任务数据");
-      }, 500);
-    }
-  };
-
   // 获取当前库位信息
   const fetchbinData = async () => {
     await fetchBins(selectedWarehouse, selectedArea, selectedPositions);
@@ -517,9 +371,7 @@ export default function InventoryStart() {
 
   // 生成任务清单并记录日志
   const handleCreateManifest = async () => {
-    const manifest = createTaskMainfest(taskNoInput);
-    // 仅生成任务清单，不单独记录日志
-    // 日志记录在 handleStartInventory 中统一处理
+    createTaskMainfest(taskNoInput);
   };
 
   // 开始盘点 - 先从 API 获取正确的任务号，再跳转
@@ -576,6 +428,12 @@ export default function InventoryStart() {
         },
       });
 
+      logger.info("[INVENTORY] 发起盘点任务", {
+        taskNo: actualTaskNo,
+        taskCount: inventoryTasks.length,
+        totalItems: manifest.totalItems,
+      }, "inventory");
+
       // 跳转到盘点进度页面，并传递任务编号、任务数据和选中的库位信息
       // 清空旧任务完成通知，防止刚下发时收到上一个任务的完成弹窗
       window.dispatchEvent(new Event("clear-task-notify"));
@@ -598,6 +456,7 @@ export default function InventoryStart() {
     );
     // 同时从选中列表中移除
     setSelectedTasks(selectedTasks.filter((id) => id !== taskID));
+    logger.info("[INVENTORY] 删除盘点任务", { taskID }, "inventory");
     toast.success("盘点任务已删除");
   };
 
@@ -632,7 +491,7 @@ export default function InventoryStart() {
     const existingBinIds = new Set(
       inventoryTasks.map(
         (task) =>
-          task.id || generateBinId(task.whCode, task.areaCode, task.binCode),
+          task.id || generateBinId(task.whCode, task.areaCode, task.binCode, task.binDesc),
       ),
     );
     const uniqueSelectedBins = selectedBins.filter(
@@ -1277,10 +1136,17 @@ export default function InventoryStart() {
                       生成任务清单
                     </button>
                     <button
-                      className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg transition-colors flex items-center"
-                      onClick={handleStartInventory}
+                      className={`px-4 py-2 rounded-lg transition-colors flex items-center ${
+                        hasRunningTask
+                          ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+                          : "bg-green-700 hover:bg-green-800 text-white"
+                      }`}
+                      onClick={hasRunningTask ? undefined : handleStartInventory}
+                      disabled={hasRunningTask}
+                      title={hasRunningTask ? `任务 ${runningTaskInfo} 正在执行中` : ""}
                     >
-                      <i className="fa-solid fa-check-circle mr-2"></i>开始盘点
+                      <i className="fa-solid fa-check-circle mr-2"></i>
+                      {hasRunningTask ? "任务执行中..." : "开始盘点"}
                     </button>
                   </div>
                 </div>
