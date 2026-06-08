@@ -49,6 +49,8 @@ from services.api.inventory.service import (
     inventory_task_bins,
     inventory_task_details,
     abort_inventory_task,  # TODO: RCS cancel API 就位后，取消接口中将调用此函数
+    continue_inventory_task,
+    _active_bin_tracker,
     _get_next_task_no,
 )
 from services.api.shared.websocket_manager import ws_manager
@@ -1051,11 +1053,24 @@ async def cancel_inventory(taskNo: str = Query(..., description="任务编号"))
     else:
         logger.info(f"任务不在内存中，仅清除 task_state.json 中的记录: {taskNo}")
 
-    # TODO: RCS 提供 cancel API 后，在此调用 abort_inventory_task
-    # 等 RCS 接口到位后，取消时会主动通知 RCS 停止所有进行中的任务
-    # await abort_inventory_task(robot_task_code, is_sim=False)
-    if robot_task_code:
-        logger.info(f"[cancel] 等待 RCS cancel API 就位，robotTaskCode={robot_task_code}")
+    # 向 RCS 发送所有未完成库位的 continue，让 RCS 完成剩余任务
+    tracker = _active_bin_tracker.get(taskNo)
+    if tracker:
+        remaining = {
+            bin_loc: rt_code
+            for bin_loc, rt_code in tracker["bin_to_task_code"].items()
+            if bin_loc not in tracker["completed_bins"]
+        }
+        if remaining:
+            logger.info(f"[取消] 正在发送剩余 {len(remaining)} 个 continue...")
+            for bin_loc, rt_code in remaining.items():
+                try:
+                    await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
+                    logger.info(f"[取消] continue 已发送: bin={bin_loc}, rt_code={rt_code}")
+                except Exception as e:
+                    logger.error(f"[取消] continue 发送失败: bin={bin_loc}, error={e}")
+            logger.info(f"[取消] 所有剩余 continue 发送完毕")
+        _active_bin_tracker.pop(taskNo, None)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,

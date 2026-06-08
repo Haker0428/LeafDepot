@@ -114,6 +114,7 @@ export default function InventoryProgress() {
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [isStatisticsModalOpen, setIsStatisticsModalOpen] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   // pendingSaveAction: 点击"保存并进行下次盘点"时传入的保存回调，弹窗确认后才执行
   const [pendingSaveAction, setPendingSaveAction] = useState<(() => void) | null>(null);
@@ -1927,6 +1928,8 @@ export default function InventoryProgress() {
 
   // 取消任务
   const handleCancelTask = async () => {
+    if (isCancelling) return;
+    setIsCancelling(true);
     try {
       const res = await fetch(
         `${GATEWAY_URL}/api/inventory/cancel-inventory?taskNo=${encodeURIComponent(currentTaskNo || "")}`,
@@ -1944,6 +1947,8 @@ export default function InventoryProgress() {
       }
     } catch (err) {
       toast.error("取消任务失败");
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -2007,9 +2012,22 @@ export default function InventoryProgress() {
             {currentTaskManifest && (
               <button
                 onClick={handleCancelTask}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-all flex items-center"
+                disabled={isCancelling}
+                className={`px-4 py-2 rounded-lg transition-all flex items-center ${
+                  isCancelling
+                    ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+                    : "bg-red-600 hover:bg-red-700 text-white"
+                }`}
               >
-                <i className="fa-solid fa-stop mr-2"></i>取消任务
+                {isCancelling ? (
+                  <>
+                    <i className="fa-solid fa-spinner fa-spin mr-2"></i>正在取消...
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-stop mr-2"></i>取消任务
+                  </>
+                )}
               </button>
             )}
           </div>

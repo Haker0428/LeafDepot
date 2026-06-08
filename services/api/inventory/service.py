@@ -85,6 +85,9 @@ def _get_next_request_id() -> str:
 # 盘点任务号计数器（按日递增，跨进程互斥写）
 _TASKNO_COUNTER_FILE = str(logs_dir / "task_no_counter.txt")
 
+# 活跃任务的 bin 追踪数据，供取消时发送剩余 continue
+_active_bin_tracker: Dict[str, dict] = {}
+
 def _get_next_task_no() -> str:
     """获取下一个盘点任务号，格式: HS{YYYYMMDD}{NN}，每日从1开始递增"""
     import fcntl
@@ -1655,6 +1658,12 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         await asyncio.sleep(0.5)
                 logger.info(f"全部 {len(submitted_bins)} 个库位已下发完毕，等待 END 回调...")
 
+                # 存储活跃任务的 bin 映射，供取消时发送剩余 continue
+                _active_bin_tracker[task_no] = {
+                    "bin_to_task_code": bin_to_task_code,
+                    "completed_bins": completed_bins,
+                }
+
                 # Phase 2: 批量推入 Redis 队列，worker 逐个处理
                 queued = push_task(task_no, submitted_bins, {"is_sim": False})
                 if queued:
@@ -1954,6 +1963,9 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
 
         logger.info(f"盘点任务{task_status}: {task_no}, 成功 {success_count}/{len(bin_locations)} 个库位")
         logger.info(f"盘点结果: {inventory_results}")
+
+        # 清除活跃任务的 bin tracker
+        _active_bin_tracker.pop(task_no, None)
 
         # 从任务详情中获取用户信息
         user_info = _inventory_task_details.get(task_no, {}).get("userInfo", {})
