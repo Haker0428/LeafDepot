@@ -122,7 +122,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/services/api
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$LOG_WRAPPER gateway $PYTHON_BIN -m uvicorn gateway:app --host 0.0.0.0 --port 8000
+ExecStart=$LOG_WRAPPER gateway $PYTHON_BIN -m uvicorn gateway:app --host 0.0.0.0 --port 8000 --no-access-log
 Restart=always
 RestartSec=10
 EOF
@@ -182,7 +182,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/services/sim/lms
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$LOG_WRAPPER lms $PYTHON_BIN -m uvicorn sim_lms_server:app --host 0.0.0.0 --port 6000
+ExecStart=$LOG_WRAPPER lms $PYTHON_BIN -m uvicorn sim_lms_server:app --host 0.0.0.0 --port 6000 --no-access-log
 Restart=always
 RestartSec=10
 EOF
@@ -212,7 +212,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/services/sim/rcs
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$LOG_WRAPPER rcs $PYTHON_BIN -m uvicorn sim_rcs_server:app --host 0.0.0.0 --port 4001
+ExecStart=$LOG_WRAPPER rcs $PYTHON_BIN -m uvicorn sim_rcs_server:app --host 0.0.0.0 --port 4001 --no-access-log
 Restart=always
 RestartSec=10
 EOF
