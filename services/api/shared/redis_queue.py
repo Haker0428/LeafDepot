@@ -87,6 +87,9 @@ def pop_task(timeout: int = 0) -> Optional[Dict]:
             return _from_json(payload)
         return None
     except Exception as e:
+        # BRPOP 超时是正常行为（队列为空），不记录为错误
+        if "Timeout" in str(e):
+            return None
         logger.error(f"[Redis] 读取任务失败: {e}")
         return None
 
