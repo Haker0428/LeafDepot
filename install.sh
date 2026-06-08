@@ -49,6 +49,8 @@ echo "[INFO] Conda 前缀: $CONDA_PREFIX"
 REDIS_CLI=""
 for p in \
     "$CONDA_PREFIX/envs/tobacco_env/bin/redis-cli" \
+    "/opt/redis-7.4.0/bin/redis-cli" \
+    "/opt/redis-7.0/bin/redis-cli" \
     "/usr/bin/redis-cli"; do
     if [ -x "$p" ]; then
         REDIS_CLI="$p"
@@ -106,6 +108,8 @@ echo "[INFO] 生成 systemd unit 文件..."
 # Python 代码中 Redis 连接是懒加载自动重连，不需要 systemd 强依赖
 REDIS_UNIT_DEPS="After=network.target"
 
+LOG_WRAPPER="$PROJECT_ROOT/log_wrapper.sh"
+
 # ========== gateway ==========
 cat > "$SYSTEMD_DIR/leafdepot-gateway.service" << EOF
 [Unit]
@@ -118,9 +122,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/services/api
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$PYTHON_BIN -m uvicorn gateway:app --host 0.0.0.0 --port 8000
-StandardOutput=append:$LOG_DIR/gateway_systemd.log
-StandardError=append:$LOG_DIR/gateway_systemd.log
+ExecStart=$LOG_WRAPPER gateway $PYTHON_BIN -m uvicorn gateway:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=10
 EOF
@@ -150,9 +152,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$PYTHON_BIN $PROJECT_ROOT/services/worker/inventory_worker.py
-StandardOutput=append:$LOG_DIR/worker_systemd.log
-StandardError=append:$LOG_DIR/worker_systemd.log
+ExecStart=$LOG_WRAPPER worker $PYTHON_BIN $PROJECT_ROOT/services/worker/inventory_worker.py
 Restart=always
 RestartSec=10
 EOF
@@ -182,9 +182,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/services/sim/lms
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$PYTHON_BIN -m uvicorn sim_lms_server:app --host 0.0.0.0 --port 6000
-StandardOutput=append:$LOG_DIR/lms_systemd.log
-StandardError=append:$LOG_DIR/lms_systemd.log
+ExecStart=$LOG_WRAPPER lms $PYTHON_BIN -m uvicorn sim_lms_server:app --host 0.0.0.0 --port 6000
 Restart=always
 RestartSec=10
 EOF
@@ -214,9 +212,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/services/sim/rcs
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$PYTHON_BIN -m uvicorn sim_rcs_server:app --host 0.0.0.0 --port 4001
-StandardOutput=append:$LOG_DIR/rcs_systemd.log
-StandardError=append:$LOG_DIR/rcs_systemd.log
+ExecStart=$LOG_WRAPPER rcs $PYTHON_BIN -m uvicorn sim_rcs_server:app --host 0.0.0.0 --port 4001
 Restart=always
 RestartSec=10
 EOF
@@ -264,9 +260,7 @@ User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT/web
 Environment="PATH=$NODE_PATH"
-ExecStart=$PNPM_BIN dev
-StandardOutput=append:$LOG_DIR/web_systemd.log
-StandardError=append:$LOG_DIR/web_systemd.log
+ExecStart=$LOG_WRAPPER web $PNPM_BIN dev
 Restart=always
 RestartSec=10
 EOF

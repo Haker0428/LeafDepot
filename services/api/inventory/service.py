@@ -1843,7 +1843,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     waited_count = 0
                     while waited_count < remaining:
                         try:
-                            ctu_status = await wait_for_robot_status("end", timeout=120, valid_robot_codes=valid_robot_codes)
+                            ctu_status = await wait_for_robot_status("end", timeout=600, valid_robot_codes=valid_robot_codes)
                             bin_code = ctu_status.get("binCode", "")
                             if not bin_code:
                                 bin_code = submitted_bins[len(inventory_results)] if len(inventory_results) < len(submitted_bins) else ""
