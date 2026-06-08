@@ -227,9 +227,13 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                         "targetRoute": target_route,
                         "taskType": task_type
                     }
-                    rcs_logger.info(f"【真实RCS下发请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
+                    log_msg = f"【真实RCS下发请求】url={url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}"
+                    logger.info(log_msg)
+                    rcs_logger.info(log_msg)
                     response = requests.post(url, json=request_body, headers=headers, timeout=20, verify=False)
-                    rcs_logger.info(f"【真实RCS下发响应】code={response.status_code} body={response.text}")
+                    log_msg = f"【真实RCS下发响应】code={response.status_code} body={response.text}"
+                    logger.info(log_msg)
+                    rcs_logger.info(log_msg)
 
                 if response.status_code == 200:
                     response_data = response.json()
@@ -315,9 +319,13 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                         "triggerType": "TASK",
                         "triggerCode": robot_task_code
                     }
-                    rcs_logger.info(f"【真实RCS继续请求】url={continue_url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
+                    log_msg = f"【真实RCS继续请求】url={continue_url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}"
+                    logger.info(log_msg)
+                    rcs_logger.info(log_msg)
                     response = requests.post(continue_url, json=request_body, headers=headers, timeout=20, verify=False)
-                    rcs_logger.info(f"【真实RCS继续响应】code={response.status_code} body={response.text}")
+                    log_msg = f"【真实RCS继续响应】code={response.status_code} body={response.text}"
+                    logger.info(log_msg)
+                    rcs_logger.info(log_msg)
 
                 if response.status_code == 200:
                     response_data = response.json()
@@ -427,9 +435,13 @@ async def abort_inventory_task(robot_task_code: str, is_sim: bool = True, max_re
                         "triggerType": "TASK",
                         "triggerCode": robot_task_code
                     }
-                    rcs_logger.info(f"【真实RCS取消请求】url={url} body={json.dumps(request_body, ensure_ascii=False)}")
+                    log_msg = f"【真实RCS取消请求】url={url} body={json.dumps(request_body, ensure_ascii=False)}"
+                    logger.info(log_msg)
+                    rcs_logger.info(log_msg)
                     response = requests.post(url, json=request_body, headers=headers, timeout=20, verify=False)
-                    rcs_logger.info(f"【真实RCS取消响应】code={response.status_code} body={response.text}")
+                    log_msg = f"【真实RCS取消响应】code={response.status_code} body={response.text}"
+                    logger.info(log_msg)
+                    rcs_logger.info(log_msg)
                     if response.status_code == 200:
                         response_data = response.json()
                         is_success = response_data.get("success") is True or response_data.get("code") == "SUCCESS"

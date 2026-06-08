@@ -27,6 +27,24 @@ def clear_robot_status_queue():
         _status_event.clear()
 
 
+def prune_robot_status_queue(valid_robot_codes: set):
+    """从队列中移除不属于当前任务的旧 END 回调，释放内存。
+
+    Args:
+        valid_robot_codes: 当前任务有效的 robotTaskCode 集合。
+    """
+    original_len = len(_robot_status_queue)
+    new_queue = deque(item for item in _robot_status_queue
+                      if item.get("method") != "end"
+                      or not item.get("robotTaskCode")
+                      or item.get("robotTaskCode") in valid_robot_codes)
+    _robot_status_queue.clear()
+    _robot_status_queue.extend(new_queue)
+    pruned = original_len - len(_robot_status_queue)
+    if pruned > 0:
+        logger.info(f"清理旧 END 回调 {pruned} 条，队列剩余 {len(_robot_status_queue)} 条")
+
+
 async def update_robot_status(method: str, data: Optional[Dict] = None, robot_task_code: str = ""):
     """更新机器人状态并触发事件"""
     store = {
@@ -69,7 +87,7 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_
             if valid_robot_codes is not None:
                 item_code = item.get("robotTaskCode", "")
                 if item_code and item_code not in valid_robot_codes:
-                    logger.info(f"跳过队列中的旧 END 回调 (binCode={item.get('binCode', '')}, "
+                    logger.debug(f"跳过队列中的旧 END 回调 (binCode={item.get('binCode', '')}, "
                                 f"robotTaskCode={item_code}，不在当前任务集合 {valid_robot_codes} 中，保留在队列)")
                     continue
             # 命中，弹出并返回
@@ -108,6 +126,7 @@ async def task_status(request: Request):
         request_data = await request.json()
         logger.info("反馈任务状态")
         rcs_logger.info(f"【RCS回调请求】data={json.dumps(request_data, ensure_ascii=False)}")
+        logger.info(f"【RCS回调请求】data={json.dumps(request_data, ensure_ascii=False)}")
 
         robot_task_code = request_data.get("robotTaskCode")
         single_robot_code = request_data.get("singleRobotCode")
@@ -159,6 +178,7 @@ async def task_status(request: Request):
             "data": {"robotTaskCode": robot_task_code or "ctu001"}
         }
         rcs_logger.info(f"【RCS回调响应】body={json.dumps(response_body, ensure_ascii=False)}")
+        logger.info(f"【RCS回调响应】body={json.dumps(response_body, ensure_ascii=False)}")
         return response_body
 
     except Exception as e:
