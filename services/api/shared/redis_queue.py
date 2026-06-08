@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 
 # Redis 连接（lazy init）
 _redis_client: Optional[Any] = None
+_redis_last_fail: float = 0.0  # 上次连接失败的时间戳
+_REDIS_RETRY_INTERVAL = 30     # 连接失败后 30 秒内不重试
 _REDIS_HOST = "10.16.82.95"
 _REDIS_PORT = 6379
 
@@ -18,17 +20,22 @@ RESULT_KEY_PREFIX = "inventory:task:results:"     # 结果存储（worker → ga
 
 
 def _get_redis():
-    """获取 Redis 连接（lazy init）"""
-    global _redis_client
+    """获取 Redis 连接（lazy init，失败后 30 秒内不重试）"""
+    import time as _time
+    global _redis_client, _redis_last_fail
     if _redis_client is None:
+        now = _time.time()
+        if now - _redis_last_fail < _REDIS_RETRY_INTERVAL:
+            return None
         try:
             import redis
             _redis_client = redis.Redis(host=_REDIS_HOST, port=_REDIS_PORT, decode_responses=True)
             _redis_client.ping()
             logger.info(f"[Redis] 连接成功: {_REDIS_HOST}:{_REDIS_PORT}")
         except Exception as e:
-            logger.warning(f"[Redis] 连接失败: {e}，队列功能不可用")
+            logger.warning(f"[Redis] 连接失败: {e}，{_REDIS_RETRY_INTERVAL}秒后重试")
             _redis_client = None
+            _redis_last_fail = now
     return _redis_client
 
 
