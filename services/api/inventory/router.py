@@ -160,7 +160,7 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
         # 重新盘点使用独立的 storage_key，不受其他任务状态影响
         if not recount_task_id:
             # 检查1: 内存中的 inventory_tasks
-            BLOCKED_STATUSES = {"running", "completed", "partial", "failed"}
+            BLOCKED_STATUSES = {"running", "completed", "partial"}
             for running_task_no, task_status in inventory_tasks.items():
                 if task_status.status in BLOCKED_STATUSES:
                     running_user_info = inventory_task_details.get(running_task_no, {}).get("userInfo", {})

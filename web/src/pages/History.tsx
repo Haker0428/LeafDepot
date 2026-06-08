@@ -1,9 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/authContext";
-import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { GATEWAY_URL } from "../config/ip_address";
-import * as XLSX from "xlsx";
 import { useNavigate } from "react-router-dom";
 import { addOperationLog } from "../lib/operationLog";
 
@@ -44,7 +42,7 @@ interface TaskMeta {
 }
 
 export default function History() {
-  const { userLevel, userName, authToken, logout } = useAuth();
+  const { userLevel, userName, authToken } = useAuth();
   const [tasks, setTasks] = useState<HistoryTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<HistoryTask | null>(null);
@@ -60,7 +58,6 @@ export default function History() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   // 新增状态：清理历史数据
@@ -138,13 +135,6 @@ export default function History() {
   };
 
   // 检查任务是否过期（超过6个月）
-  const isTaskExpired = (taskDate: Date): boolean => {
-    const now = new Date();
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(now.getMonth() - 6);
-
-    return taskDate < sixMonthsAgo;
-  };
 
   // 加载有数据的日期列表
   const loadAvailableDates = async () => {
@@ -261,34 +251,6 @@ export default function History() {
   };
 
   // 处理文件上传（模拟读取本地文件）
-  const handleFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const data = e.target?.result;
-        if (data) {
-          const workbook = XLSX.read(data, { type: "binary" });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-
-          console.log("解析的Excel数据:", jsonData);
-          toast.success(`成功解析文件: ${file.name}`);
-
-          // 这里可以根据需要处理解析后的数据
-        }
-      };
-      reader.readAsBinaryString(file);
-    } catch (error) {
-      toast.error("解析Excel文件失败");
-      console.error("解析Excel失败:", error);
-    }
-  };
-
   // 格式化日期显示
   const formatDate = (date: Date): string => {
     return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
@@ -639,7 +601,6 @@ export default function History() {
                     {(() => {
                       const [y, m] = calendarMonth.split("-").map(Number);
                       const daysInMonth = new Date(y, m, 0).getDate();
-                      const todayStr = today;
                       return Array.from({ length: daysInMonth }, (_, i) => {
                         const day = i + 1;
                         const dateStr = `${calendarMonth}-${String(day).padStart(2, "0")}`;
@@ -655,7 +616,6 @@ export default function History() {
                               // 点一次即精确筛选当天
                               setStartDate(dateStr);
                               setEndDate(dateStr);
-                              setSelectingEnd(false);
                               setCalendarOpen(false);
                               loadHistoryTasks();
                             }}

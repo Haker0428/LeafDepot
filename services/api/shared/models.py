@@ -69,8 +69,19 @@ class ScanAndRecognizeRequest(BaseModel):
 
 class FrontendLogRequest(BaseModel):
     """前端日志请求模型"""
-    level: str  # log, info, warn, error
-    message: str
+    level: Optional[str] = None  # log, info, warn, error（单条模式）
+    message: Optional[str] = None  # 单条模式
     timestamp: Optional[str] = None
     source: Optional[str] = None  # 前端来源标识
     extra: Optional[Dict[str, Any]] = None  # 额外信息
+    # 批量模式
+    entries: Optional[List[Dict[str, Any]]] = None
+
+
+class FrontendLogEntry(BaseModel):
+    """前端日志条目"""
+    level: str
+    message: str
+    timestamp: Optional[str] = None
+    source: Optional[str] = None
+    extra: Optional[Dict[str, Any]] = None

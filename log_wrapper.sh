@@ -14,6 +14,6 @@ DATE=$(date +%Y%m%d)
 LOG_FILE="$LOG_DIR/${SERVICE_NAME}_${DATE}.log"
 
 # 清理 7 天前的旧日志
-find "$LOG_DIR" -name "*.log" -mtime +7 -delete 2>/dev/null
+find "$LOG_DIR" -name "*.log" -mtime +30 -delete 2>/dev/null
 
 exec "$@" >> "$LOG_FILE" 2>&1

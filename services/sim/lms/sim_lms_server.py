@@ -1,8 +1,9 @@
 import time
+import logging
+import logging.handlers
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.responses import Response
-# 在现有的导入语句中，确保包含 Body
-from fastapi import FastAPI, Request, HTTPException, status, Body  # 添加 Body
+from fastapi import FastAPI, Request, HTTPException, status, Body
 from fastapi.responses import Response
 import json
 import zlib
@@ -12,17 +13,38 @@ import sys
 import pandas as pd
 from pathlib import Path
 import math
-import time  # 添加 time 导入
-import uuid  # 添加 uuid 导入
+import uuid
 import random
 from datetime import datetime
-from typing import List, Dict, Any, Optional  # 添加 Optional
+from typing import List, Dict, Any, Optional
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-import custom_utils
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from services.sim.lms import custom_utils
+
+# ===== Logger 配置 =====
+_log_dir = Path(__file__).resolve().parent.parent.parent / "logs"
+_log_dir.mkdir(parents=True, exist_ok=True)
+_lms_logger = logging.getLogger("lms")
+_lms_logger.setLevel(logging.INFO)
+_lms_logger.propagate = False
+_today_str = datetime.now().strftime("%Y%m%d")
+_file_handler = logging.handlers.TimedRotatingFileHandler(
+    str(_log_dir / f"lms_{_today_str}.log"),
+    encoding="utf-8",
+    when="midnight",
+    interval=1,
+    backupCount=30,
+)
+_file_handler.setFormatter(logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+))
+_lms_logger.addHandler(_file_handler)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+_lms_logger.addHandler(console_handler)
 from services.api.shared.config import CORS_ORIGINS
 
 # LMS模拟服务配置
@@ -72,7 +94,7 @@ def load_users_from_excel():
     users_data = []
 
     if not USERS_FILE_PATH.exists():
-        print(f"警告：用户Excel文件 '{USERS_FILE_PATH}' 不存在，使用默认管理员账号")
+        _lms_logger.warning(f"用户Excel文件不存在，使用默认管理员账号: {USERS_FILE_PATH}")
         # 返回默认的管理员账号
         return [
             {
@@ -100,7 +122,7 @@ def load_users_from_excel():
 
         # 检查列数是否足够
         if df.shape[1] < 15:
-            print(f"警告：用户Excel文件列数不足15列，实际有{df.shape[1]}列")
+            _lms_logger.warning(f"用户Excel文件列数不足15列，实际有{df.shape[1]}列")
             # 返回默认管理员账号
             return [{
                 "userCode": "admin",
@@ -153,11 +175,11 @@ def load_users_from_excel():
             if user_info["userCode"]:
                 users_data.append(user_info)
 
-        print(f"成功从Excel加载 {len(users_data)} 条用户信息")
+        _lms_logger.info(f"成功从Excel加载 {len(users_data)} 条用户信息")
         return users_data
 
     except Exception as e:
-        print(f"读取用户Excel文件出错: {e}")
+        _lms_logger.error(f"读取用户Excel文件出错: {e}")
         # 返回默认管理员账号
         return [{
             "userCode": "admin",
@@ -214,14 +236,12 @@ def get_current_user(auth_token: str):
     return None
 
 
-def save_users_to_excel():
+def save_users_to_excel(operator: str = "system"):
     """将用户数据保存到Excel文件"""
     try:
         if not USERS_FILE_PATH.exists():
-            # 如果文件不存在，创建目录
             USERS_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        # 创建DataFrame
         users_list = []
         for user in users_data:
             users_list.append([
@@ -248,12 +268,11 @@ def save_users_to_excel():
             "shortName", "companyLevel", "nationalCode", "authToken", "userLevel"
         ])
 
-        # 保存到Excel
         df.to_excel(USERS_FILE_PATH, index=False)
-        print(f"用户数据已保存到Excel文件: {USERS_FILE_PATH}")
+        _lms_logger.info(f"[WRITE] 用户Excel写入成功 | 操作员: {operator} | 文件: {USERS_FILE_PATH} | 记录数: {len(users_list)}")
         return True
     except Exception as e:
-        print(f"保存用户数据到Excel失败: {e}")
+        _lms_logger.error(f"[WRITE] 用户Excel写入失败 | 操作员: {operator} | 错误: {e}")
         return False
 
 
@@ -276,7 +295,7 @@ def load_bins_from_excel():
     bins_data = []
 
     if not EXCEL_FILE_PATH.exists():
-        print(f"警告：Excel文件 '{EXCEL_FILE_PATH}' 不存在，使用默认数据")
+        _lms_logger.warning(f"Excel文件不存在，使用默认数据: {EXCEL_FILE_PATH}")
         # 返回默认的示例数据
         return [
             {
@@ -300,7 +319,7 @@ def load_bins_from_excel():
 
         # 检查列数是否足够
         if df.shape[1] < 10:
-            print(f"警告：Excel文件列数不足10列，实际有{df.shape[1]}列")
+            _lms_logger.warning(f"Excel文件列数不足10列，实际有{df.shape[1]}列")
             return []
 
         # 将每行数据转换为字典
@@ -342,11 +361,11 @@ def load_bins_from_excel():
             if bin_info["binCode"]:
                 bins_data.append(bin_info)
 
-        print(f"成功从Excel加载 {len(bins_data)} 条储位信息")
+        _lms_logger.info(f"成功从Excel加载 {len(bins_data)} 条储位信息")
         return bins_data
 
     except Exception as e:
-        print(f"读取Excel文件出错: {e}")
+        _lms_logger.error(f"读取Excel文件出错: {e}")
         return []
 
 
@@ -611,9 +630,11 @@ async def register_user(request: Request, user_data: UserRegistration = Body(...
     users_data.append(new_user)
 
     # 保存到Excel文件
-    save_success = save_users_to_excel()
+    operator = f"{current_user.get('userCode', '?')}({current_user.get('userName', '?')})"
+    save_success = save_users_to_excel(operator=operator)
 
     if save_success:
+        _lms_logger.info(f"[REGISTER] 新用户注册 | 操作员: {operator} | 新用户: {new_user['userCode']}({new_user['userName']})")
         return {
             "code": 200,
             "message": "用户注册成功",
@@ -625,7 +646,6 @@ async def register_user(request: Request, user_data: UserRegistration = Body(...
             }
         }
     else:
-        # 回滚：从内存中移除新用户
         users_data.remove(new_user)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -679,16 +699,17 @@ async def delete_user(request: Request, delete_data: UserDelete = Body(...)):
     users_data.remove(user_to_delete)
 
     # 保存到Excel文件
-    save_success = save_users_to_excel()
+    operator = f"{current_user.get('userCode', '?')}({current_user.get('userName', '?')})"
+    save_success = save_users_to_excel(operator=operator)
 
     if save_success:
+        _lms_logger.info(f"[DELETE] 删除用户 | 操作员: {operator} | 被删用户: {user_code_to_delete}")
         return {
             "code": 200,
             "message": f"用户 '{user_code_to_delete}' 删除成功",
             "data": None
         }
     else:
-        # 回滚：将用户添加回列表
         users_data.append(user_to_delete)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -715,6 +736,8 @@ if __name__ == "__main__":
     print("  GET  /third/api/v1/userManagement/getUsers - 获取所有用户信息")
     print("  POST /third/api/v1/userManagement/registerUser - 注册新用户")
     print("  POST /third/api/v1/userManagement/deleteUser - 删除用户")
+
+    _lms_logger.info(f"LMS服务启动 | 储位: {len(bins_data)} 条 | 用户: {len(users_data)} 条")
 
     # 使用uvicorn运行
     import uvicorn

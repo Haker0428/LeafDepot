@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { GATEWAY_URL } from "../config/ip_address";
 import { useNavigate } from "react-router-dom";
 import { addOperationLog } from "../lib/operationLog";
+import { logger } from "../utils/logger";
 
 // 用户类型定义
 interface User {
@@ -259,7 +260,7 @@ export default function UserManage() {
 
       if (response.ok && result.code === 200) {
         toast.success(`用户 ${newUserForm.userName} 注册成功！`);
-        
+
         // 记录操作日志 - 添加用户
         await addOperationLog({
           operation_type: "user_management",
@@ -276,7 +277,13 @@ export default function UserManage() {
             new_user_dept: newUserForm.deptName
           }
         });
-        
+
+        logger.info("[USER] 注册新用户", {
+          userCode: newUserForm.userCode,
+          userName: newUserForm.userName,
+          userLevel: newUserForm.userLevel,
+        }, "auth");
+
         handleCloseRegisterModal();
         // 刷新用户列表
         loadUsers();
@@ -285,6 +292,7 @@ export default function UserManage() {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "注册失败";
+      logger.error(`[USER] 注册用户失败: ${errorMessage}`, { userCode: newUserForm.userCode }, "auth");
       toast.error(errorMessage);
       console.error("注册用户失败:", error);
       
@@ -355,6 +363,7 @@ export default function UserManage() {
       // 根据结果判断状态
       if (successCount === 0) {
         toast.error(`删除失败：${failCount} 个用户删除失败`);
+        logger.error("[USER] 删除用户全部失败", { userCodes: selectedUsers, failCount }, "auth");
         await addOperationLog({
           operation_type: "user_management",
           user_id: authToken || undefined,
@@ -370,6 +379,7 @@ export default function UserManage() {
         });
       } else if (failCount > 0) {
         toast.warning(`部分删除成功：成功 ${successCount} 个，失败 ${failCount} 个`);
+        logger.warn("[USER] 部分删除用户成功", { userCodes: selectedUsers, successCount, failCount }, "auth");
         await addOperationLog({
           operation_type: "user_management",
           user_id: authToken || undefined,
@@ -385,6 +395,7 @@ export default function UserManage() {
         });
       } else {
         toast.success(`成功删除 ${successCount} 个用户`);
+        logger.info("[USER] 删除用户成功", { userCodes: selectedUsers, userNames: userNamesToDelete }, "auth");
         await addOperationLog({
           operation_type: "user_management",
           user_id: authToken || undefined,
@@ -405,6 +416,7 @@ export default function UserManage() {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "删除用户失败";
+      logger.error("[USER] 删除用户异常", { error: errorMessage }, "auth");
       toast.error(errorMessage);
       console.error("删除用户失败:", error);
       

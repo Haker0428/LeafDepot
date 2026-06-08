@@ -14,10 +14,7 @@ import { BrowserRouter } from "react-router-dom";
 import { Toaster } from 'sonner';
 import App from "./App.tsx";
 import "./index.css";
-import React from 'react';
-import ReactDOM from 'react-dom/client';
 import { AuthProvider } from './contexts/authContext'; // 导入 AuthProvider
-import { interceptConsole } from './lib/logger'; // 导入日志拦截器
 import 'antd/dist/reset.css';
 
 // 初始化日志拦截器（可选，如果不想拦截全局 console，可以注释掉）

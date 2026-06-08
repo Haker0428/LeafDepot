@@ -1496,6 +1496,13 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
         _inventory_tasks[task_no].end_time = datetime.now().isoformat()
         _inventory_tasks[task_no].error_message = error_msg
         _inventory_tasks[task_no].error_type = error_type
+        # 清理持久化状态
+        mark_finished(task_no, "failed")
+        # 自动清理内存状态，避免阻塞后续任务
+        _active_bin_tracker.pop(task_no, None)
+        _inventory_tasks.pop(task_no, None)
+        _inventory_task_details.pop(task_no, None)
+        _inventory_task_bins.pop(task_no, None)
         return {
             "success": False,
             "message": error_msg,
@@ -2009,8 +2016,11 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             _inventory_tasks[task_no].end_time = datetime.now().isoformat()
         mark_finished(task_no, "failed")
 
-        # 广播任务失败通知
+        # 先取出需要的信息（清理后就取不到了）
         user_info = _inventory_task_details.get(task_no, {}).get("userInfo", {})
+        failed_step = _inventory_tasks[task_no].current_step if task_no in _inventory_tasks else 0
+
+        # 广播任务失败通知
         await ws_manager.broadcast_task_event(
             "task_failed",
             task_no,
@@ -2022,9 +2032,6 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             }
         )
 
-        # 从任务详情中获取用户信息
-        user_info = _inventory_task_details.get(task_no, {}).get("userInfo", {})
-
         log_operation(
             operation_type="inventory",
             action="盘点任务失败",
@@ -2035,8 +2042,14 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             details={
                 "task_no": task_no,
                 "error": str(e),
-                "failed_at_step": _inventory_tasks[task_no].current_step if task_no in _inventory_tasks else 0
+                "failed_at_step": failed_step
             }
         )
 
         logger.error(f"盘点任务失败: {task_no}, 错误: {str(e)}")
+
+        # 自动清理内存状态，避免阻塞后续任务
+        _active_bin_tracker.pop(task_no, None)
+        _inventory_tasks.pop(task_no, None)
+        _inventory_task_details.pop(task_no, None)
+        _inventory_task_bins.pop(task_no, None)

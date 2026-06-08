@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { GATEWAY_URL } from '../config/ip_address';
+import { logger } from '../utils/logger';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserLevel(null); // 清除用户权限
     setUserName(null); // 清除用户名
     setUserId(null); // 清除用户ID
+    logger.info("[AUTH] 用户登出", {}, "auth");
     toast.success('已退出登录');
   }, [setAuthToken, setUserLevel, setUserName, setUserId]);
 
@@ -148,8 +150,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // 验证token - 直接调用，不依赖 useCallback 的依赖项
           const verificationSuccess = await verifyToken(authToken);
           if (verificationSuccess) {
+            logger.info("[AUTH] 登录成功", { userName, userLevel, userId }, "auth");
             toast.success('登录成功');
-            // 打印 authToken 和用户权限
             console.log('登录成功，authToken:', authToken);
             console.log('用户权限:', userLevel);
             console.log('用户名:', userName);
@@ -166,6 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       console.error('Login error:', error);
+      logger.error("[AUTH] 登录失败", { error: String(error), username }, "auth");
       toast.error(error instanceof Error ? error.message : '登录失败');
       throw error;
     }

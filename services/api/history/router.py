@@ -18,6 +18,172 @@ router = APIRouter(prefix="/api/history", tags=["history"])
 
 # 历史数据输出根目录
 OUTPUT_ROOT = project_root / "output"
+# 任务索引缓存文件
+_TASK_INDEX_FILE = OUTPUT_ROOT / "task_index.json"
+# 内存中的任务索引缓存（首次请求时加载，之后复用）
+_TASK_INDEX_CACHE: Dict[str, Dict] = {}
+_INDEX_LOADED = False
+
+
+def _load_task_index() -> Dict[str, Dict]:
+    """从磁盘加载任务索引缓存"""
+    if _TASK_INDEX_FILE.exists():
+        try:
+            with open(_TASK_INDEX_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _save_task_index(index: Dict[str, Dict]):
+    """保存任务索引缓存到磁盘"""
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    with open(_TASK_INDEX_FILE, "w", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, indent=2)
+
+
+def _ensure_task_index():
+    """确保索引已加载，构建或从磁盘读取"""
+    global _INDEX_LOADED, _TASK_INDEX_CACHE
+    if _INDEX_LOADED:
+        return
+    _TASK_INDEX_CACHE = _load_task_index()
+    _INDEX_LOADED = True
+
+
+def invalidate_task_index():
+    """使索引缓存失效，下次请求时重建（任务新增/修改时调用）"""
+    global _INDEX_LOADED, _TASK_INDEX_CACHE
+    _INDEX_LOADED = False
+    _TASK_INDEX_CACHE = {}
+
+
+def _rebuild_task_index(history_dir: Path) -> Dict[str, Dict]:
+    """扫描所有 Excel 文件，重建索引缓存"""
+    import openpyxl
+    index = {}
+    for xlsx_file in history_dir.glob("*.xlsx"):
+        try:
+            task_id = xlsx_file.stem
+            dispatch_time = None
+            task_operator = ""
+            task_has_modified = False
+            task_is_valid = True
+
+            wb = openpyxl.load_workbook(str(xlsx_file), data_only=True)
+            ws = wb.active
+            headers = [str(cell.value) for cell in ws[1] if cell.value]
+
+            # 解析下发时间
+            if "下发时间" in headers:
+                col = headers.index("下发时间") + 1
+                val = ws.cell(row=2, column=col).value
+                if val:
+                    dispatch_time = val.isoformat() if isinstance(val, datetime) else None
+            if dispatch_time is None:
+                dt = parse_task_date_from_filename(task_id)
+                if dt:
+                    dispatch_time = dt.isoformat()
+
+            # 解析操作员
+            if "操作员" in headers and ws.max_row >= 2:
+                val = ws.cell(row=2, column=headers.index("操作员") + 1).value
+                if val:
+                    task_operator = str(val)
+
+            # 解析修改记录
+            if "修改记录" in headers and ws.max_row >= 2:
+                col = headers.index("修改记录") + 1
+                for row in range(2, ws.max_row + 1):
+                    val = str(ws.cell(row=row, column=col).value or "")
+                    if val and val != "None":
+                        task_has_modified = True
+                        break
+
+            # 解析有效状态
+            if "有效状态" in headers and ws.max_row >= 2:
+                val = str(ws.cell(row=2, column=headers.index("有效状态") + 1).value or "").strip()
+                task_is_valid = (val == "有效")
+
+            wb.close()
+            index[task_id] = {
+                "taskId": task_id,
+                "taskDate": dispatch_time,
+                "fileName": xlsx_file.name,
+                "filePath": str(xlsx_file.relative_to(OUTPUT_ROOT)),
+                "operator": task_operator,
+                "hasModified": task_has_modified,
+                "isValid": task_is_valid,
+            }
+        except Exception as ex:
+            logger.warning(f"索引重建失败 {xlsx_file.name}: {ex}")
+            continue
+    return index
+
+
+def _get_task_meta(task_id: str) -> Optional[Dict]:
+    """获取单个任务的索引元数据（自动懒加载索引）"""
+    _ensure_task_index()
+    if task_id in _TASK_INDEX_CACHE:
+        return _TASK_INDEX_CACHE[task_id]
+
+    # 不在缓存中，扫描目录增量补充
+    history_dir = OUTPUT_ROOT / "history_data"
+    if not history_dir.exists():
+        return None
+    xlsx_file = history_dir / f"{task_id}.xlsx"
+    if not xlsx_file.exists():
+        return None
+
+    # 增量读取该文件
+    import openpyxl
+    dispatch_time = None
+    task_operator = ""
+    task_has_modified = False
+    task_is_valid = True
+    try:
+        wb = openpyxl.load_workbook(str(xlsx_file), data_only=True)
+        ws = wb.active
+        headers = [str(cell.value) for cell in ws[1] if cell.value]
+        if "下发时间" in headers:
+            col = headers.index("下发时间") + 1
+            val = ws.cell(row=2, column=col).value
+            if val:
+                dispatch_time = val.isoformat() if isinstance(val, datetime) else None
+        if dispatch_time is None:
+            dt = parse_task_date_from_filename(task_id)
+            if dt:
+                dispatch_time = dt.isoformat()
+        if "操作员" in headers and ws.max_row >= 2:
+            val = ws.cell(row=2, column=headers.index("操作员") + 1).value
+            if val:
+                task_operator = str(val)
+        if "修改记录" in headers and ws.max_row >= 2:
+            col = headers.index("修改记录") + 1
+            for row in range(2, ws.max_row + 1):
+                val = str(ws.cell(row=row, column=col).value or "")
+                if val and val != "None":
+                    task_has_modified = True
+                    break
+        if "有效状态" in headers and ws.max_row >= 2:
+            val = str(ws.cell(row=2, column=headers.index("有效状态") + 1).value or "").strip()
+            task_is_valid = (val == "有效")
+        wb.close()
+    except Exception:
+        pass
+
+    meta = {
+        "taskId": task_id,
+        "taskDate": dispatch_time,
+        "fileName": xlsx_file.name,
+        "filePath": str(xlsx_file.relative_to(OUTPUT_ROOT)),
+        "operator": task_operator,
+        "hasModified": task_has_modified,
+        "isValid": task_is_valid,
+    }
+    _TASK_INDEX_CACHE[task_id] = meta
+    return meta
 
 
 def parse_task_date_from_filename(task_id: str) -> Optional[datetime]:
@@ -52,24 +218,39 @@ def is_task_expired(task_date: datetime) -> bool:
 async def get_available_dates():
     """获取所有有盘点数据的日期列表"""
     try:
-        history_tasks_dir = OUTPUT_ROOT / "history_data"
-        history_tasks_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_task_index()
+        history_dir = OUTPUT_ROOT / "history_data"
+        history_dir.mkdir(parents=True, exist_ok=True)
 
-        xlsx_files = list(history_tasks_dir.glob("*.xlsx"))
+        # 先从缓存获取已有日期
         dates: Set[str] = set()
+        for meta in _TASK_INDEX_CACHE.values():
+            td = meta.get("taskDate")
+            if td:
+                try:
+                    dates.add(datetime.fromisoformat(td).strftime("%Y-%m-%d"))
+                except Exception:
+                    pass
 
-        for xlsx_file in xlsx_files:
-            try:
+        # 缓存不够？扫描目录增量补充
+        xlsx_files = list(history_dir.glob("*.xlsx"))
+        if len(xlsx_files) > len(_TASK_INDEX_CACHE):
+            for xlsx_file in xlsx_files:
                 task_id = xlsx_file.stem
-                task_date = parse_task_date_from_filename(task_id)
-                if task_date:
-                    dates.add(task_date.strftime("%Y-%m-%d"))
-            except Exception:
-                continue
+                if task_id not in _TASK_INDEX_CACHE:
+                    _get_task_meta(task_id)
 
-        # 按日期降序排列
+        # 再次从缓存收集
+        dates = set()
+        for meta in _TASK_INDEX_CACHE.values():
+            td = meta.get("taskDate")
+            if td:
+                try:
+                    dates.add(datetime.fromisoformat(td).strftime("%Y-%m-%d"))
+                except Exception:
+                    pass
+
         sorted_dates = sorted(dates, reverse=True)
-
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"code": 200, "message": "获取可用日期成功", "data": {"dates": sorted_dates}}
@@ -85,89 +266,45 @@ async def get_history_tasks(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ):
-    """获取历史任务列表"""
+    """获取历史任务列表（使用索引缓存加速）"""
     try:
-        history_tasks_dir = OUTPUT_ROOT / "history_data"
-        history_tasks_dir.mkdir(parents=True, exist_ok=True)
+        history_dir = OUTPUT_ROOT / "history_data"
+        history_dir.mkdir(parents=True, exist_ok=True)
 
-        xlsx_files = list(history_tasks_dir.glob("*.xlsx"))
+        # 首次请求：构建索引缓存
+        if not _INDEX_LOADED:
+            _ensure_task_index()
+            # 如果缓存为空则重建
+            if not _TASK_INDEX_CACHE:
+                _TASK_INDEX_CACHE.update(_rebuild_task_index(history_dir))
+                _save_task_index(_TASK_INDEX_CACHE)
+
+        # 增量补充：目录中有但缓存中没有的文件
+        for xlsx_file in history_dir.glob("*.xlsx"):
+            if xlsx_file.stem not in _TASK_INDEX_CACHE:
+                _get_task_meta(xlsx_file.stem)
+
         tasks = []
-
-        for xlsx_file in xlsx_files:
-            try:
-                task_id = xlsx_file.stem
-                dispatch_time = None
-
-                # 尝试从 Excel 文件读取下发时间（优先使用实际保存时间）
+        for meta in _TASK_INDEX_CACHE.values():
+            td = meta.get("taskDate")
+            dispatch_time = None
+            if td:
                 try:
-                    import openpyxl
-                    wb = openpyxl.load_workbook(str(xlsx_file), data_only=True)
-                    ws = wb.active
-                    headers = [str(cell.value) for cell in ws[1] if cell.value]
-                    if "下发时间" in headers:
-                        dispatch_col_idx = headers.index("下发时间") + 1
-                        dispatch_val = ws.cell(row=2, column=dispatch_col_idx).value
-                        if dispatch_val:
-                            # 支持 datetime 对象或字符串
-                            if isinstance(dispatch_val, datetime):
-                                dispatch_time = dispatch_val
-                            else:
-                                dispatch_time = datetime.strptime(str(dispatch_val), "%Y-%m-%d %H:%M:%S")
-                    wb.close()
-                except Exception as ex:
-                    logger.warning(f"读取Excel下发时间失败 {xlsx_file.name}: {ex}")
+                    dispatch_time = datetime.fromisoformat(td)
+                except Exception:
+                    pass
+            is_expired = is_task_expired(dispatch_time) if dispatch_time else False
 
-                # 如果 Excel 中没有下发时间，则从任务编号解析
-                if dispatch_time is None:
-                    dispatch_time = parse_task_date_from_filename(task_id)
-
-                is_expired = is_task_expired(dispatch_time) if dispatch_time else False
-
-                # 从 Excel 读取操作员、修改记录和有效状态（用于任务列表显示）
-                task_operator = ""
-                task_has_modified = False
-                task_is_valid = True  # 默认为有效（兼容没有有效状态列的旧文件）
-                try:
-                    import openpyxl
-                    wb2 = openpyxl.load_workbook(str(xlsx_file), data_only=True)
-                    ws2 = wb2.active
-                    headers2 = [str(cell.value) for cell in ws2[1] if cell.value]
-                    # 操作员在第一行数据中
-                    if "操作员" in headers2 and ws2.max_row >= 2:
-                        op_val = ws2.cell(row=2, column=headers2.index("操作员") + 1).value
-                        if op_val:
-                            task_operator = str(op_val)
-                    # 修改记录：检查所有数据行，任一有非空值则标记为已修改
-                    if "修改记录" in headers2 and ws2.max_row >= 2:
-                        mod_col_idx = headers2.index("修改记录") + 1
-                        for row_idx in range(2, ws2.max_row + 1):
-                            mod_val = ws2.cell(row=row_idx, column=mod_col_idx).value
-                            mod_str = str(mod_val or "")
-                            if mod_str and mod_str != "None":
-                                task_has_modified = True
-                                break
-                    # 有效状态：读取第一行数据的有效状态列（有效/无效）
-                    if "有效状态" in headers2 and ws2.max_row >= 2:
-                        valid_val = ws2.cell(row=2, column=headers2.index("有效状态") + 1).value
-                        valid_str = str(valid_val or "").strip()
-                        task_is_valid = (valid_str == "有效")
-                    wb2.close()
-                except Exception as ex:
-                    logger.warning(f"读取Excel元信息失败 {xlsx_file.name}: {ex}")
-
-                tasks.append({
-                    "taskId": task_id,
-                    "taskDate": dispatch_time.isoformat() if dispatch_time else None,
-                    "fileName": xlsx_file.name,
-                    "isExpired": is_expired,
-                    "filePath": str(xlsx_file.relative_to(OUTPUT_ROOT)),
-                    "operator": task_operator,
-                    "hasModified": task_has_modified,
-                    "isValid": task_is_valid,
-                })
-            except Exception as e:
-                logger.error(f"解析历史任务文件失败 {xlsx_file.name}: {str(e)}")
-                continue
+            tasks.append({
+                "taskId": meta["taskId"],
+                "taskDate": td,
+                "fileName": meta.get("fileName", meta["taskId"] + ".xlsx"),
+                "isExpired": is_expired,
+                "filePath": meta.get("filePath", ""),
+                "operator": meta.get("operator", ""),
+                "hasModified": meta.get("hasModified", False),
+                "isValid": meta.get("isValid", True),
+            })
 
         # 按下发时间范围过滤
         if start_date:
@@ -175,13 +312,11 @@ async def get_history_tasks(
                 start_dt = datetime.strptime(start_date, "%Y-%m-%d")
                 tasks = [t for t in tasks if t.get("taskDate") and datetime.fromisoformat(t["taskDate"]) >= start_dt]
             except ValueError:
-                pass  # 日期格式错误时忽略过滤
+                pass
 
         if end_date:
             try:
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-                # 包含结束日期当天
-                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
                 tasks = [t for t in tasks if t.get("taskDate") and datetime.fromisoformat(t["taskDate"]) <= end_dt]
             except ValueError:
                 pass
@@ -298,6 +433,7 @@ async def delete_history_task(task_id: str, request: Request):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"任务 {task_id} 的历史文件不存在")
 
         xlsx_file.unlink()
+        invalidate_task_index()  # 刷新缓存
         logger.info(f"已删除历史任务文件: {xlsx_file.name}")
 
         client_host = request.client.host if request.client else "unknown"
@@ -427,6 +563,9 @@ async def cleanup_history(request: Request):
                 xlsx_file.unlink()
                 deleted_count += 1
                 logger.info(f"已清理过期文件: {xlsx_file.name}")
+
+        if deleted_count > 0:
+            invalidate_task_index()  # 刷新缓存
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,

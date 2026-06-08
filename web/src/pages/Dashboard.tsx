@@ -15,7 +15,7 @@ const Dashboard = () => {
   const [operationLogs, setOperationLogs] = useState<OperationLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [showAllLogs, setShowAllLogs] = useState(false); // 控制是否显示全部操作记录
-  const { authToken, logout, userLevel, userName, userId } = useAuth();
+  const { logout, userLevel, userName } = useAuth();
 
   // 设置当前日期
   useEffect(() => {

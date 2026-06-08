@@ -16,48 +16,64 @@ router = APIRouter(prefix="/api", tags=["log"])
 
 @router.post("/log/frontend")
 async def collect_frontend_log(request: FrontendLogRequest = Body(...)):
-    """收集前端日志并保存到 debug 目录"""
+    """收集前端日志并保存到 web_YYYYMMDD.log"""
     try:
-        frontend_log_filename = logs_dir / f"frontend_{datetime.now().strftime('%Y%m%d')}.log"
+        web_log_filename = logs_dir / f"web_{datetime.now().strftime('%Y%m%d')}.log"
 
-        frontend_logger = logging.getLogger("frontend")
-        frontend_logger.setLevel(logging.DEBUG)
+        web_logger = logging.getLogger("web")
+        web_logger.setLevel(logging.DEBUG)
 
-        if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(frontend_log_filename)
-                   for h in frontend_logger.handlers):
-            file_handler = logging.FileHandler(str(frontend_log_filename), encoding='utf-8')
+        if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(web_log_filename)
+                   for h in web_logger.handlers):
+            file_handler = logging.FileHandler(str(web_log_filename), encoding='utf-8')
             file_handler.setLevel(logging.DEBUG)
             formatter = logging.Formatter(
-                '%(asctime)s - [FRONTEND] - %(levelname)s - %(message)s',
+                '%(asctime)s - [WEB] - %(levelname)s - %(message)s',
                 datefmt='%Y-%m-%d %H:%M:%S'
             )
             file_handler.setFormatter(formatter)
-            frontend_logger.addHandler(file_handler)
+            web_logger.addHandler(file_handler)
 
-        timestamp = request.timestamp or datetime.now().isoformat()
-        source = request.source or "unknown"
-        extra_info = request.extra or {}
+        def _write_entry(entry: dict):
+            ts = entry.get("timestamp") or datetime.now().isoformat()
+            src = entry.get("source") or "unknown"
+            extra_info = entry.get("extra") or {}
+            lvl = (entry.get("level") or "info").lower()
+            msg = entry.get("message") or ""
 
-        log_message = f"[{source}] {request.message}"
-        if extra_info:
-            log_message += f" | Extra: {json.dumps(extra_info, ensure_ascii=False)}"
+            log_message = f"[{ts}] [{src}] {msg}"
+            if extra_info:
+                log_message += f" | {json.dumps(extra_info, ensure_ascii=False)}"
 
-        log_level = request.level.lower()
-        if log_level == "error":
-            frontend_logger.error(log_message)
-        elif log_level == "warn":
-            frontend_logger.warning(log_message)
-        elif log_level == "info":
-            frontend_logger.info(log_message)
-        else:
-            frontend_logger.debug(log_message)
+            if lvl == "error":
+                web_logger.error(log_message)
+            elif lvl == "warn":
+                web_logger.warning(log_message)
+            elif lvl == "info":
+                web_logger.info(log_message)
+            else:
+                web_logger.debug(log_message)
+
+        # 批量模式
+        if request.entries:
+            for entry in request.entries:
+                _write_entry(entry)
+        # 单条模式（兼容旧版前端）
+        elif request.message:
+            _write_entry({
+                "level": request.level,
+                "message": request.message,
+                "timestamp": request.timestamp,
+                "source": request.source,
+                "extra": request.extra,
+            })
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "code": 200,
                 "message": "日志已保存",
-                "data": {"log_file": str(frontend_log_filename)}
+                "data": {"log_file": str(web_log_filename)}
             }
         )
 

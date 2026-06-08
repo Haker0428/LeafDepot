@@ -10,6 +10,7 @@
  */
 import React, { useEffect, useState, useRef } from "react";
 import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { logger } from "./utils/logger";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import InventoryStart from "./pages/InventoryStart";
@@ -158,7 +159,7 @@ function TaskNotifyDialog({ notify, onClose }: { notify: TaskNotification; onClo
 // ==================== 受保护路由组件 ====================
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, isVerifying, userId } = useAuth();
+  const { isAuthenticated, isVerifying } = useAuth();
   if (isVerifying) return null;
   if (!isAuthenticated) return <Navigate to="/" replace />;
   return <>{children}</>;
@@ -245,15 +246,23 @@ export default function App() {
 
     const connect = () => {
       ws = new WebSocket(wsUrl);
-      ws.onopen = () => console.log("[WS] 全局连接已建立，等待任务通知...");
+      ws.onopen = () => {
+        logger.info("[WS] 连接已建立", {}, "websocket");
+      };
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+          logger.debug("[WS] 收到消息", { event: msg.event, taskNo: msg.taskNo }, "websocket");
           window.dispatchEvent(new CustomEvent("remote-task-event", { detail: msg }));
         } catch { /* ignore */ }
       };
-      ws.onerror = () => console.warn("[WS] 连接错误");
-      ws.onclose = () => { reconnectTimer = setTimeout(connect, 3000); };
+      ws.onerror = () => {
+        logger.warn("[WS] 连接错误", {}, "websocket");
+      };
+      ws.onclose = () => {
+        logger.info("[WS] 连接关闭，3秒后重连", {}, "websocket");
+        reconnectTimer = setTimeout(connect, 3000);
+      };
     };
 
     connect();
@@ -269,6 +278,7 @@ export default function App() {
     const handler = (e: Event) => {
       const msg = (e as CustomEvent).detail;
       const { event: eventType, taskNo, data } = msg;
+      logger.info("[WS] 任务事件", { event: eventType, taskNo, operator: data?.operatorName }, "websocket");
       if (eventType === "task_running") return; // task_running 由 resume 弹窗处理
       if (data?.userId && data.userId === userId) return; // 忽略自己的广播
       setPendingNotify({

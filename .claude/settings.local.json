@@ -3,7 +3,9 @@
     "allow": [
       "Read(//Users/hepeng/Project/leafDepotBak/Leafdepot unzip -o /Users/hepeng/Project/leafDepotBak/**)",
       "Bash(git checkout:*)",
-      "Bash(git ls-tree:*)"
+      "Bash(git ls-tree:*)",
+      "Bash(git push:*)",
+      "Bash(npm run:*)"
     ],
     "additionalDirectories": [
       "/Users/hepeng/Project/leafDepotBak/Leafdepot/.git"

@@ -12,8 +12,8 @@ class DepthCalculator:
     """深度计算器：从立体图像计算深度图"""
     
     def __init__(self, 
-                 focal_length_px: float = 11000.0,
-                 baseline_mm: float = 60.0,
+                 focal_length_px: float = 6400.0,
+                 baseline_mm: float = 120.0,
                  enable_debug: bool = True):
         """
         初始化深度计算器

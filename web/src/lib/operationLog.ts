@@ -99,7 +99,7 @@ export async function getRecentOperationLogs(limit: number = 5): Promise<Operati
  * 清理过期操作记录（超过指定天数）
  * 注意：此功能需要后端支持，目前暂不实现
  */
-export async function cleanupOldOperationLogs(daysToKeep: number = 90): Promise<number> {
+export async function cleanupOldOperationLogs(_daysToKeep: number = 90): Promise<number> {
   console.warn('cleanupOldOperationLogs 暂未实现');
   return 0;
 }
@@ -127,7 +127,7 @@ export async function clearAllOperationLogs(): Promise<void> {
  * 删除指定ID的操作记录
  * 注意：此功能需要后端支持，目前暂不实现
  */
-export async function deleteOperationLog(id: string): Promise<boolean> {
+export async function deleteOperationLog(_id: string): Promise<boolean> {
   console.warn('deleteOperationLog 暂未实现');
   return false;
 }
