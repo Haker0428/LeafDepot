@@ -1190,30 +1190,24 @@ export default function InventoryProgress() {
               // 任务失败
               if (taskStatus === "failed") {
                 clearInterval(pollIntervalId);
+                const errorMsg = progressResult.data?.message || "盘点任务下发失败";
                 const errorType: "rcs" | "camera" | "other" =
                   (progressResult.data?.error_type as "rcs" | "camera" | "other") || "other";
-                if (errorType === "rcs") {
-                  setTaskErrorModal({
-                    open: true,
-                    errorType: "rcs",
-                    message: progressResult.data?.message || "RCS 连接失败",
-                    onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
-                  });
-                } else if (errorType === "camera") {
-                  setTaskErrorModal({
-                    open: true,
-                    errorType: "camera",
-                    message: progressResult.data?.message || "相机连接失败",
-                    onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
-                  });
-                } else {
-                  setTaskErrorModal({
-                    open: true,
-                    errorType: "other",
-                    message: progressResult.data?.message || "盘点任务下发失败",
-                    onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
-                  });
-                }
+                // 清理任务状态，允许重新下发
+                localStorage.removeItem("currentTaskManifest");
+                localStorage.removeItem("currentTaskNo");
+                window.dispatchEvent(new Event("clear-task-notify"));
+                window.dispatchEvent(new Event("resume-polling"));
+                // 显示错误弹窗，点击确定后返回任务下发页面
+                setTaskErrorModal({
+                  open: true,
+                  errorType,
+                  message: errorMsg,
+                  onOk: () => {
+                    setTaskErrorModal((prev) => ({ ...prev, open: false }));
+                    navigate("/inventory/start");
+                  },
+                });
                 setIsStartingTask(false);
                 return;
               }
@@ -1289,11 +1283,21 @@ export default function InventoryProgress() {
 
               if (taskStatus === "failed") {
                 clearInterval(pollIntervalId);
+                const errorMsg2 = progressResult.data?.message || "盘点任务失败";
+                const errorType2 = (progressResult.data?.error_type as "rcs" | "camera" | "other") || "other";
+                // 清理任务状态
+                localStorage.removeItem("currentTaskManifest");
+                localStorage.removeItem("currentTaskNo");
+                window.dispatchEvent(new Event("clear-task-notify"));
+                window.dispatchEvent(new Event("resume-polling"));
                 setTaskErrorModal({
                   open: true,
-                  errorType: (progressResult.data?.error_type as "rcs" | "camera" | "other") || "other",
-                  message: progressResult.data?.message || "盘点任务失败",
-                  onOk: () => setTaskErrorModal((prev) => ({ ...prev, open: false })),
+                  errorType: errorType2,
+                  message: errorMsg2,
+                  onOk: () => {
+                    setTaskErrorModal((prev) => ({ ...prev, open: false }));
+                    navigate("/inventory/start");
+                  },
                 });
                 setIsStartingTask(false);
                 return;
