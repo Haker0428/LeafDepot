@@ -313,6 +313,20 @@ echo "[OK]   rcs + timer"
 sudo systemctl enable --now leafdepot-web leafdepot-web.timer
 echo "[OK]   web + timer"
 
+# ===== 安装 logrotate（日志自动切割清理） =====
+echo ""
+echo "[INFO] 配置 logrotate..."
+LOGROTATE_CONF="$PROJECT_ROOT/logrotate.conf"
+if [ -f "$LOGROTATE_CONF" ]; then
+    # 将日志路径替换为实际路径
+    cat "$LOGROTATE_CONF" | sed "s|/root/LDUI/software/LeafDepot/logs|$LOG_DIR|g" \
+        | sudo tee /etc/logrotate.d/leafdepot > /dev/null
+    sudo chmod 644 /etc/logrotate.d/leafdepot
+    echo "[OK]   logrotate 已配置"
+else
+    echo "[WARN] 未找到 $LOGROTATE_CONF，跳过 logrotate 配置"
+fi
+
 echo ""
 echo "========================================"
 echo "  部署完成！"
