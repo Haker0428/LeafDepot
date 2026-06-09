@@ -1695,6 +1695,9 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     rt_code = ""
                     result = None
                     timeout_occurred = False
+                    # 保存等待 END 时的 bin 信息（超时后会被覆盖，保留用于超时处理）
+                    wait_bin = bin_location
+                    wait_rt = rt_code
                     # 传入当前任务的所有有效 robotTaskCode，过滤掉上一个任务残留的旧回调
                     valid_robot_codes = set(bin_to_task_code.values())
                     try:
@@ -1757,10 +1760,10 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     except asyncio.TimeoutError:
                         logger.error(f"等待 END 超时，跳过库位")
                         _inventory_tasks[task_no].current_step = len(inventory_results)
-                        # 超时时按顺序推算 bin_location（用 bin_to_task_code 的第一个未完成项兜底）
-                        idx = len(inventory_results)
-                        bin_location = submitted_bins[idx] if idx < len(submitted_bins) else ""
-                        rt_code = bin_to_task_code.get(bin_location, "")
+                        # 用等待时的 bin 信息（wait_bin）而非可能被覆盖的 bin_location
+                        timeout_bin = wait_bin if wait_bin else (
+                            submitted_bins[len(inventory_results)] if len(inventory_results) < len(submitted_bins) else "")
+                        timeout_rt = wait_rt if wait_rt else bin_to_task_code.get(timeout_bin, "")
                         result = {
                             "status": "异常", "error": "等待 END 超时",
                             "actualQuantity": None, "actualSpec": "无",
@@ -1769,19 +1772,19 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         }
                         timeout_occurred = True
                         # 标记已完成，防止 RCS 后续重复 END 导致再处理一次
-                        completed_bins.add(bin_location)
-                        completed_robot_codes.add(rt_code)
+                        completed_bins.add(timeout_bin)
+                        completed_robot_codes.add(timeout_rt)
                         # 同步写入 inventory_results，与 sim 模式保持一致
                         inventory_item = None
                         if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
                             for item in _inventory_task_details[task_no]["inventoryItems"]:
-                                if item.get("locationName") == bin_location:
+                                if item.get("locationName") == timeout_bin:
                                     inventory_item = item
                                     break
                         actual_qty = 0
                         system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
                         inventory_results.append({
-                            "binLocation": bin_location,
+                            "binLocation": timeout_bin,
                             "status": "异常",
                             "actualQuantity": None,
                             "actualSpec": "无",
@@ -1811,9 +1814,18 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                                 bs.status = "completed" if result and result.get("status") == "成功" else "failed"
                                 break
 
-                    # END 超时后不再发送 continue：RCS 侧任务已超时不存在，发送 continue 会导致重试
+                    # END 超时后只发一个 continue：按顺序假设下一个要执行的 bin
+                    # 假设 RCS 按顺序执行，超时后下一个是 submitted_bins[len(inventory_results)]
                     if timeout_occurred:
-                        logger.warning(f"END 超时，跳过发送 continue，直接继续下一库位")
+                        idx = len(inventory_results)
+                        next_bin = submitted_bins[idx] if idx < len(submitted_bins) else ""
+                        next_rt = bin_to_task_code.get(next_bin, "")
+                        if next_rt and next_rt not in completed_robot_codes:
+                            try:
+                                await continue_inventory_task(is_sim=False, robot_task_code=next_rt)
+                                logger.warning(f"END 超时，发送 continue 让 RCS 继续下一任务: bin={next_bin}, rt_code={next_rt}")
+                            except Exception as e:
+                                logger.error(f"END 超时发送 continue 失败: bin={next_bin}, error={e}")
                         continue
 
                     # 取消后不再发送 continue，避免 RCS 卡在等待继续指令的状态
