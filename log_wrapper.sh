@@ -13,7 +13,9 @@ mkdir -p "$LOG_DIR"
 DATE=$(date +%Y%m%d)
 LOG_FILE="$LOG_DIR/${SERVICE_NAME}_${DATE}.log"
 
-# 清理 7 天前的旧日志
+# 清理 30 天前的旧日志
 find "$LOG_DIR" -name "*.log" -mtime +30 -delete 2>/dev/null
 
+# 强制 UTF-8 编码，避免中文乱码
+export PYTHONIOENCODING=utf-8
 exec "$@" >> "$LOG_FILE" 2>&1

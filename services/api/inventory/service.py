@@ -1652,6 +1652,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 submitted_bins: List[str] = []
                 # 记录每个 bin_location 对应的 robot_task_code，等待 END 时需要用它发 continue
                 bin_to_task_code: Dict[str, str] = {}
+                completed_bins: set = set()  # 在 asyncio.TimeoutError handler 中引用，必须在循环前初始化
                 for i, bin_location in enumerate(bin_locations):
                     submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=False)
                     robot_task_code = submit_result.get("robotTaskCode", "")
