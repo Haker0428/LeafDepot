@@ -312,7 +312,7 @@ async def get_inventory_progress(taskNo: str):
         progress_data = InventoryTaskProgress(
             task_no=task_status.task_no,
             status=task_status.status,
-            current_step=task_status.current_step,
+            current_step=completed_count,
             total_steps=task_status.total_steps,
             progress_percentage=round(progress_percentage, 2),
             bin_locations=bin_statuses,

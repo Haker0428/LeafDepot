@@ -47,6 +47,9 @@ def prune_robot_status_queue(valid_robot_codes: set):
 
 async def update_robot_status(method: str, data: Optional[Dict] = None, robot_task_code: str = ""):
     """更新机器人状态并触发事件"""
+    # 只保留 END 状态，中间状态（start/outbin）不进入队列，不影响 workflow
+    if method != "end":
+        return
     store = {
         "method": method,
         "timestamp": time.time(),
@@ -54,7 +57,7 @@ async def update_robot_status(method: str, data: Optional[Dict] = None, robot_ta
         "robotTaskCode": robot_task_code,
     }
     # END 回调中提取 binCode（真实 RCS 用 slotName，模拟 RCS 用 data.binCode）
-    if method == "end" and data:
+    if data:
         bin_code = data.get("slotName") or data.get("binCode") or data.get("code") or data.get("location") or ""
         if bin_code:
             store["binCode"] = bin_code

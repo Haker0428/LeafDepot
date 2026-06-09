@@ -31,12 +31,25 @@ from services.api.shared.redis_queue import (
     add_to_completed_set,
     set_task_status,
 )
+from services.api.shared.config import set_service_name, get_logger, _log_filename
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [WORKER] %(levelname)s %(message)s",
-)
-logger = logging.getLogger("inventory_worker")
+# 设置 worker 日志文件
+set_service_name("worker")
+logger = get_logger("inventory_worker")
+
+# 让 core.* 日志只写入 worker 日志文件（不传到 root logger，避免重复）
+import logging.handlers
+_core_logger = logging.getLogger("core")
+# 先清掉所有已有 handler（包括 root logger 继承来的）
+for h in list(_core_logger.handlers):
+    _core_logger.removeHandler(h)
+_core_logger.propagate = False  # 禁止向上传到 root logger
+_core_logger.setLevel(logging.DEBUG)
+_worker_fh = logging.FileHandler(str(_log_filename), encoding='utf-8')
+_worker_fh.setFormatter(logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'))
+_core_logger.addHandler(_worker_fh)
 
 
 def _check_photos_exist(task_no: str, bin_location: str) -> bool:

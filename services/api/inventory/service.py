@@ -654,6 +654,18 @@ async def _capture_from_test_dir(task_no: str, bin_location: str, test_dir: str)
     base_src = Path(os.path.expanduser(test_dir))
     dest_base = project_root / "capture_img" / task_no / bin_location
 
+    # 如果目标目录已存在且有照片，跳过复制（gateway 已提前拍好）
+    if dest_base.exists():
+        has_photos = False
+        for cam_dir in CAMERA_DIRS:
+            cam_sub = dest_base / cam_dir
+            if cam_sub.exists() and any(cam_sub.iterdir()):
+                has_photos = True
+                break
+        if has_photos:
+            logger.info(f"测试目录照片已存在，跳过复制: {task_no}/{bin_location}")
+            return {"success": True, "partial": False, "cameras": {}, "errors": []}
+
     camera_results = {}
 
     for i, cam_dir in enumerate(CAMERA_DIRS):
@@ -1050,127 +1062,44 @@ async def process_single_bin_location(
 
     try:
         if is_sim:
-            # 模拟模式：END 等待由 execute_inventory_workflow 统一处理，此处直接拍照
+            # 模拟模式：END 到达时照片已由 RCS 准备好（robot已到达库位），拍照后交给 worker 检测
             logger.info(f"模拟模式：处理储位 {bin_location}")
 
-            from services.api.shared.config import WITH_CAMERA
+            from services.api.shared.config import WITH_CAMERA, CAMERA_TEST_DIR
 
-            if WITH_CAMERA:
-                # 不等待机器人，直接执行相机脚本
-                logger.info(f"模拟模式 with_camera：执行相机脚本 for {bin_location}")
+            # WITH_CAMERA=true 或 CAMERA_TEST_DIR 配置了 → 拍照后推 Redis 让 worker 检测
+            if WITH_CAMERA or CAMERA_TEST_DIR:
+                logger.info(f"模拟模式：拍照 for {bin_location}（camera_test_dir={CAMERA_TEST_DIR}）")
                 capture_results = await capture_images_with_scripts(task_no, bin_location)
 
-                # 全部相机失败 → 直接返回错误
+                # 全部相机失败 → 返回异常
                 if not capture_results.get("success"):
                     result["status"] = "异常"
                     result["error"] = f"抓图失败: {capture_results.get('error', '所有相机抓图失败')}"
-                    result["actualQuantity"] = 0
-                    result["actualSpec"] = "无"
                     result["endTime"] = datetime.now().isoformat()
                     return result
 
-                # 部分相机失败 → 记录警告，继续处理
-                partial_errors = []
-                if capture_results.get("partial"):
-                    partial_errors = capture_results.get("errors", [])
-                    logger.warning(f"部分相机抓图失败: {partial_errors}")
+                # 推 Redis 让 worker 检测（is_sim=False：worker 内检测模块走完整路径，会写 core.* 日志）
+                push_single_bin_task(task_no, bin_location)
+                add_to_completed_set(task_no, "worker_completed", bin_location)
+                logger.info(f"模拟模式：已拍照，已推 Redis 等 worker: {bin_location}")
 
-                # 先设置图片路径（即使后续识别失败，路径也已准备好）
-                result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main.jpg"
-                result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth.jpg"
-                result["photoScan1Path"] = f"/{task_no}/{bin_location}/scan_camera_1/main.jpg"
-                result["photoScan2Path"] = f"/{task_no}/{bin_location}/scan_camera_2/main.jpg"
-
-                result["captureResults"] = capture_results
-
-                # 执行识别
-                capture_img_dir = project_root / "capture_img" / task_no / bin_location
-                recognition_result = await run_barcode_and_detect(
-                    task_no=task_no,
-                    bin_location=bin_location,
-                    scan_dirs=[capture_img_dir / "scan_camera_1", capture_img_dir / "scan_camera_2"],
-                    detect_dir=capture_img_dir / "3d_camera",
-                    pile_id=1,
-                    code_type="ucc128"
-                )
-
-                detect_result = (recognition_result or {}).get("detect_result")
-                barcode_result = (recognition_result or {}).get("barcode_result") or {}
-
-                # 识别成功 → 更新为旋转/彩色后的路径
-                if detect_result.get("status") == "success":
-                    result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"
-                    result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
-
-                # 识别失败（3D相机主图没找到）→ 仍返回已拍到的照片，quantity回退
-                if detect_result.get("status") == "failed":
-                    result["status"] = "异常"
-                    # 优先报告部分抓图失败信息，其次报告检测失败信息
-                    if partial_errors:
-                        result["error"] = "相机抓图失败：" + "；".join(partial_errors)
+                # 等待 worker 检测结果
+                try:
+                    worker_result = await wait_for_bin_result(task_no, bin_location)
+                    if worker_result:
+                        result = worker_result.get("result", {})
+                        logger.info(f"Worker 结果: {bin_location} → status={result.get('status')}, qty={result.get('actualQuantity')}")
                     else:
-                        result["error"] = f"抓图失败：{detect_result.get('error', '未找到图片')}"
-                    inventory_item = None
-                    if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
-                        for item in _inventory_task_details[task_no]["inventoryItems"]:
-                            if item.get("locationName") == bin_location:
-                                inventory_item = item
-                                break
-                    result["actualSpec"] = _get_actual_spec(barcode_result, inventory_item)
-                    result["actualQuantity"] = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
-                    result["barcodeResult"] = barcode_result
-                    result["detectResult"] = detect_result
-                    result["photos"] = recognition_result.get("photos", [])
-                    result["endTime"] = datetime.now().isoformat()
-                    return result
+                        logger.warning(f"Worker 等待超时: {bin_location}")
+                        result["status"] = "异常"
+                        result["error"] = "Worker 检测超时"
+                except Exception as e:
+                    logger.error(f"等待 worker 结果异常: {e}")
+                    result["status"] = "异常"
+                    result["error"] = str(e)
 
-                result["actualSpec"] = _get_actual_spec(barcode_result, None)
-
-                result["status"] = "成功"
-                # 品规未识别时，数量不可信，强制归零
-                if result["actualSpec"] == "未识别":
-                    result["actualQuantity"] = 0
-                else:
-                    result["actualQuantity"] = detect_result.get("total_count", 0)
-                result["barcodeResult"] = barcode_result
-                result["detectResult"] = detect_result
-                result["photos"] = recognition_result.get("photos", [])
                 result["endTime"] = datetime.now().isoformat()
-
-                logger.info(f"模拟模式 with_camera：识别完成，数量: {result['actualQuantity']}, 品规: {result['actualSpec']}")
-
-                # 更新任务状态
-                if task_no in _inventory_task_bins:
-                    for bin_status in _inventory_task_bins[task_no]:
-                        if bin_status.bin_location == bin_location:
-                            bin_status.image_data = {
-                                "success": True,
-                                "photo3dPath": result["photo3dPath"],
-                                "photoDepthPath": result["photoDepthPath"]
-                            }
-                            bin_status.compute_result = {
-                                "actualQuantity": result["actualQuantity"],
-                                "actualSpec": result["actualSpec"]
-                            }
-                            bin_status.capture_time = result["startTime"]
-                            bin_status.compute_time = datetime.now().isoformat()
-                            bin_status.detect_result = detect_result
-                            bin_status.barcode_result = barcode_result
-                            break
-
-                if task_no not in _inventory_task_details:
-                    _inventory_task_details[task_no] = {}
-                if bin_location not in _inventory_task_details[task_no]:
-                    _inventory_task_details[task_no][bin_location] = {}
-                _inventory_task_details[task_no][bin_location] = {
-                    "binLocation": bin_location,
-                    "actualQuantity": result["actualQuantity"],
-                    "actualSpec": result["actualSpec"],
-                    "photo3dPath": result["photo3dPath"],
-                    "photoDepthPath": result["photoDepthPath"],
-                    "photos": recognition_result.get("photos", [])
-                }
-
                 return result
 
             await asyncio.sleep(2)
@@ -1594,28 +1523,15 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
                     logger.warning(f"任务 {task_no} 已被取消，跳过 continue，退出等待循环")
                     break
-                try:
-                    await continue_inventory_task(is_sim=True, robot_task_code=submit_result.get("robotTaskCode", "ctu001"))
-                except Exception as e:
-                    logger.error(f"发送 continue 失败: {str(e)}")
 
                 if timeout_occurred:
                     continue
 
-                # 等待 worker 结果
+                # 先拍照+检测，完成后再发 continue
                 _inventory_tasks[task_no].current_step = len(inventory_results) + 1
-                logger.info(f"已收到 END: {resolved_bin}，等待检测结果...")
+                logger.info(f"已收到 END: {resolved_bin}，开始处理（拍照→检测→发 continue）...")
                 try:
-                    if queued:
-                        worker_result = await wait_for_bin_result(task_no, resolved_bin)
-                        if worker_result:
-                            result = worker_result.get("result", {})
-                            logger.info(f"Worker 结果: {resolved_bin} → status={result.get('status')}, qty={result.get('actualQuantity')}")
-                        else:
-                            logger.warning(f"Worker 等待超时，降级为本地执行")
-                            result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
-                    else:
-                        result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
+                    result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
                 except Exception as e:
                     logger.error(f"处理库位 {resolved_bin} 时发生异常: {str(e)}")
                     result = {
@@ -1624,6 +1540,12 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         "photo3dPath": None, "photoDepthPath": None,
                         "photoScan1Path": "", "photoScan2Path": "",
                     }
+
+                # 发 continue（在拍照和检测完成之后）
+                try:
+                    await continue_inventory_task(is_sim=True, robot_task_code=submit_result.get("robotTaskCode", "ctu001"))
+                except Exception as e:
+                    logger.error(f"发送 continue 失败: {str(e)}")
 
                 # 更新 bin 状态 & 收集结果
                 if task_no in _inventory_task_bins:

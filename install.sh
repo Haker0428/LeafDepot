@@ -120,9 +120,9 @@ $REDIS_UNIT_DEPS
 Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
-WorkingDirectory=$PROJECT_ROOT/services/api
+WorkingDirectory=$PROJECT_ROOT
 Environment="PYTHONPATH=$PROJECT_ROOT"
-ExecStart=$LOG_WRAPPER gateway $PYTHON_BIN -m uvicorn gateway:app --host 0.0.0.0 --port 8000 --no-access-log
+ExecStart=$LOG_WRAPPER gateway $PYTHON_BIN -m uvicorn services.api.gateway:app --host 0.0.0.0 --port 8000 --no-access-log
 Restart=always
 RestartSec=10
 EOF

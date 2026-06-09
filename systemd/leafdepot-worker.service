@@ -8,8 +8,6 @@ User=zihui-lang
 Group=zihui-lang
 WorkingDirectory=/home/zihui-lang/code/LeafDepot
 Environment="PYTHONPATH=/home/zihui-lang/code/LeafDepot"
-ExecStart=/home/zihui-lang/miniconda3/envs/tobacco_env/bin/python /home/zihui-lang/code/LeafDepot/services/worker/inventory_worker.py
-StandardOutput=append:/home/zihui-lang/code/LeafDepot/logs/worker_systemd.log
-StandardError=append:/home/zihui-lang/code/LeafDepot/logs/worker_systemd.log
+ExecStart=/home/zihui-lang/code/LeafDepot/log_wrapper.sh worker /home/zihui-lang/miniconda3/envs/tobacco_env/bin/python /home/zihui-lang/code/LeafDepot/services/worker/inventory_worker.py
 Restart=always
 RestartSec=10

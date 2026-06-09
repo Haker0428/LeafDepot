@@ -66,8 +66,8 @@ def get_logger(name: str):
 # 兼容旧代码，默认 name
 logger = get_logger(__name__)
 
-# 初始配置日志文件（gateway 默认）
-_setup_file_handler(_service_name)
+# 初始不设置文件 handler，等 set_service_name() 调用时才初始化
+# worker 不调用 set_service_name()，不会占用 gateway 日志
 
 # RCS 通信日志：始终写 rcs_*.log，不受 set_service_name 影响
 _rcs_log_file = logs_dir / f"rcs_{datetime.now().strftime('%Y%m%d')}.log"

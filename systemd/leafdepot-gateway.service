@@ -8,8 +8,6 @@ User=zihui-lang
 Group=zihui-lang
 WorkingDirectory=/home/zihui-lang/code/LeafDepot
 Environment="PYTHONPATH=/home/zihui-lang/code/LeafDepot"
-ExecStart=/home/zihui-lang/miniconda3/envs/tobacco_env/bin/uvicorn gateway:app --host 0.0.0.0 --port 8000
-StandardOutput=append:/home/zihui-lang/code/LeafDepot/logs/gateway_systemd.log
-StandardError=append:/home/zihui-lang/code/LeafDepot/logs/gateway_systemd.log
+ExecStart=/home/zihui-lang/code/LeafDepot/log_wrapper.sh gateway /home/zihui-lang/miniconda3/envs/tobacco_env/bin/python -m uvicorn services.api.gateway:app --host 0.0.0.0 --port 8000 --no-access-log
 Restart=always
 RestartSec=10

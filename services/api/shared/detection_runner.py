@@ -20,8 +20,26 @@ sys.path.insert(0, str(_project_root))
 
 
 async def capture_images(task_no: str, bin_location: str, is_sim: bool) -> Dict[str, Any]:
-    """拍照入口（兼容 sim/real 模式）"""
+    """拍照入口（兼容 sim/real 模式）
+
+    如果 capture_img/{task_no}/{bin_location}/ 下已有照片，跳过拍照。
+    Gateway 会提前拍好推 Redis，worker 不需要重复拍。
+    """
     from services.api.shared.config import WITH_CAMERA
+
+    # 先检查照片是否已存在（gateway 提前拍好的）
+    capture_dir = _project_root / "capture_img" / task_no / bin_location
+    has_photos = False
+    if capture_dir.exists():
+        for sub in ("3d_camera", "scan_camera_1", "scan_camera_2"):
+            sub_dir = capture_dir / sub
+            if sub_dir.exists() and any(sub_dir.iterdir()):
+                has_photos = True
+                break
+
+    if has_photos:
+        logger.info(f"[DetectionRunner] 照片已存在，跳过拍照: {task_no}/{bin_location}")
+        return {"success": True}
 
     if WITH_CAMERA:
         from services.api.inventory.service import capture_images_with_scripts
@@ -29,7 +47,6 @@ async def capture_images(task_no: str, bin_location: str, is_sim: bool) -> Dict[
 
     # sim without camera: 复制模拟图片
     await asyncio.sleep(2)
-    capture_dir = _project_root / "capture_img" / task_no / bin_location
     if not capture_dir.exists():
         capture_dir.mkdir(parents=True, exist_ok=True)
         public_dir = _project_root / "web" / "src" / "public"

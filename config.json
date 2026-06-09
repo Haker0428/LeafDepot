@@ -10,7 +10,7 @@
   "is_sim": true,
   "enable_debug": false,
   "enable_visualization": false,
-  "with_camera": false,
+  "with_camera": true,
   "camera_test_dir": "/home/zihui-lang/code/21-10-01",
   "rcs_prefix": "/rcs/rtas",
   "lms_prefix": "/lms/srm",
