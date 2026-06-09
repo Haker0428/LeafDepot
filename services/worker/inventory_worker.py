@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Inventory Worker: 从 Redis 队列消费盘点任务，执行 Phase 2（拍照+识别），
-将结果写回 Redis，供 gateway 消费。
+Inventory Worker: 从 Redis 单bin队列消费任务，读取 gateway 已拍好的照片，执行检测，
+将结果写回 Redis，供 gateway 收集。
+
+gateway 负责拍照，worker 只负责检测。
 
 用法:
     conda run -n tobacco_env python services/worker/inventory_worker.py
 
 前置条件:
     - Redis 服务运行中
-    - gateway 已通过 push_task() 推送任务
+    - gateway 通过 push_single_bin_task() 推送任务
 """
 import os
 import sys
@@ -23,13 +25,30 @@ _services_dir = _current_file.parent.parent  # services/
 _project_root = _services_dir.parent  # LeafDepot 根目录
 sys.path.insert(0, str(_project_root))
 
-from services.api.shared.redis_queue import pop_task, push_bin_result, set_task_status
+from services.api.shared.redis_queue import (
+    pop_single_bin_task,
+    push_bin_result,
+    add_to_completed_set,
+    set_task_status,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [WORKER] %(levelname)s %(message)s",
 )
 logger = logging.getLogger("inventory_worker")
+
+
+def _check_photos_exist(task_no: str, bin_location: str) -> bool:
+    """检查 capture 文件夹中是否有照片文件（gateway 已拍照确认过，此处只做安全检查）"""
+    capture_base = _project_root / "capture_img" / task_no / bin_location
+    if not capture_base.exists():
+        return False
+    for root, dirs, files in os.walk(str(capture_base)):
+        for f in files:
+            if f.endswith(('.jpg', '.png')):
+                return True
+    return False
 
 
 async def process_one_bin(task_no: str, bin_location: str, is_sim: bool) -> dict:
@@ -39,50 +58,61 @@ async def process_one_bin(task_no: str, bin_location: str, is_sim: bool) -> dict
 
 
 async def run_worker_loop():
-    """主循环：阻塞等待任务，完成后写入 Redis"""
+    """主循环：从单bin队列消费，检测，写 Redis"""
     logger.info("Inventory Worker 启动，等待任务...")
 
     while True:
         try:
-            # 阻塞等待任务（无限等待）
-            task = pop_task(timeout=0)
+            # 阻塞等待单bin任务（超时5秒，队列为空时循环继续）
+            task = pop_single_bin_task(timeout=5)
             if task is None:
-                await asyncio.sleep(1)
                 continue
 
             task_no = task.get("task_no", "?")
-            bin_locations = task.get("bin_locations", [])
-            task_info = task.get("task_info", {})
-            is_sim = task_info.get("is_sim", False)
+            bin_location = task.get("bin_location", "?")
+            is_sim = False  # worker 只处理真实模式
 
-            logger.info(f"[{task_no}] 收到任务: {len(bin_locations)} 个库位, is_sim={is_sim}")
-            set_task_status(task_no, {"worker_status": "processing", "total": len(bin_locations), "done": 0})
+            logger.info(f"[{task_no}] 收到任务: bin={bin_location}")
 
-            for i, bin_location in enumerate(bin_locations):
-                logger.info(f"[{task_no}] 处理库位 {i+1}/{len(bin_locations)}: {bin_location}")
+            # 检查 capture 文件夹是否有照片
+            has_photos = _check_photos_exist(task_no, bin_location)
+
+            if has_photos:
                 try:
                     result = await process_one_bin(task_no, bin_location, is_sim)
                     push_bin_result(task_no, bin_location, result)
-                    logger.info(f"[{task_no}] 库位 {bin_location} 完成: status={result.get('status')}, qty={result.get('actualQuantity')}")
+                    logger.info(f"[{task_no}] 库位 {bin_location} 检测完成: status={result.get('status')}, qty={result.get('actualQuantity')}")
                 except Exception as e:
-                    logger.error(f"[{task_no}] 库位 {bin_location} 异常: {e}")
-                    error_result = {
-                        "binLocation": bin_location,
+                    logger.error(f"[{task_no}] 库位 {bin_location} 检测异常: {e}")
+                    result = {
                         "status": "异常",
                         "error": str(e),
-                        "actualQuantity": None,
-                        "actualSpec": "无",
+                        "actualQuantity": -1,
+                        "actualSpec": "未识别",
                         "photo3dPath": None,
                         "photoDepthPath": None,
                         "photoScan1Path": "",
                         "photoScan2Path": "",
                     }
-                    push_bin_result(task_no, bin_location, error_result)
+                    push_bin_result(task_no, bin_location, result)
+            else:
+                # 文件夹为空，gateway 拍照全部失败，直接返回异常
+                logger.warning(f"[{task_no}] 库位 {bin_location} 文件夹为空，跳过检测，返回异常结果")
+                result = {
+                    "status": "异常",
+                    "error": "文件夹为空，无照片可检测",
+                    "actualQuantity": -1,
+                    "actualSpec": "未识别",
+                    "photo3dPath": None,
+                    "photoDepthPath": None,
+                    "photoScan1Path": "",
+                    "photoScan2Path": "",
+                }
+                push_bin_result(task_no, bin_location, result)
 
-                set_task_status(task_no, {"worker_status": "processing", "total": len(bin_locations), "done": i + 1})
-
-            set_task_status(task_no, {"worker_status": "completed"})
-            logger.info(f"[{task_no}] 全部 {len(bin_locations)} 个库位处理完成")
+            # 标记 worker 完成
+            add_to_completed_set(task_no, "worker_completed", bin_location)
+            logger.info(f"[{task_no}] 库位 {bin_location} 已标记完成: worker_completed")
 
         except Exception as e:
             logger.error(f"Worker 主循环异常: {e}")

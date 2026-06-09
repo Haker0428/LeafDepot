@@ -15,8 +15,10 @@ _REDIS_HOST = "10.16.82.95"
 _REDIS_PORT = 6379
 
 # 队列/键名常量
-PENDING_QUEUE = "inventory:pending_queue"           # 待处理任务队列（gateway → worker）
-RESULT_KEY_PREFIX = "inventory:task:results:"     # 结果存储（worker → gateway），格式: results:{task_no}
+PENDING_QUEUE = "inventory:pending_queue"           # 旧批量队列（废弃，仅保留接口兼容）
+SINGLE_BIN_QUEUE = "inventory:single_bin_queue"   # 单bin队列（gateway → worker，逐个推送）
+_RESULT_KEY_BASE = "inventory:task"               # 统一前缀
+RESULT_KEY_PREFIX = "inventory:task:results:"     # 向后兼容，结果 key = results:{task_no}
 
 
 def _get_redis():
@@ -224,6 +226,140 @@ def get_progress(task_no: str) -> List[Dict]:
 
 
 # ==================== 轮询等待（Gateway 用） ====================
+
+# ==================== 单bin队列（Gateway → Worker）====================
+
+def push_single_bin_task(task_no: str, bin_location: str) -> bool:
+    """
+    gateway 调用：推送单个 bin 给 worker 处理
+    """
+    client = _get_redis()
+    if client is None:
+        return False
+    try:
+        payload = _to_json({
+            "task_no": task_no,
+            "bin_location": bin_location,
+        })
+        client.lpush(SINGLE_BIN_QUEUE, payload)
+        logger.info(f"[Redis] 单bin入队: task={task_no}, bin={bin_location}")
+        return True
+    except Exception as e:
+        logger.error(f"[Redis] 单bin入队失败: {e}")
+        return False
+
+
+def pop_single_bin_task(timeout: int = 5) -> Optional[Dict]:
+    """
+    worker 调用：阻塞消费单个 bin（timeout=5秒）
+    返回: {"task_no": ..., "bin_location": ...}
+    """
+    client = _get_redis()
+    if client is None:
+        return None
+    try:
+        result = client.brpop(SINGLE_BIN_QUEUE, timeout=timeout)
+        if result:
+            _, payload = result
+            return _from_json(payload)
+        return None
+    except Exception as e:
+        # BRPOP 超时是正常行为（队列为空），不记录为错误
+        if "Timeout" in str(e):
+            return None
+        logger.error(f"[Redis] 读取单bin任务失败: {e}")
+        return None
+
+
+def flush_single_bin_queue_by_task(task_no: str) -> int:
+    """
+    取消时清空队列中属于指定任务的条目，返回清空的数量。
+    通过 LPOP 逐一弹出，非目标任务的条目暂存后全部推回。
+    """
+    client = _get_redis()
+    if client is None:
+        return 0
+    try:
+        other_tasks = []
+        flushed = 0
+        while True:
+            result = client.lpop(SINGLE_BIN_QUEUE)
+            if result is None:
+                break
+            parsed = _from_json(result)
+            if parsed.get("task_no") == task_no:
+                flushed += 1
+            else:
+                other_tasks.append(result)
+        # 非目标任务推回队列头部（保持原有顺序）
+        for item in reversed(other_tasks):
+            client.rpush(SINGLE_BIN_QUEUE, item)
+        if flushed > 0:
+            logger.info(f"[Redis] 清空队列: task={task_no}, 清空 {flushed} 条")
+        return flushed
+    except Exception as e:
+        logger.error(f"[Redis] 清空队列失败: {e}")
+        return 0
+
+
+# ==================== 已完成集合（Gateway 用）========================
+
+def add_to_completed_set(task_no: str, set_name: str, bin_location: str) -> bool:
+    """
+    添加 bin 到已完成集合
+    set_name: "rcs_completed" 或 "worker_completed"
+    """
+    client = _get_redis()
+    if client is None:
+        return False
+    try:
+        key = f"{_RESULT_KEY_BASE}:{set_name}:{task_no}"
+        client.sadd(key, bin_location)
+        return True
+    except Exception as e:
+        logger.error(f"[Redis] 添加到已完成集合失败: {e}")
+        return False
+
+
+def get_completed_count(task_no: str, set_name: str) -> int:
+    """获取已完成集合中的 bin 数量"""
+    client = _get_redis()
+    if client is None:
+        return 0
+    try:
+        key = f"{_RESULT_KEY_BASE}:{set_name}:{task_no}"
+        return client.scard(key)
+    except Exception:
+        return 0
+
+
+def is_bin_completed(task_no: str, set_name: str, bin_location: str) -> bool:
+    """判断 bin 是否已在已完成集合中"""
+    client = _get_redis()
+    if client is None:
+        return False
+    try:
+        key = f"{_RESULT_KEY_BASE}:{set_name}:{task_no}"
+        return client.sismember(key, bin_location)
+    except Exception:
+        return False
+
+
+def clear_task_sets(task_no: str) -> bool:
+    """任务结束时清空 rcs_completed 和 worker_completed 两个集合"""
+    client = _get_redis()
+    if client is None:
+        return False
+    try:
+        rcs_key = f"{_RESULT_KEY_BASE}:rcs_completed:{task_no}"
+        worker_key = f"{_RESULT_KEY_BASE}:worker_completed:{task_no}"
+        client.delete(rcs_key, worker_key)
+        logger.info(f"[Redis] 清空任务集合: task={task_no}")
+        return True
+    except Exception as e:
+        logger.error(f"[Redis] 清空任务集合失败: {e}")
+        return False
+
 
 async def wait_for_bin_result(task_no: str, bin_location: str, timeout: int = 0) -> Optional[Dict]:
     """

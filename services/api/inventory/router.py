@@ -55,6 +55,11 @@ from services.api.inventory.service import (
 )
 from services.api.shared.websocket_manager import ws_manager
 from services.api.inventory.task_state import on_server_startup, clear_task, get_running_tasks, _load as load_task_state
+from services.api.shared.redis_queue import (
+    flush_single_bin_queue_by_task,
+    is_bin_completed,
+    clear_task_sets,
+)
 
 from services.api.auth.router import get_user_info_from_token
 
@@ -1056,10 +1061,11 @@ async def cancel_inventory(taskNo: str = Query(..., description="任务编号"))
     # 向 RCS 发送所有未完成库位的 continue，让 RCS 完成剩余任务
     tracker = _active_bin_tracker.get(taskNo)
     if tracker:
+        bin_to_code = tracker.get("bin_to_task_code", {})
         remaining = {
             bin_loc: rt_code
-            for bin_loc, rt_code in tracker["bin_to_task_code"].items()
-            if bin_loc not in tracker["completed_bins"]
+            for bin_loc, rt_code in bin_to_code.items()
+            if not is_bin_completed(taskNo, "rcs_completed", bin_loc)
         }
         if remaining:
             logger.info(f"[取消] 正在发送剩余 {len(remaining)} 个 continue...")
@@ -1071,6 +1077,14 @@ async def cancel_inventory(taskNo: str = Query(..., description="任务编号"))
                     logger.error(f"[取消] continue 发送失败: bin={bin_loc}, error={e}")
             logger.info(f"[取消] 所有剩余 continue 发送完毕")
         _active_bin_tracker.pop(taskNo, None)
+
+    # 清空 worker 队列中属于本任务的条目
+    flushed = flush_single_bin_queue_by_task(taskNo)
+    logger.info(f"[取消] 清空 worker 队列: task={taskNo}, 清空 {flushed} 条")
+
+    # 清空 RCS 和 worker 完成状态集合
+    clear_task_sets(taskNo)
+    logger.info(f"[取消] 清空任务集合: task={taskNo}")
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
