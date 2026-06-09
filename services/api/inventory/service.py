@@ -55,6 +55,7 @@ from services.api.inventory.task_state import (
     mark_finished,
 )
 from services.api.shared.redis_queue import (
+    push_task,
     push_single_bin_task,
     add_to_completed_set,
     get_completed_count,
