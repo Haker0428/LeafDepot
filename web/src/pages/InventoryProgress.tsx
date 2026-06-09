@@ -906,6 +906,28 @@ export default function InventoryProgress() {
           toast.warning("上一个任务已被中断，请重新下发");
           setCurrentTaskManifest(null);
         }
+
+        if (status === "failed") {
+          // resume 模式下检测到任务失败，弹出错误弹窗
+          const errorMsg = data.data?.message || "盘点任务失败";
+          const errorType: "rcs" | "camera" | "other" =
+            (data.data?.error_type as "rcs" | "camera" | "other") || "other";
+          localStorage.removeItem("currentTaskManifest");
+          localStorage.removeItem("currentTaskNo");
+          window.dispatchEvent(new Event("clear-task-notify"));
+          window.dispatchEvent(new Event("resume-polling"));
+          setTaskErrorModal({
+            open: true,
+            errorType,
+            message: errorMsg,
+            onOk: () => {
+              setTaskErrorModal((prev) => ({ ...prev, open: false }));
+              navigate("/inventory/start");
+            },
+          });
+          setIsStartingTask(false);
+          setCurrentTaskManifest(null);
+        }
       } catch {}
     };
     checkTaskStatus();
@@ -968,6 +990,36 @@ export default function InventoryProgress() {
       window.dispatchEvent(new Event("resume-polling"));
     };
   }, []);
+
+  // 监听 WebSocket task_failed 事件：任务下发/执行失败时弹出错误弹窗
+  // （用户可能在提交后切换到其他页面，此时轮询未启动，需要靠 WebSocket 事件触发弹窗）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (msg.event !== "task_failed") return;
+      // 只处理当前任务的失败
+      if (!currentTaskNo || msg.taskNo !== currentTaskNo) return;
+      const errorMsg = msg.data?.message || "盘点任务下发失败";
+      const errorType: "rcs" | "camera" | "other" =
+        (msg.data?.error_type as "rcs" | "camera" | "other") || "other";
+      localStorage.removeItem("currentTaskManifest");
+      localStorage.removeItem("currentTaskNo");
+      window.dispatchEvent(new Event("clear-task-notify"));
+      window.dispatchEvent(new Event("resume-polling"));
+      setTaskErrorModal({
+        open: true,
+        errorType,
+        message: errorMsg,
+        onOk: () => {
+          setTaskErrorModal((prev) => ({ ...prev, open: false }));
+          navigate("/inventory/start");
+        },
+      });
+      setIsStartingTask(false);
+    };
+    window.addEventListener("remote-task-event", handler as EventListener);
+    return () => window.removeEventListener("remote-task-event", handler as EventListener);
+  }, [currentTaskNo, navigate]);
 
   // 图片加载处理
   const handleImageLoad = () => {

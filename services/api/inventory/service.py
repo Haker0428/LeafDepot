@@ -1815,18 +1815,16 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                                 bs.status = "completed" if result and result.get("status") == "成功" else "failed"
                                 break
 
-                    # END 超时后只发一个 continue：按顺序假设下一个要执行的 bin
-                    # 假设 RCS 按顺序执行，超时后下一个是 submitted_bins[len(inventory_results)]
+                    # END 超时后只发一个 continue：发给超时的 bin 本身
+                    # 不发下一个 bin 的 continue，因为 RCS 可能还在处理当前 bin（移动需要时间）
+                    # timeout_rt 已在上面 added to completed_robot_codes，late END 到达时会被 skip
                     if timeout_occurred:
-                        idx = len(inventory_results)
-                        next_bin = submitted_bins[idx] if idx < len(submitted_bins) else ""
-                        next_rt = bin_to_task_code.get(next_bin, "")
-                        if next_rt and next_rt not in completed_robot_codes:
+                        if timeout_rt:
                             try:
-                                await continue_inventory_task(is_sim=False, robot_task_code=next_rt)
-                                logger.warning(f"END 超时，发送 continue 让 RCS 继续下一任务: bin={next_bin}, rt_code={next_rt}")
+                                await continue_inventory_task(is_sim=False, robot_task_code=timeout_rt)
+                                logger.warning(f"END 超时，发送 continue 让 RCS 继续: bin={timeout_bin}, rt_code={timeout_rt}")
                             except Exception as e:
-                                logger.error(f"END 超时发送 continue 失败: bin={next_bin}, error={e}")
+                                logger.error(f"END 超时发送 continue 失败: bin={timeout_bin}, error={e}")
                         continue
 
                     # 取消后不再发送 continue，避免 RCS 卡在等待继续指令的状态
