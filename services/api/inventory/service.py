@@ -1742,21 +1742,37 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         # 更新进度：反映实际已收到 END 的数量
                         _inventory_tasks[task_no].current_step = len(inventory_results) + 1
     
-                        logger.info(f"等待库位 END 完成: {bin_location}，等待检测结果...")
-                        # 等待 worker 结果
+                        logger.info(f"收到库位 END 完成: {bin_location}，尝试获取检测结果...")
+
+                        # 立即发送 continue，让 RCS 尽快开始执行下一个 bin
+                        # 不要在这里阻塞等 worker 结果，否则 gateway 无法处理后续 RCS END 回调
+                        if not rt_code:
+                            logger.error(f"[continue 校验] rt_code 为空，拒绝发送 continue（bin={bin_location}）")
+                        elif rt_code not in valid_robot_codes:
+                            logger.error(f"[continue 校验] rt_code={rt_code} 不在当前任务有效集合中，拒绝发送 continue（bin={bin_location}）")
+                        else:
+                            logger.info(f"[continue 校验] 校验通过，发送 continue → bin={bin_location}, rt_code={rt_code}")
+                            try:
+                                continue_result = await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
+                                logger.info(f"continue 调用结果 (bin={bin_location}, robotTaskCode={rt_code}): {continue_result}")
+                            except Exception as e:
+                                logger.error(f"发送 continue 失败: {str(e)}")
+
+                        # 尝试从 worker 获取结果（短超时，不阻塞后续 END 回调处理）
+                        # worker 处理速度(~30s/bin) < RCS 移动速度，后续 END 到达时 worker 结果大概率已就绪
                         try:
                             if queued:
-                                worker_result = await wait_for_bin_result(task_no, bin_location)
+                                worker_result = await wait_for_bin_result(task_no, bin_location, timeout=5)
                                 if worker_result:
                                     result = worker_result.get("result", {})
                                     logger.info(f"Worker 结果: {bin_location} → status={result.get('status')}, qty={result.get('actualQuantity')}")
                                 else:
-                                    logger.warning(f"Worker 等待超时，降级为本地执行")
-                                    result = await process_single_bin_location(task_no, bin_location, 0, len(bin_locations), is_sim=False)
+                                    logger.warning(f"Worker 结果未就绪（bin={bin_location}），将在尾声补采")
+                                    result = None
                             else:
                                 result = await process_single_bin_location(task_no, bin_location, 0, len(bin_locations), is_sim=False)
                         except Exception as e:
-                            logger.error(f"等待 worker 结果异常: {str(e)}，降级为本地执行")
+                            logger.error(f"获取 worker 结果异常: {str(e)}，降级为本地执行")
                             result = await process_single_bin_location(task_no, bin_location, 0, len(bin_locations), is_sim=False)
                     except asyncio.TimeoutError:
                         logger.error(f"等待 END 超时，跳过库位")
@@ -1827,24 +1843,6 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                                 logger.error(f"END 超时发送 continue 失败: bin={timeout_bin}, error={e}")
                         continue
 
-                    # 取消后不再发送 continue，避免 RCS 卡在等待继续指令的状态
-                    if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
-                        logger.warning(f"任务 {task_no} 已被取消，跳过 continue，退出等待循环")
-                        break
-                    # 拍照完成后，用该 bin 对应的 robot_task_code 发送 continue
-                    # 发 continue 前再次确认 rt_code 与当前任务有效集合一致，防止旧任务代码残留
-                    if not rt_code:
-                        logger.error(f"[continue 校验] rt_code 为空，拒绝发送 continue（bin={bin_location}）")
-                    elif rt_code not in valid_robot_codes:
-                        logger.error(f"[continue 校验] rt_code={rt_code} 不在当前任务有效集合中，拒绝发送 continue（bin={bin_location}）")
-                    else:
-                        logger.info(f"[continue 校验] 校验通过，发送 continue → bin={bin_location}, rt_code={rt_code}")
-                        try:
-                            continue_result = await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
-                            logger.info(f"continue 调用结果 (bin={bin_location}, robotTaskCode={rt_code}): {continue_result}")
-                        except Exception as e:
-                            logger.error(f"发送 continue 失败: {str(e)}")
-    
                     # 查找匹配储位信息
                     inventory_item = None
                     if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
@@ -1852,19 +1850,31 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                             if item.get("locationName") == bin_location:
                                 inventory_item = item
                                 break
-    
-                    actual_qty = int(result.get("actualQuantity", 0) or 0)
+
+                    # 查找已就绪的 worker 结果
+                    worker_ready_result = None
+                    if queued:
+                        try:
+                            # 再次尝试获取结果（worker 可能在上面短超时后已处理完）
+                            ready = await wait_for_bin_result(task_no, bin_location, timeout=30)
+                            if ready:
+                                worker_ready_result = ready.get("result", {})
+                        except Exception:
+                            pass
+
+                    actual_result = worker_ready_result or result or {}
+                    actual_qty = int(actual_result.get("actualQuantity", 0) or 0)
                     system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
                     inventory_results.append({
                         "binLocation": bin_location,
-                        "status": result.get("status"),
-                        "actualQuantity": result.get("actualQuantity"),
-                        "actualSpec": result.get("actualSpec"),
-                        "photo3dPath": result.get("photo3dPath"),
-                        "photoDepthPath": result.get("photoDepthPath"),
-                        "photoScan1Path": result.get("photoScan1Path", ""),
-                        "photoScan2Path": result.get("photoScan2Path", ""),
-                        "error": result.get("error"),
+                        "status": actual_result.get("status") or ("成功" if actual_result.get("actualQuantity") is not None else "异常"),
+                        "actualQuantity": actual_result.get("actualQuantity"),
+                        "actualSpec": actual_result.get("actualSpec"),
+                        "photo3dPath": actual_result.get("photo3dPath"),
+                        "photoDepthPath": actual_result.get("photoDepthPath"),
+                        "photoScan1Path": actual_result.get("photoScan1Path", ""),
+                        "photoScan2Path": actual_result.get("photoScan2Path", ""),
+                        "error": actual_result.get("error"),
                         "specName": inventory_item.get("productName", "") if inventory_item else "",
                         "systemQuantity": system_qty,
                         "difference": actual_qty - system_qty,
