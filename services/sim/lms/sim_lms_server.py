@@ -45,7 +45,8 @@ _lms_logger.addHandler(_file_handler)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 _lms_logger.addHandler(console_handler)
-from services.api.shared.config import CORS_ORIGINS
+from services.api.shared.config import CORS_ORIGINS, set_service_name
+set_service_name("lms")
 
 # LMS模拟服务配置
 # 移除硬编码的用户名密码

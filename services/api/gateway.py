@@ -11,7 +11,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 from services.api.shared.websocket_manager import ws_manager
 
 # 导入共享配置和日志
-from services.api.shared.config import logger, logs_dir, CORS_ORIGINS
+from services.api.shared.config import logger, logs_dir, CORS_ORIGINS, set_service_name
+set_service_name("gateway")
 from services.api.shared.operation_log import log_operation
 
 # 导入各服务模块的路由

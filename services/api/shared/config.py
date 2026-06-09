@@ -17,49 +17,72 @@ try:
 except Exception as e:
     print(f"[FATAL] 无法创建日志目录 {logs_dir}: {e}")
 
-# 创建日志文件路径（按日期命名）
-_log_filename = logs_dir / \
-    f"gateway_{datetime.now().strftime('%Y%m%d')}.log"
+# 服务名称（各服务启动时调用 set_service_name 设置）
+_service_name = "gateway"
 
-# 配置根日志记录器（basicConfig 只在 root handler 为空时生效）
-_handlers = []
-_stream_handler = logging.StreamHandler()
-_stream_handler.setFormatter(logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'))
-_handlers.append(_stream_handler)
+# 创建日志文件路径（按日期和服务的名称命名）
+_log_filename = logs_dir / f"{_service_name}_{datetime.now().strftime('%Y%m%d')}.log"
 
-try:
-    _file_handler = logging.FileHandler(str(_log_filename), encoding='utf-8')
-    _file_handler.setFormatter(logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'))
-    _handlers.append(_file_handler)
-    print(f"[LOG] 日志文件: {_log_filename}")
-except Exception as e:
-    print(f"[WARN] 无法创建日志文件 {_log_filename}: {e}")
-
+# 配置根日志记录器
 _root_logger = logging.getLogger()
 _root_logger.setLevel(logging.INFO)
-_root_logger.handlers = _handlers  # 替换而非追加，避免重复 handler
-logger = logging.getLogger(__name__)
+_root_logger.handlers = []  # 清空已有 handler
 
-# 专用 RCS 日志：写入 rcs_*.log
+
+def _setup_file_handler(name: str):
+    """创建/更新文件 handler，写入对应服务的日志文件"""
+    global _log_filename, _root_logger
+    _log_filename = logs_dir / f"{name}_{datetime.now().strftime('%Y%m%d')}.log"
+    # 移除旧的 file handler
+    for h in list(_root_logger.handlers):
+        if isinstance(h, logging.FileHandler):
+            _root_logger.removeHandler(h)
+            h.close()
+    # 添加新的 file handler
+    try:
+        fh = logging.FileHandler(str(_log_filename), encoding='utf-8')
+        fh.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'))
+        _root_logger.addHandler(fh)
+        print(f"[LOG] 日志文件: {_log_filename}")
+    except Exception as e:
+        print(f"[WARN] 无法创建日志文件 {_log_filename}: {e}")
+
+
+def set_service_name(name: str):
+    """各服务入口调用此函数，切换日志文件名"""
+    global _service_name
+    _service_name = name
+    _setup_file_handler(name)
+    return name
+
+
+def get_logger(name: str):
+    """获取 logger"""
+    return logging.getLogger(name)
+
+
+# 兼容旧代码，默认 name
+logger = get_logger(__name__)
+
+# 初始配置日志文件（gateway 默认）
+_setup_file_handler(_service_name)
+
+# RCS 通信日志：始终写 rcs_*.log，不受 set_service_name 影响
 _rcs_log_file = logs_dir / f"rcs_{datetime.now().strftime('%Y%m%d')}.log"
+_rcs_logger = logging.getLogger("rcs")
+_rcs_logger.setLevel(logging.INFO)
+_rcs_logger.handlers = []  # 清空，避免重复
+_rcs_logger.propagate = False  # 不传播到 root logger，避免写入 gateway 日志
 try:
-    _rcs_handler = logging.FileHandler(str(_rcs_log_file), encoding='utf-8')
-    _rcs_handler.setFormatter(logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s',
+    _rcs_fh = logging.FileHandler(str(_rcs_log_file), encoding='utf-8')
+    _rcs_fh.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'))
-    _rcs_logger = logging.getLogger("rcs")
-    _rcs_logger.setLevel(logging.INFO)
-    _rcs_logger.addHandler(_rcs_handler)
-    _rcs_logger.propagate = False
-    print(f"[LOG] RCS 日志文件: {_rcs_log_file}")
+    _rcs_logger.addHandler(_rcs_fh)
 except Exception as e:
     print(f"[WARN] 无法创建 RCS 日志文件 {_rcs_log_file}: {e}")
-    _rcs_logger = logging.getLogger("rcs")
-
 rcs_logger = _rcs_logger  # 导出供其他模块使用
 
 # 从 JSON 配置文件读取配置

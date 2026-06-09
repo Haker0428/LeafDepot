@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from services.api.shared.config import _HOST, GATEWAY_PORT, CAMSYS_PORT, CORS_ORIGINS
+from services.api.shared.config import _HOST, GATEWAY_PORT, CAMSYS_PORT, CORS_ORIGINS, set_service_name
+set_service_name("rcs")
 
 app = FastAPI(
     title="RCS-2000",
