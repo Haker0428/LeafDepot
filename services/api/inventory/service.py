@@ -1539,11 +1539,11 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                             result = worker_result.get("result", {})
                             logger.info(f"Worker 结果: {resolved_bin} → status={result.get('status')}, qty={result.get('actualQuantity')}")
                         else:
-                            logger.warning(f"Worker 等待超时，降级为本地执行")
-                            result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
+                            logger.warning(f"Worker 结果等待超时，记录失败")
+                            result = {"status": "异常", "error": "Worker 结果等待超时", "actualQuantity": None, "actualSpec": "无", "photo3dPath": None, "photoDepthPath": None, "photoScan1Path": "", "photoScan2Path": ""}
                     else:
-                        logger.warning(f"Redis 不可用，降级为本地执行")
-                        result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
+                        logger.warning(f"Redis 不可用，记录失败")
+                        result = {"status": "异常", "error": "Redis 不可用", "actualQuantity": None, "actualSpec": "无", "photo3dPath": None, "photoDepthPath": None, "photoScan1Path": "", "photoScan2Path": ""}
                 except Exception as e:
                     logger.error(f"处理库位 {resolved_bin} 时发生异常: {str(e)}")
                     result = {
