@@ -1,5 +1,5 @@
 {
-  "host": "localhost",
+  "host": "10.16.82.95",
   "ports": {
     "gateway": 8000,
     "lms": 6000,
@@ -7,11 +7,11 @@
     "camsys": 5000
   },
   "frontend_port": 5173,
-  "is_sim": true,
+  "is_sim": false,
   "enable_debug": false,
   "enable_visualization": false,
   "with_camera": true,
-  "camera_test_dir": "/home/zihui-lang/code/21-10-01",
+  "camera_test_dir": "",
   "rcs_prefix": "/rcs/rtas",
   "lms_prefix": "/lms/srm",
   "rcs_real": {
