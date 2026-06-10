@@ -1531,7 +1531,6 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 _inventory_tasks[task_no].current_step = len(inventory_results) + 1
                 logger.info(f"已收到 END: {resolved_bin}，推 Redis 等 worker 检测...")
                 try:
-                    from services.api.shared.redis_queue import push_single_bin_task
                     queued_ok = push_single_bin_task(task_no, resolved_bin)
                     if queued_ok:
                         logger.info(f"库位 {resolved_bin} 已推入 Redis 队列，等 worker 检测...")
