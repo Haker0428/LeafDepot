@@ -31,7 +31,7 @@ from services.api.shared.redis_queue import (
     add_to_completed_set,
     set_task_status,
 )
-from services.api.shared.config import set_service_name, get_logger, _log_filename
+from services.api.shared.config import set_service_name, get_logger, _log_filename, CAMERA_TEST_DIR, IS_SIM
 
 # 设置 worker 日志文件
 set_service_name("worker")
@@ -83,7 +83,8 @@ async def run_worker_loop():
 
             task_no = task.get("task_no", "?")
             bin_location = task.get("bin_location", "?")
-            is_sim = False  # worker 只处理真实模式
+            # camera_test_dir 不为空时走模拟图片，worker 可以处理
+            use_sim_images = IS_SIM or bool(CAMERA_TEST_DIR)
 
             logger.info(f"[{task_no}] 收到任务: bin={bin_location}")
 
@@ -92,7 +93,7 @@ async def run_worker_loop():
 
             if has_photos:
                 try:
-                    result = await process_one_bin(task_no, bin_location, is_sim)
+                    result = await process_one_bin(task_no, bin_location, use_sim_images)
                     push_bin_result(task_no, bin_location, result)
                     logger.info(f"[{task_no}] 库位 {bin_location} 检测完成: status={result.get('status')}, qty={result.get('actualQuantity')}")
                 except Exception as e:

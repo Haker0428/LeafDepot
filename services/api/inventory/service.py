@@ -1527,11 +1527,24 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 if timeout_occurred:
                     continue
 
-                # 先拍照+检测，完成后再发 continue
+                # 收到 END，推 Redis 等 worker 检测，完成后再发 continue
                 _inventory_tasks[task_no].current_step = len(inventory_results) + 1
-                logger.info(f"已收到 END: {resolved_bin}，开始处理（拍照→检测→发 continue）...")
+                logger.info(f"已收到 END: {resolved_bin}，推 Redis 等 worker 检测...")
                 try:
-                    result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
+                    from services.api.shared.redis_queue import push_single_bin_task
+                    queued_ok = push_single_bin_task(task_no, resolved_bin)
+                    if queued_ok:
+                        logger.info(f"库位 {resolved_bin} 已推入 Redis 队列，等 worker 检测...")
+                        worker_result = await wait_for_bin_result(task_no, resolved_bin)
+                        if worker_result:
+                            result = worker_result.get("result", {})
+                            logger.info(f"Worker 结果: {resolved_bin} → status={result.get('status')}, qty={result.get('actualQuantity')}")
+                        else:
+                            logger.warning(f"Worker 等待超时，降级为本地执行")
+                            result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
+                    else:
+                        logger.warning(f"Redis 不可用，降级为本地执行")
+                        result = await process_single_bin_location(task_no, resolved_bin, i, len(bin_locations), is_sim=True)
                 except Exception as e:
                     logger.error(f"处理库位 {resolved_bin} 时发生异常: {str(e)}")
                     result = {
@@ -1541,7 +1554,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         "photoScan1Path": "", "photoScan2Path": "",
                     }
 
-                # 发 continue（在拍照和检测完成之后）
+                # 发 continue（在检测完成之后）
                 try:
                     await continue_inventory_task(is_sim=True, robot_task_code=submit_result.get("robotTaskCode", "ctu001"))
                 except Exception as e:
