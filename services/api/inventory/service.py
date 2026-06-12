@@ -1568,34 +1568,22 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             prune_robot_status_queue({robot_task_code})
 
             _bin_start = time.time()
-            while True:
-                _bin_elapsed = time.time() - _bin_start
-                if _bin_elapsed >= _bin_timeout:
-                    logger.error(f"等待 END 超时，跳过库位: {bin_location}")
-                    break
+            try:
+                ctu_status = await wait_for_robot_status(
+                    "end",
+                    timeout=_bin_timeout,
+                    valid_robot_codes={robot_task_code},
+                    task_no=task_no,
+                    start_time=_bin_start,
+                )
+            except asyncio.TimeoutError:
+                # 超时跳过该库位，继续下一个
+                logger.error(f"等待 END 超时，跳过库位: {bin_location}")
+                i += 1
+                continue
 
-                try:
-                    ctu_status = await wait_for_robot_status(
-                        "end",
-                        timeout=1,
-                        valid_robot_codes={robot_task_code},
-                        task_no=task_no
-                    )
-                except asyncio.TimeoutError:
-                    ctu_status = None
-
-                if ctu_status is not None:
-                    bin_code = ctu_status.get("binCode", "") or bin_location
-                    logger.info(f"[END] bin={bin_code}，rt_code={ctu_status.get('robotTaskCode', '')}")
-                    break
-                else:
-                    found_pending = any(
-                        item.get("method") == "end" and
-                        (not item.get("task_no") or item.get("task_no") == task_no)
-                        for item in _robot_status_queue
-                    )
-                    if not found_pending:
-                        continue  # 继续轮询
+            bin_code = ctu_status.get("binCode", "") or bin_location
+            logger.info(f"[END] bin={bin_code}，rt_code={ctu_status.get('robotTaskCode', '')}")
 
             _inventory_tasks[task_no].current_step = i
 

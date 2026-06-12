@@ -106,7 +106,7 @@ async def update_robot_status(method: str, data: Optional[Dict] = None, robot_ta
         _status_event.set()
 
 
-async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_robot_codes: set = None, task_no: str = ""):
+async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_robot_codes: set = None, task_no: str = "", start_time: float = None):
     """等待特定机器人状态，从队列中弹出匹配的条目。
 
     Args:
@@ -116,9 +116,11 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_
                          若传入，队列中 robotTaskCode 不在集合内的 END 会被跳过（保留在队列中），
                          防止上一个任务残留的旧回调被错误消费。
         task_no: 当前任务号。END 必须匹配此 task_no 才消费，不匹配则保留在队列中供其他 workflow 使用。
+        start_time: 已累计的等待开始时间戳（由外部传入，避免重复计时）
     """
+    if start_time is None:
+        start_time = time.time()
     logger.debug(f"开始等待机器人状态: {expected_method}, 超时: {timeout}秒, task_no={task_no}")
-    start_time = time.time()
 
     while True:
         # 先从队列中查找匹配的 END（防止已有 END 在队列中等待）
@@ -151,7 +153,6 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_
         elapsed = time.time() - start_time
         remaining = timeout - elapsed
         if remaining <= 0:
-            logger.error(f"等待机器人状态超时: {expected_method} (总耗时 {elapsed:.0f}s)")
             raise asyncio.TimeoutError(f"等待 {expected_method} 状态超时")
 
         try:
@@ -163,7 +164,6 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_
                 _status_event.clear()
             elapsed = time.time() - start_time
             if elapsed >= timeout:
-                logger.error(f"等待机器人状态超时: {expected_method} (总耗时 {elapsed:.0f}s)")
                 raise asyncio.TimeoutError(f"等待 {expected_method} 状态超时")
             # 正常轮询超时（sim 模式下 RCS 移动需要 15 秒），不打印日志直接继续
             continue
