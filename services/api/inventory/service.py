@@ -8,6 +8,7 @@ import time
 import asyncio
 import logging
 import shutil
+import concurrent.futures
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -48,6 +49,7 @@ from services.api.robot.router import (
     prune_robot_status_queue,
     update_robot_status as _router_update_status,
     wait_for_robot_status as _router_wait_status,
+    _robot_status_queue,
 )
 from services.api.inventory.task_state import (
     mark_running,
@@ -128,6 +130,70 @@ def _get_next_task_no() -> str:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
+# ==================== 寻路排序函数 ====================
+
+def sort_bins_by_path(bin_locations: List[str]) -> List[str]:
+    """
+    按物理路径对 bin 列表排序，使机器人行走路径最优。
+
+    距离公式：|Δrow| * 1000 + |Δcol| * 10 + |Δlayer|
+    row 差异代价最高（跨排代价极高），所以算法自然优先同排移动，
+    同排内可升序可降序列（贪心最近邻自动选择方向）。
+
+    示例：20-18-01 → 下一站会是同一排的 bin（如 20-17-03），
+          而不是跨排的 bin（如 21-01-01）
+    """
+    def parse_bin(bin_code: str) -> tuple:
+        """解析 bin_code "xx-xx-xx" → (row, col, layer)，解析失败返回 None"""
+        try:
+            parts = bin_code.strip().split("-")
+            if len(parts) != 3:
+                return None
+            return int(parts[0]), int(parts[1]), int(parts[2])
+        except (ValueError, TypeError):
+            return None
+
+    def weighted_distance(from_pos: tuple, to_pos: tuple) -> int:
+        """加权距离：row×1000 + col×10 + layer×1，跨排代价极高"""
+        return abs(from_pos[0] - to_pos[0]) * 1000 + \
+               abs(from_pos[1] - to_pos[1]) * 10 + \
+               abs(from_pos[2] - to_pos[2])
+
+    # 解析并过滤无效 bin
+    parsed = []
+    for b in bin_locations:
+        pos = parse_bin(b)
+        if pos is None:
+            logger.warning(f"无法解析 bin 代码: {b}，跳过")
+            continue
+        parsed.append((b, pos))
+
+    if not parsed:
+        return bin_locations  # 原样返回
+
+    # 贪心最近邻：全程使用加权距离，不做 row 分组
+    sorted_result: List[str] = []
+    remaining = list(parsed)
+
+    # 起点：选 row 最小的 bin（同排优先）
+    remaining.sort(key=lambda x: (x[1][0], x[1][1], x[1][2]))
+    current_code, current_pos = remaining.pop(0)
+    sorted_result.append(current_code)
+
+    while remaining:
+        best_idx = 0
+        best_dist = weighted_distance(current_pos, remaining[0][1])
+        for i in range(1, len(remaining)):
+            d = weighted_distance(current_pos, remaining[i][1])
+            if d < best_dist:
+                best_dist = d
+                best_idx = i
+        current_code, current_pos = remaining.pop(best_idx)
+        sorted_result.append(current_code)
+
+    return sorted_result
+
+
 # 任务状态存储
 _inventory_tasks: Dict[str, TaskStatus] = {}
 _inventory_task_bins: Dict[str, List[BinLocationStatus]] = {}
@@ -135,6 +201,7 @@ _inventory_task_details: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
 # 真实模式 END 处理全局锁：防止多任务同时处理队列导致回调被对方错误消费
 _real_mode_lock = asyncio.Lock()
+_capture_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="capture_")
 
 # 导出别名（供其他模块导入）
 inventory_tasks = _inventory_tasks
@@ -191,29 +258,30 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                 }
 
                 if is_sim:
-                    # ====== 模拟模式：连接本地 sim_rcs_server，使用 RCS_FULL_URL =====
+                    # ====== 模拟模式：所有 bin 共用一个 task code（与 real 模式一致）======
                     submit_url = f"{RCS_FULL_URL}/api/robot/controller/task/submit"
+                    target_route = [
+                        {"seq": i, "type": "STORAGE", "code": loc}
+                        for i, loc in enumerate(bin_locations)
+                    ]
+                    request_body = {
+                        "taskType": task_type,
+                        "targetRoute": target_route
+                    }
                     async with aiohttp.ClientSession() as session:
-                        captured_code = None
-                        for i, loc in enumerate(bin_locations):
-                            target_route = [{"seq": 0, "type": "ZONE", "code": loc}]
-                            request_body = {
-                                "taskType": task_type,
-                                "targetRoute": target_route
-                            }
-                            rcs_logger.info(f"【模拟RCS下发请求】url={submit_url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
-                            async with session.post(submit_url, json=request_body, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                                response_text = await response.text()
-                                rcs_logger.info(f"【模拟RCS下发响应】code={response.status} body={response_text}")
-                                if response.status == 200:
-                                    try:
-                                        data = json.loads(response_text)
-                                        captured_code = data.get("data", {}).get("robotTaskCode", "")
-                                    except Exception:
-                                        pass
-                            if i < len(bin_locations) - 1:
-                                await asyncio.sleep(0.5)
-                    return {"success": True, "message": "盘点任务已下发", "robotTaskCode": captured_code or "ctu001"}
+                        rcs_logger.info(f"【模拟RCS下发请求】url={submit_url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}")
+                        async with session.post(submit_url, json=request_body, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                            response_text = await response.text()
+                            rcs_logger.info(f"【模拟RCS下发响应】code={response.status} body={response_text}")
+                            if response.status == 200:
+                                try:
+                                    data = json.loads(response_text)
+                                    captured_code = data.get("data", {}).get("robotTaskCode", "ctu001")
+                                except Exception:
+                                    captured_code = "ctu001"
+                            else:
+                                captured_code = "ctu001"
+                    return {"success": True, "message": "盘点任务已下发", "robotTaskCode": captured_code}
 
                 else:
                     # ====== 真实模式：使用 RCS_REAL 配置 =====
@@ -303,14 +371,22 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
         for attempt in range(max_retries):
             try:
                 if is_sim:
-                    # ====== 模拟模式：连接本地 sim_rcs_server ======
+                    # ====== 模拟模式：连接本地 sim_rcs_server，使用 aiohttp 不阻塞 event loop ======
                     continue_url = f"{RCS_FULL_URL}/api/robot/controller/task/extend/continue"
                     request_body = {
                         "robotTaskCode": robot_task_code or "ctu001"
                     }
                     rcs_logger.info(f"【模拟RCS继续请求】url={continue_url} body={json.dumps(request_body, ensure_ascii=False)}")
-                    response = requests.post(continue_url, json=request_body, timeout=30)
-                    rcs_logger.info(f"【模拟RCS继续响应】code={response.status_code} body={response.text}")
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(continue_url, json=request_body, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            response_text = await resp.text()
+                            rcs_logger.info(f"【模拟RCS继续响应】code={resp.status} body={response_text}")
+                            if resp.status == 200:
+                                logger.info("继续执行盘点任务命令已发送到机器人系统（Sim）")
+                                return {"success": True, "message": "盘点任务已继续"}
+                            last_error = f" HTTP {resp.status}: {response_text}"
+                            logger.warning(f"继续任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+                    continue  # resp.status != 200，继续重试
 
                 else:
                     # ====== 真实模式 ======
@@ -337,24 +413,24 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                     log_msg = f"【真实RCS继续请求】url={continue_url} headers={json.dumps(headers, ensure_ascii=False)} body={json.dumps(request_body, ensure_ascii=False)}"
                     logger.info(log_msg)
                     rcs_logger.info(log_msg)
-                    response = requests.post(continue_url, json=request_body, headers=headers, timeout=20, verify=False)
+                    response = requests.post(continue_url, json=request_body, headers=headers, timeout=5, verify=False)
                     log_msg = f"【真实RCS继续响应】code={response.status_code} body={response.text}"
                     logger.info(log_msg)
                     rcs_logger.info(log_msg)
 
-                if response.status_code == 200:
-                    response_data = response.json()
-                    # 兼容两种返回格式：code="SUCCESS" 或 success=true
-                    is_success = response_data.get("success") is True or response_data.get("code") == "SUCCESS"
-                    if is_success:
-                        logger.info(f"继续执行盘点任务命令已发送到机器人系统")
-                        return {"success": True, "message": "盘点任务已继续"}
+                    if response.status_code == 200:
+                        response_data = response.json()
+                        # 兼容两种返回格式：code="SUCCESS" 或 success=true
+                        is_success = response_data.get("success") is True or response_data.get("code") == "SUCCESS"
+                        if is_success:
+                            logger.info("继续执行盘点任务命令已发送到机器人系统")
+                            return {"success": True, "message": "盘点任务已继续"}
+                        else:
+                            last_error = f" RCS 返回错误: {response_data.get('message', '')} ({response_data.get('errorCode', '')})"
+                            logger.warning(f"继续任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
                     else:
-                        last_error = f" RCS 返回错误: {response_data.get('message', '')} ({response_data.get('errorCode', '')})"
+                        last_error = f" HTTP {response.status_code}"
                         logger.warning(f"继续任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
-                else:
-                    last_error = f" HTTP {response.status_code}"
-                    logger.warning(f"继续任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
 
             except requests.exceptions.Timeout:
                 last_error = " 请求超时"
@@ -494,9 +570,9 @@ async def update_robot_status(method: str, data: Optional[Dict] = None):
     await _router_update_status(method, data)
 
 
-async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_robot_codes: set = None):
+async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_robot_codes: set = None, task_no: str = ""):
     """等待特定机器人状态（委托给 robot/router）"""
-    return await _router_wait_status(expected_method, timeout, valid_robot_codes=valid_robot_codes)
+    return await _router_wait_status(expected_method, timeout, valid_robot_codes=valid_robot_codes, task_no=task_no)
 
 
 # ==================== 系统在线状态检查 ====================
@@ -1463,305 +1539,175 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             for bin_status in _inventory_task_bins[task_no]:
                 bin_status.status = "running"
 
-        if is_sim:
-            # ====== 模拟模式：aiohttp 批量下发（不阻塞） → 逐个等待 END → 拍照 → 发 continue ======
-            # aiohttp 不阻塞事件循环，END 回调到达时能正常处理，不会丢失。
-            logger.info(f"模拟模式：aiohttp 批量下发 {len(bin_locations)} 个库位（间隔 0.5s）")
-            submit_result = await submit_inventory_task(task_no, bin_locations, is_sim=True)
-            # 保存 robot_task_code，供取消时使用
+        # ====== 寻路排序后逐个下发，等 END 到了再下下一个，sim/real 共用逻辑 ======
+        sorted_bins = sort_bins_by_path(bin_locations)
+        if sorted_bins != bin_locations:
+            logger.info(f"寻路排序: {sorted_bins}")
+        logger.info(f"逐个下发 {len(sorted_bins)} 个库位 (is_sim={is_sim})")
+
+        submitted_bins: List[str] = []
+        _bin_timeout = 300  # 每个 bin 独立等待 END 的超时时间（秒）
+        from services.api.robot.router import register_task_for_robot_code, prune_robot_status_queue
+
+        i = 0
+        while i < len(sorted_bins):
+            if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                logger.warning(f"任务 {task_no} 已被取消，退出等待循环")
+                break
+
+            bin_location = sorted_bins[i]
+            # 1. 逐个下发 RCS
+            submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=is_sim)
+            robot_task_code = submit_result.get("robotTaskCode", "")
             if task_no in _inventory_tasks:
-                _inventory_tasks[task_no].robot_task_code = submit_result.get("robotTaskCode", "ctu001")
-            if not submit_result.get("success"):
-                error_msg = submit_result.get("message", "盘点任务下发失败")
-                _inventory_tasks[task_no].status = "failed"
-                _inventory_tasks[task_no].end_time = datetime.now().isoformat()
-                _inventory_tasks[task_no].error_message = error_msg
-                _inventory_tasks[task_no].error_type = "rcs"
-                return {"success": False, "message": error_msg, "errorType": "rcs", "task_no": task_no}
-            logger.info(f"全部 {len(bin_locations)} 个库位已下发完毕，等待 END 回调...")
+                _inventory_tasks[task_no].robot_task_code = robot_task_code
+            register_task_for_robot_code(robot_task_code, task_no)
+            submitted_bins.append(bin_location)
+            logger.info(f"第 {i+1}/{len(sorted_bins)} 个库位已下发: {bin_location}, robotTaskCode={robot_task_code}")
+            _active_bin_tracker[task_no] = {"bin_to_task_code": {bin_location: robot_task_code}}
+            prune_robot_status_queue({robot_task_code})
 
-            # Phase 2: 批量推入 Redis 队列，worker 逐个处理
-            queued = push_task(task_no, bin_locations, {"is_sim": True})
-            if queued:
-                logger.info(f"任务 {task_no} 全部 {len(bin_locations)} 个库位已推入 Redis 队列")
-            else:
-                logger.warning(f"Redis 不可用，将使用本地执行")
-
-            # 逐个等待 END：收到 END → 等待 worker 结果 → 发 continue
-            for i in range(len(bin_locations)):
-                # 清空队列中的旧状态，防止上一轮残留的 END 干扰
-                clear_robot_status_queue()
-
-                # 检查任务是否已被取消
-                if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
-                    logger.warning(f"任务 {task_no} 已被取消，退出等待循环")
+            _bin_start = time.time()
+            while True:
+                _bin_elapsed = time.time() - _bin_start
+                if _bin_elapsed >= _bin_timeout:
+                    logger.error(f"等待 END 超时，跳过库位: {bin_location}")
                     break
 
-                # 等待 END（队列支持多 END 并发到达，不会丢失）
-                resolved_bin = bin_locations[i]
-                timeout_occurred = False
                 try:
-                    ctu_status = await wait_for_robot_status("end", timeout=600)
-                    bin_code = ctu_status.get("binCode", "")
-                    resolved_bin = bin_code or bin_locations[i]
-                    if bin_code:
-                        logger.info(f"END 回调携带 binCode: {bin_code}")
+                    ctu_status = await wait_for_robot_status(
+                        "end",
+                        timeout=1,
+                        valid_robot_codes={robot_task_code},
+                        task_no=task_no
+                    )
                 except asyncio.TimeoutError:
-                    logger.error(f"等待 END 超时，跳过库位: {resolved_bin}")
-                    inventory_results.append({
-                        "binLocation": resolved_bin, "status": "异常",
-                        "actualQuantity": None, "actualSpec": "无",
-                        "error": "等待 END 超时",
-                        "photo3dPath": None, "photoDepthPath": None,
-                        "photoScan1Path": "", "photoScan2Path": "",
-                        "specName": "", "systemQuantity": 0, "difference": 0,
-                    })
-                    update_progress(task_no, len(inventory_results))
-                    timeout_occurred = True
+                    ctu_status = None
 
-                # 取消后不再发送 continue，避免 RCS 卡在等待继续指令的状态
-                if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
-                    logger.warning(f"任务 {task_no} 已被取消，跳过 continue，退出等待循环")
+                if ctu_status is not None:
+                    bin_code = ctu_status.get("binCode", "") or bin_location
+                    logger.info(f"[END] bin={bin_code}，rt_code={ctu_status.get('robotTaskCode', '')}")
                     break
+                else:
+                    found_pending = any(
+                        item.get("method") == "end" and
+                        (not item.get("task_no") or item.get("task_no") == task_no)
+                        for item in _robot_status_queue
+                    )
+                    if not found_pending:
+                        continue  # 继续轮询
 
-                if timeout_occurred:
-                    continue
+            _inventory_tasks[task_no].current_step = i
 
-                # 收到 END，推 Redis 等 worker 检测，完成后再发 continue
-                _inventory_tasks[task_no].current_step = len(inventory_results) + 1
-                logger.info(f"已收到 END: {resolved_bin}，推 Redis 等 worker 检测...")
+            # 2. 发送 continue
+            if robot_task_code:
                 try:
-                    queued_ok = push_single_bin_task(task_no, resolved_bin)
-                    if queued_ok:
-                        logger.info(f"库位 {resolved_bin} 已推入 Redis 队列，等 worker 检测...")
-                        worker_result = await wait_for_bin_result(task_no, resolved_bin)
-                        if worker_result:
-                            result = worker_result.get("result", {})
-                            logger.info(f"Worker 结果: {resolved_bin} → status={result.get('status')}, qty={result.get('actualQuantity')}")
+                    cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=robot_task_code)
+                    logger.info(f"发送 continue: bin={bin_location}, rt_code={robot_task_code}, result={cr}")
+                except Exception as e:
+                    logger.error(f"发送 continue 失败: bin={bin_location}, rt_code={robot_task_code}, error={e}")
+
+            # 3. 推 Redis 触发 worker 检测
+            push_single_bin_task(task_no, bin_location)
+
+            # 4. 真实模式：拍照走 ThreadPoolExecutor 避免阻塞事件循环
+            if not is_sim:
+                def _capture_sync():
+                    import asyncio as _a
+                    loop = _a.new_event_loop()
+                    try:
+                        return loop.run_until_complete(capture_images_with_scripts(task_no, bin_location))
+                    finally:
+                        loop.close()
+                try:
+                    _capture_executor.submit(_capture_sync)
+                    logger.info(f"拍照已提交后台执行: {bin_location}")
+                except Exception as e:
+                    logger.error(f"拍照提交后台失败: {bin_location}, error={e}")
+            else:
+                # 模拟模式：有测试图片走真实拍照，没有走模拟
+                try:
+                    from services.api.shared.config import CAMERA_TEST_DIR
+                    if CAMERA_TEST_DIR:
+                        capture_result = await capture_images_with_scripts(task_no, bin_location)
+                        if capture_result.get("success"):
+                            logger.info(f"模拟模式拍照完成: {bin_location}")
                         else:
-                            logger.warning(f"Worker 结果等待超时，记录失败")
-                            result = {"status": "异常", "error": "Worker 结果等待超时", "actualQuantity": None, "actualSpec": "无", "photo3dPath": None, "photoDepthPath": None, "photoScan1Path": "", "photoScan2Path": ""}
+                            logger.warning(f"模拟模式拍照未成功: {bin_location}，errors: {capture_result.get('errors', [])}")
                     else:
-                        logger.warning(f"Redis 不可用，记录失败")
-                        result = {"status": "异常", "error": "Redis 不可用", "actualQuantity": None, "actualSpec": "无", "photo3dPath": None, "photoDepthPath": None, "photoScan1Path": "", "photoScan2Path": ""}
+                        logger.info(f"模拟模式（无测试图片）：{bin_location}")
                 except Exception as e:
-                    logger.error(f"处理库位 {resolved_bin} 时发生异常: {str(e)}")
-                    result = {
-                        "status": "异常", "error": f"处理库位异常: {str(e)}",
-                        "actualQuantity": None, "actualSpec": "无",
-                        "photo3dPath": None, "photoDepthPath": None,
-                        "photoScan1Path": "", "photoScan2Path": "",
-                    }
+                    logger.error(f"模拟模式拍照异常: {bin_location}, error={e}")
 
-                # 发 continue（在检测完成之后）
-                try:
-                    await continue_inventory_task(is_sim=True, robot_task_code=submit_result.get("robotTaskCode", "ctu001"))
-                except Exception as e:
-                    logger.error(f"发送 continue 失败: {str(e)}")
+            add_to_completed_set(task_no, "rcs_completed", bin_location)
+            update_progress(task_no, i + 1)
+            logger.info(f"RCS END 已处理: {bin_location}，进度 {i+1}/{len(sorted_bins)}")
+            i += 1
 
-                # 更新 bin 状态 & 收集结果
-                if task_no in _inventory_task_bins:
-                    for bs in _inventory_task_bins[task_no]:
-                        if bs.bin_location == resolved_bin:
-                            bs.status = "completed" if result.get("status") == "成功" else "failed"
-                            break
+        logger.info(f"RCS END 全部处理完毕（{len(submitted_bins)}/{len(sorted_bins)}），等待 worker 检测结果...")
 
-                inventory_item = None
-                if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
-                    for item in _inventory_task_details[task_no]["inventoryItems"]:
-                        if item.get("locationName") == resolved_bin:
-                            inventory_item = item
-                            break
+        worker_done_count = 0
+        while worker_done_count < len(submitted_bins):
+            await asyncio.sleep(3)
+            worker_done_count = get_completed_count(task_no, "worker_completed")
+            logger.debug(f"Worker 进度: {worker_done_count}/{len(submitted_bins)}")
 
-                actual_qty = int(result.get("actualQuantity", 0) or 0)
-                system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
-                inventory_results.append({
-                    "binLocation": resolved_bin,
-                    "status": result.get("status"),
-                    "actualQuantity": result.get("actualQuantity"),
-                    "actualSpec": result.get("actualSpec"),
-                    "photo3dPath": result.get("photo3dPath"),
-                    "photoDepthPath": result.get("photoDepthPath"),
-                    "photoScan1Path": result.get("photoScan1Path", ""),
-                    "photoScan2Path": result.get("photoScan2Path", ""),
-                    "error": result.get("error"),
-                    "specName": inventory_item.get("productName", "") if inventory_item else "",
-                    "systemQuantity": system_qty,
-                    "difference": actual_qty - system_qty,
-                })
-                update_progress(task_no, len(inventory_results))
+        for bin_loc in submitted_bins:
+            worker_result = await _wait_for_bin_result(task_no, bin_loc)
+            result_data = worker_result.get("result", {}) if worker_result else {}
+            if worker_result:
+                logger.info(f"Worker 结果: {bin_loc} → status={result_data.get('status')}, qty={result_data.get('actualQuantity')}")
 
-        else:
-            async with _real_mode_lock:
-                # ====== 真实模式：批量下发 RCS → 逐个等待 END → 拍照 → 发 continue → 推 Redis ======
-                logger.info(f"真实模式：批量下发 {len(bin_locations)} 个库位（间隔 0.5s）")
-                submitted_bins: List[str] = []
-                bin_to_task_code: Dict[str, str] = {}
-                for i, bin_location in enumerate(bin_locations):
-                    submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=False)
-                    robot_task_code = submit_result.get("robotTaskCode", "")
-                    if task_no in _inventory_tasks:
-                        _inventory_tasks[task_no].robot_task_code = robot_task_code
-                    bin_to_task_code[bin_location] = robot_task_code
-                    submitted_bins.append(bin_location)
-                    logger.info(f"第 {i+1}/{len(bin_locations)} 个库位已下发: {bin_location}, robotTaskCode={robot_task_code}")
-                    if i < len(bin_locations) - 1:
-                        await asyncio.sleep(0.5)
-                logger.info(f"全部 {len(submitted_bins)} 个库位已下发完毕，等待 END 回调...")
-
-                # 存储 bin 映射，供取消时使用
-                _active_bin_tracker[task_no] = {"bin_to_task_code": bin_to_task_code}
-
-                # 任务开始前，清理队列中残留的旧任务 END 回调
-                prune_robot_status_queue(set(bin_to_task_code.values()))
-
-                pending_count = len(submitted_bins)
-                processed_count = 0
-                completed_bins: set = set()
-                completed_robot_codes: set = set()
-
-                # 主循环：每次收到 END → 拍照 → 发 continue → 标记 RCS 完成 → 推 Redis 给 worker
-                while processed_count < pending_count:
-                    # 检查是否已被取消
-                    if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
-                        logger.warning(f"任务 {task_no} 已被取消，退出等待循环")
+            inventory_item = None
+            if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
+                for item in _inventory_task_details[task_no]["inventoryItems"]:
+                    if item.get("locationName") == bin_loc:
+                        inventory_item = item
                         break
 
-                    wait_bin = ""
-                    wait_rt = ""
-                    try:
-                        ctu_status = await wait_for_robot_status("end", timeout=600,
-                                                    valid_robot_codes=set(bin_to_task_code.values()))
-                        bin_code = ctu_status.get("binCode", "")
-                        if not bin_code:
-                            # 按顺序匹配
-                            idx = processed_count
-                            wait_bin = submitted_bins[idx] if idx < len(submitted_bins) else ""
-                            logger.warning(f"END 回调未含 binCode，按顺序匹配为: {wait_bin}")
-                        else:
-                            wait_bin = bin_code
-                            logger.info(f"END 回调携带 binCode: {wait_bin}")
+            actual_qty = int(result_data.get("actualQuantity", 0) or 0)
+            system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
+            bin_result = {
+                "binLocation": bin_loc,
+                "status": result_data.get("status") or ("成功" if result_data.get("actualQuantity") is not None else "异常"),
+                "actualQuantity": result_data.get("actualQuantity"),
+                "actualSpec": result_data.get("actualSpec"),
+                "photo3dPath": result_data.get("photo3dPath"),
+                "photoDepthPath": result_data.get("photoDepthPath"),
+                "photoScan1Path": result_data.get("photoScan1Path", ""),
+                "photoScan2Path": result_data.get("photoScan2Path", ""),
+                "error": result_data.get("error"),
+                "specName": inventory_item.get("productName", "") if inventory_item else "",
+                "systemQuantity": system_qty,
+                "difference": actual_qty - system_qty,
+            }
+            inventory_results.append(bin_result)
 
-                        expected_rt = bin_to_task_code.get(wait_bin, "")
-                        callback_rt = ctu_status.get("robotTaskCode", "")
-                        logger.info(f"[END] bin={wait_bin}，映射 rt_code={expected_rt}，回调 rt_code={callback_rt}")
+            # 立即写入详情存储，让前端 /results 接口可以查到实时部分结果
+            if task_no not in _inventory_task_details:
+                _inventory_task_details[task_no] = {}
+            if "inventoryResults" not in _inventory_task_details[task_no]:
+                _inventory_task_details[task_no]["inventoryResults"] = []
+            _inventory_task_details[task_no]["inventoryResults"].append(bin_result)
 
-                        # 去重校验
-                        if wait_bin in completed_bins:
-                            logger.debug(f"[END] bin={wait_bin} 已处理过，跳过")
-                            continue
-                        if expected_rt and expected_rt in completed_robot_codes:
-                            logger.debug(f"[END] rt_code={expected_rt} 已响应过，跳过")
-                            continue
-                        if callback_rt and expected_rt and callback_rt != expected_rt:
-                            logger.warning(f"[END] 回调 rt_code={callback_rt} 与映射 rt_code={expected_rt} 不一致，以映射为准")
+        if task_no in _inventory_task_bins:
+            for bs in _inventory_task_bins[task_no]:
+                for r in inventory_results:
+                    if bs.bin_location == r.get("binLocation"):
+                        bs.status = "completed" if r.get("status") == "成功" else "failed"
+                        break
 
-                        completed_bins.add(wait_bin)
-                        completed_robot_codes.add(expected_rt)
+        logger.info(f"所有 {len(bin_locations)} 个储位处理完成")
 
-                    except asyncio.TimeoutError:
-                        # 超时：按顺序取下一个 bin 作为超时 bin
-                        wait_bin = submitted_bins[processed_count] if processed_count < len(submitted_bins) else ""
-                        wait_rt = bin_to_task_code.get(wait_bin, "")
-                        if not wait_bin:
-                            logger.error(f"等待 END 超时，但无更多 bin，退出")
-                            break
-                        logger.error(f"等待 END 超时，跳过库位: {wait_bin}")
-                        _inventory_tasks[task_no].current_step = processed_count
-                        # 标记已处理
-                        if wait_bin:
-                            completed_bins.add(wait_bin)
-                        if wait_rt:
-                            completed_robot_codes.add(wait_rt)
-
-                    # ---- 以下无论正常还是超时都执行 ----
-                    # 1. 触发拍照（gateway 负责拍照 + 确认文件夹有照片）
-                    try:
-                        capture_result = await capture_images_with_scripts(task_no, wait_bin)
-                        if capture_result.get("success"):
-                            cam_status = ", ".join([
-                                n + ":" + ("成功" if r.get("success") else "失败:" + (r.get("error") or ""))
-                                for n, r in capture_result.get("cameras", {}).items()
-                            ])
-                            logger.info(f"拍照完成: {wait_bin}，状态: {cam_status}")
-                        else:
-                            logger.warning(f"拍照未成功: {wait_bin}，errors: {capture_result.get('errors', [])}")
-                    except Exception as e:
-                        logger.error(f"拍照异常: {wait_bin}, error={e}")
-
-                    # 2. 发送 continue（无论拍照成功与否都必须发，否则 RCS 卡住）
-                    if wait_rt:
-                        try:
-                            cr = await continue_inventory_task(is_sim=False, robot_task_code=wait_rt)
-                            logger.info(f"发送 continue: bin={wait_bin}, rt_code={wait_rt}, result={cr}")
-                        except Exception as e:
-                            logger.error(f"发送 continue 失败: bin={wait_bin}, rt_code={wait_rt}, error={e}")
-
-                    # 3. 标记 RCS END 已收到
-                    add_to_completed_set(task_no, "rcs_completed", wait_bin)
-
-                    # 4. 推 Redis 触发 worker 检测
-                    push_single_bin_task(task_no, wait_bin)
-
-                    processed_count += 1
-                    _inventory_tasks[task_no].current_step = processed_count
-                    update_progress(task_no, processed_count)
-                    logger.info(f"RCS END 已处理: {wait_bin}，进度 {processed_count}/{pending_count}")
-
-                # 主循环结束，收集 worker 检测结果
-                logger.info(f"RCS END 全部处理完毕（{processed_count}/{pending_count}），等待 worker 检测结果...")
-
-                # 轮询等待 worker 全部完成
-                worker_done_count = 0
-                while worker_done_count < pending_count:
-                    import asyncio as _asyncio
-                    await _asyncio.sleep(3)
-                    worker_done_count = get_completed_count(task_no, "worker_completed")
-                    logger.debug(f"Worker 进度: {worker_done_count}/{pending_count}")
-
-                # 收齐全部 worker 结果
-                for bin_loc in submitted_bins:
-                    worker_result = await _wait_for_bin_result(task_no, bin_loc)
-                    result_data = worker_result.get("result", {}) if worker_result else {}
-                    if worker_result:
-                        logger.info(f"Worker 结果: {bin_loc} → status={result_data.get('status')}, qty={result_data.get('actualQuantity')}")
-
-                    inventory_item = None
-                    if task_no in _inventory_task_details and "inventoryItems" in _inventory_task_details[task_no]:
-                        for item in _inventory_task_details[task_no]["inventoryItems"]:
-                            if item.get("locationName") == bin_loc:
-                                inventory_item = item
-                                break
-
-                    actual_qty = int(result_data.get("actualQuantity", 0) or 0)
-                    system_qty = int(inventory_item.get("systemQuantity", 0) or 0) if inventory_item else 0
-                    inventory_results.append({
-                        "binLocation": bin_loc,
-                        "status": result_data.get("status") or ("成功" if result_data.get("actualQuantity") is not None else "异常"),
-                        "actualQuantity": result_data.get("actualQuantity"),
-                        "actualSpec": result_data.get("actualSpec"),
-                        "photo3dPath": result_data.get("photo3dPath"),
-                        "photoDepthPath": result_data.get("photoDepthPath"),
-                        "photoScan1Path": result_data.get("photoScan1Path", ""),
-                        "photoScan2Path": result_data.get("photoScan2Path", ""),
-                        "error": result_data.get("error"),
-                        "specName": inventory_item.get("productName", "") if inventory_item else "",
-                        "systemQuantity": system_qty,
-                        "difference": actual_qty - system_qty,
-                    })
-
-                # 更新 bin 状态
-                if task_no in _inventory_task_bins:
-                    for bs in _inventory_task_bins[task_no]:
-                        for r in inventory_results:
-                            if bs.bin_location == r.get("binLocation"):
-                                bs.status = "completed" if r.get("status") == "成功" else "failed"
-                                break
-
-                logger.info(f"所有 {len(bin_locations)} 个储位处理完成")
 
         # 清理 Redis 结果缓存
         clear_task_results(task_no)
+
+        # 如果任务已被取消，保留 cancelled 状态，不覆盖
+        if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+            logger.info(f"任务 {task_no} 已被取消，保留取消状态")
+            _active_bin_tracker.pop(task_no, None)
+            return
 
         # 判断任务整体状态：全部成功 / 部分失败 / 全部失败
         success_count = sum(1 for r in inventory_results if r.get("status") == "成功")

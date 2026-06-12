@@ -306,7 +306,14 @@ async def get_inventory_progress(taskNo: str):
         task_status = inventory_tasks[taskNo]
         bin_statuses = inventory_task_bins.get(taskNo, [])
 
-        completed_count = sum(1 for bin in bin_statuses if bin.status == "completed")
+        # RCS END 收到后立即计数（rcs_completed），worker 检测完再追加（worker_completed）
+        # 取两者的较大值，前端在整个过程中都能看到实时进度
+        from services.api.shared.redis_queue import get_completed_count
+        rcs_done = get_completed_count(taskNo, "rcs_completed")
+        worker_done = get_completed_count(taskNo, "worker_completed")
+        completed_count = max(rcs_done, worker_done)
+        if completed_count == 0:
+            completed_count = sum(1 for bin in bin_statuses if bin.status == "completed")
         progress_percentage = (completed_count / task_status.total_steps * 100) if task_status.total_steps > 0 else 0
 
         progress_data = InventoryTaskProgress(
@@ -386,7 +393,14 @@ async def get_inventory_results(taskNo: str):
         if taskNo in inventory_task_details and "inventoryResults" in inventory_task_details[taskNo]:
             inventory_results = inventory_task_details[taskNo]["inventoryResults"]
 
-        message = "获取盘点结果成功" if task_status.status == "completed" else "部分库位盘点完成"
+        if task_status.status == "completed":
+            message = "获取盘点结果成功"
+        elif task_status.status == "partial":
+            message = "部分库位盘点完成"
+        elif task_status.status == "running":
+            message = "盘点进行中"
+        else:
+            message = "任务已结束"
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -1039,12 +1053,16 @@ async def cancel_inventory(taskNo: str = Query(..., description="任务编号"))
             inventory_tasks.pop(taskNo, None)
             inventory_task_details.pop(taskNo, None)
             inventory_task_bins.pop(taskNo, None)
+        elif current_status == "running":
+            # 执行中取消：设状态为 cancelled，workflow 循环会在下次迭代检测到并自然退出
+            inventory_tasks[taskNo].status = "cancelled"
+            inventory_tasks[taskNo].end_time = datetime.now().isoformat()
+            logger.info(f"任务已取消: {taskNo}（执行中取消，workflow 将自然退出）")
         else:
-            # 执行中取消：只从内存清除，不写 Excel
+            # 其他中间状态（pending/interrupted）：直接清除
             inventory_tasks.pop(taskNo, None)
             inventory_task_details.pop(taskNo, None)
             inventory_task_bins.pop(taskNo, None)
-            logger.info(f"任务已取消: {taskNo}（执行中取消，不记录）")
 
         # 广播任务取消通知
         await ws_manager.broadcast_task_event(
@@ -1058,29 +1076,28 @@ async def cancel_inventory(taskNo: str = Query(..., description="任务编号"))
     else:
         logger.info(f"任务不在内存中，仅清除 task_state.json 中的记录: {taskNo}")
 
-    # 向 RCS 发送所有未完成库位的 continue，让 RCS 完成剩余任务
+    # 新模式（逐个下发）：tracker 只存当前下发的那个 bin
+    # 发 continue 让 RCS 正常完成当前 bin，再清空队列
     tracker = _active_bin_tracker.get(taskNo)
     if tracker:
         bin_to_code = tracker.get("bin_to_task_code", {})
-        remaining = {
-            bin_loc: rt_code
-            for bin_loc, rt_code in bin_to_code.items()
-            if not is_bin_completed(taskNo, "rcs_completed", bin_loc)
-        }
-        if remaining:
-            logger.info(f"[取消] 正在发送剩余 {len(remaining)} 个 continue...")
-            for bin_loc, rt_code in remaining.items():
+        # 找到未收到 END 的 bin（当前正在等待或刚下发的）
+        for bin_loc, rt_code in bin_to_code.items():
+            if not is_bin_completed(taskNo, "rcs_completed", bin_loc):
                 try:
-                    await continue_inventory_task(is_sim=False, robot_task_code=rt_code)
+                    await continue_inventory_task(is_sim=IS_SIM, robot_task_code=rt_code)
                     logger.info(f"[取消] continue 已发送: bin={bin_loc}, rt_code={rt_code}")
                 except Exception as e:
                     logger.error(f"[取消] continue 发送失败: bin={bin_loc}, error={e}")
-            logger.info(f"[取消] 所有剩余 continue 发送完毕")
         _active_bin_tracker.pop(taskNo, None)
 
-    # 清空 worker 队列中属于本任务的条目
+    # 清空 worker 队列中属于本任务的所有条目
     flushed = flush_single_bin_queue_by_task(taskNo)
     logger.info(f"[取消] 清空 worker 队列: task={taskNo}, 清空 {flushed} 条")
+
+    # 清空 gateway 内存中的 bin 状态，避免 resume 时残留
+    if taskNo in inventory_task_bins:
+        inventory_task_bins[taskNo].clear()
 
     # 清空 RCS 和 worker 完成状态集合
     clear_task_sets(taskNo)

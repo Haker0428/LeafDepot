@@ -47,6 +47,18 @@ async def capture_images(task_no: str, bin_location: str, is_sim: bool) -> Dict[
 
     # sim without camera: 复制模拟图片
     await asyncio.sleep(2)
+
+    # 复制前再检查一次（gateway 可能已经提前复制好了）
+    if capture_dir.exists():
+        has_photos = False
+        for sub in ("3d_camera", "scan_camera_1", "scan_camera_2"):
+            sub_dir = capture_dir / sub
+            if sub_dir.exists() and any(sub_dir.iterdir()):
+                has_photos = True
+                break
+        if has_photos:
+            logger.info(f"[DetectionRunner] 照片已存在（复制阶段复查），跳过: {task_no}/{bin_location}")
+            return {"success": True}
     if not capture_dir.exists():
         capture_dir.mkdir(parents=True, exist_ok=True)
         public_dir = _project_root / "web" / "src" / "public"
@@ -156,6 +168,8 @@ async def run_detection(task_no: str, bin_location: str, is_sim: bool) -> Dict[s
 
     result["barcode_result"] = barcode_result
     result["detect_result"] = detect_result
+
+    logger.info(f"[DetectionRunner] detect_result={detect_result}, barcode_result={barcode_result}")
 
     if detect_result.get("status") == "success":
         result["photo3dPath"] = f"/{task_no}/{bin_location}/3d_camera/main_rotated.jpg"

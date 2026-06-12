@@ -1012,14 +1012,13 @@ export default function InventoryProgress() {
         message: errorMsg,
         onOk: () => {
           setTaskErrorModal((prev) => ({ ...prev, open: false }));
-          navigate("/inventory/start");
         },
       });
       setIsStartingTask(false);
     };
     window.addEventListener("remote-task-event", handler as EventListener);
     return () => window.removeEventListener("remote-task-event", handler as EventListener);
-  }, [currentTaskNo, navigate]);
+  }, [currentTaskNo]);
 
   // 图片加载处理
   const handleImageLoad = () => {
@@ -1250,14 +1249,13 @@ export default function InventoryProgress() {
                 localStorage.removeItem("currentTaskNo");
                 window.dispatchEvent(new Event("clear-task-notify"));
                 window.dispatchEvent(new Event("resume-polling"));
-                // 显示错误弹窗，点击确定后返回任务下发页面
+                // 显示错误弹窗，点击确定后留在当前页面
                 setTaskErrorModal({
                   open: true,
                   errorType,
                   message: errorMsg,
                   onOk: () => {
                     setTaskErrorModal((prev) => ({ ...prev, open: false }));
-                    navigate("/inventory/start");
                   },
                 });
                 setIsStartingTask(false);
@@ -1294,12 +1292,9 @@ export default function InventoryProgress() {
                 );
                 const resultsData = await resultsResponse.json();
                 const inventoryResults = resultsData.data?.inventoryResults || [];
-
                 toast.success("盘点任务完成");
                 logger.info("[INVENTORY] 轮询检测到任务完成", { taskNo: currentTaskNo }, "inventory");
                 setIsTaskCompleted(true);
-
-                // 先在外部计算失败库位和 newItems，避免闭包陷阱
                 const failedBins: Array<{ binLocation: string; error: string }> = [];
                 const newItems = inventoryItems.map((item) => {
                   const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
@@ -1317,27 +1312,25 @@ export default function InventoryProgress() {
                     photoScan2Path: ir.photoScan2Path,
                   };
                 });
-
                 setInventoryItems(newItems);
-
                 if (failedBins.length > 0) {
                   setFailedBinsModal({
                     open: true,
                     bins: failedBins,
                     onOk: () => setFailedBinsModal((prev) => ({ ...prev, open: false })),
                   });
-                  toast.error(`${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`);
                 } else {
-                  showStatisticsModal(newItems, taskStartTimeRef.current ? Date.now() - taskStartTimeRef.current : undefined);
+                  showStatisticsModal(newItems);
                 }
+                setProgress(100);
                 return;
               }
 
+              // 任务失败
               if (taskStatus === "failed") {
                 clearInterval(pollIntervalId);
                 const errorMsg2 = progressResult.data?.message || "盘点任务失败";
                 const errorType2 = (progressResult.data?.error_type as "rcs" | "camera" | "other") || "other";
-                // 清理任务状态
                 localStorage.removeItem("currentTaskManifest");
                 localStorage.removeItem("currentTaskNo");
                 window.dispatchEvent(new Event("clear-task-notify"));
@@ -1348,7 +1341,6 @@ export default function InventoryProgress() {
                   message: errorMsg2,
                   onOk: () => {
                     setTaskErrorModal((prev) => ({ ...prev, open: false }));
-                    navigate("/inventory/start");
                   },
                 });
                 setIsStartingTask(false);
@@ -2903,7 +2895,7 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
             : "⚠️ 盘点任务下发失败"
         }
         open={taskErrorModal.open}
-        onCancel={taskErrorModal.onOk}
+        onCancel={() => setTaskErrorModal((prev) => ({ ...prev, open: false }))}
         footer={[
           <button
             key="ok"

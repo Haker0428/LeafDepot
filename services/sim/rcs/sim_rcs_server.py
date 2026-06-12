@@ -95,7 +95,7 @@ class RobotTaskSimulator:
 
     @classmethod
     async def _run_task(cls, robot_task_code: str):
-        """逐个 bin 执行：第一个立即 END，后续等 continue"""
+        """逐个 bin 执行：每个 bin 发 END 后都等 continue"""
         if robot_task_code not in cls.task_groups:
             return
         task_group = cls.task_groups[robot_task_code]
@@ -111,8 +111,9 @@ class RobotTaskSimulator:
                 "total_tasks": task_group["total_tasks"]
             })
 
-            # 模拟移动到目标
-            await asyncio.sleep(0.1)
+            # 模拟移动到目标（15秒，模拟机器人物理移动）
+            logger.info(f"任务 {robot_task_code} bin {i+1} ({location}) 机器人移动中，预计 15 秒...")
+            await asyncio.sleep(15)
 
             # OUTBIN
             await cls.send_callback(robot_task_code, "outbin", {
@@ -120,39 +121,20 @@ class RobotTaskSimulator:
                 "progress": "moving_to_location"
             })
 
-            # 模拟执行任务
-            await asyncio.sleep(0.1)
-
             task_group["current_index"] = i + 1
             task_group["last_update"] = datetime.now().isoformat()
 
-            if i == 0:
-                # 第一个 bin：直接发 END（不等 continue）
-                await cls.send_callback(robot_task_code, "end", {
-                    "location": location,
-                    "task_index": i,
-                    "result": "success"
-                })
-                logger.info(f"任务 {robot_task_code} bin 1 ({location}) END 已发（不等 continue）")
-                # 等 continue 才触发下一个 bin
-                if task_group["total_tasks"] > 1:
-                    cls._pending_continue_event.clear()
-                    await cls._pending_continue_event.wait()
-            else:
-                # 后续 bin：等 continue 才发 END
-                logger.info(f"任务 {robot_task_code} bin {i+1} ({location}) 完成，等 continue...")
+            # 发 END，然后等 continue，收到 continue 才到下一个 bin
+            await cls.send_callback(robot_task_code, "end", {
+                "location": location,
+                "task_index": i,
+                "result": "success"
+            })
+            logger.info(f"任务 {robot_task_code} bin {i+1} ({location}) END 已发，等 continue...")
+            # 最后一个 bin 不需要等 continue（gateway 侧最后一个也不发）
+            if i < task_group["total_tasks"] - 1:
                 cls._pending_continue_event.clear()
                 await cls._pending_continue_event.wait()
-                await cls.send_callback(robot_task_code, "end", {
-                    "location": location,
-                    "task_index": i,
-                    "result": "success"
-                })
-                logger.info(f"任务 {robot_task_code} bin {i+1} ({location}) END 已发")
-                # 发完 END 继续等 continue
-                if i < task_group["total_tasks"] - 1:
-                    cls._pending_continue_event.clear()
-                    await cls._pending_continue_event.wait()
 
         task_group["status"] = "completed"
         logger.info(f"任务 {robot_task_code} 全部 {task_group['total_tasks']} 个 bin 执行完毕")

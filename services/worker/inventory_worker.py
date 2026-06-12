@@ -29,39 +29,37 @@ from services.api.shared.redis_queue import (
     pop_single_bin_task,
     push_bin_result,
     add_to_completed_set,
-    set_task_status,
 )
-from services.api.shared.config import set_service_name, get_logger, _log_filename, CAMERA_TEST_DIR, IS_SIM
+from services.api.shared.config import CAMERA_TEST_DIR, IS_SIM, logs_dir
+from datetime import datetime
 
-# 设置 worker 日志文件
-set_service_name("worker")
-logger = get_logger("inventory_worker")
+# 设置 worker 日志文件（独立于 gateway，不调用 set_service_name 避免覆盖 gateway 的 root logger）
+_worker_log_file = logs_dir / f"worker_{datetime.now().strftime('%Y%m%d')}.log"
 
-# 让 core.* 日志只写入 worker 日志文件（不传到 root logger，避免重复）
-import logging.handlers
-_core_logger = logging.getLogger("core")
-# 先清掉所有已有 handler（包括 root logger 继承来的）
-for h in list(_core_logger.handlers):
-    _core_logger.removeHandler(h)
-_core_logger.propagate = False  # 禁止向上传到 root logger
-_core_logger.setLevel(logging.DEBUG)
-_worker_fh = logging.FileHandler(str(_log_filename), encoding='utf-8')
-_worker_fh.setFormatter(logging.Formatter(
+# 设置 root logger，让所有 services.api.* 子 logger 都写到 worker 文件
+_root_logger = logging.getLogger()
+_root_logger.handlers = []  # 清掉继承的 handler（gateway 可能已经配置过）
+_root_logger.setLevel(logging.DEBUG)
+_root_fh = logging.FileHandler(str(_worker_log_file), encoding='utf-8')
+_root_fh.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'))
-_core_logger.addHandler(_worker_fh)
+_root_logger.addHandler(_root_fh)
 
+# worker 自己的 logger
+logger = logging.getLogger("inventory_worker")
 
-def _check_photos_exist(task_no: str, bin_location: str) -> bool:
-    """检查 capture 文件夹中是否有照片文件（gateway 已拍照确认过，此处只做安全检查）"""
-    capture_base = _project_root / "capture_img" / task_no / bin_location
-    if not capture_base.exists():
-        return False
-    for root, dirs, files in os.walk(str(capture_base)):
-        for f in files:
-            if f.endswith(('.jpg', '.png')):
-                return True
-    return False
+# 让 core.* 日志不传到 root logger，避免重复打印
+_core_logger = logging.getLogger("core")
+for h in list(_core_logger.handlers):
+    _core_logger.removeHandler(h)
+_core_logger.propagate = False
+_core_logger.setLevel(logging.DEBUG)
+_core_fh = logging.FileHandler(str(_worker_log_file), encoding='utf-8')
+_core_fh.setFormatter(logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'))
+_core_logger.addHandler(_core_fh)
 
 
 async def process_one_bin(task_no: str, bin_location: str, is_sim: bool) -> dict:
@@ -88,33 +86,15 @@ async def run_worker_loop():
 
             logger.info(f"[{task_no}] 收到任务: bin={bin_location}")
 
-            # 检查 capture 文件夹是否有照片
-            has_photos = _check_photos_exist(task_no, bin_location)
-
-            if has_photos:
-                try:
-                    result = await process_one_bin(task_no, bin_location, use_sim_images)
-                    push_bin_result(task_no, bin_location, result)
-                    logger.info(f"[{task_no}] 库位 {bin_location} 检测完成: status={result.get('status')}, qty={result.get('actualQuantity')}")
-                except Exception as e:
-                    logger.error(f"[{task_no}] 库位 {bin_location} 检测异常: {e}")
-                    result = {
-                        "status": "异常",
-                        "error": str(e),
-                        "actualQuantity": -1,
-                        "actualSpec": "未识别",
-                        "photo3dPath": None,
-                        "photoDepthPath": None,
-                        "photoScan1Path": "",
-                        "photoScan2Path": "",
-                    }
-                    push_bin_result(task_no, bin_location, result)
-            else:
-                # 文件夹为空，gateway 拍照全部失败，直接返回异常
-                logger.warning(f"[{task_no}] 库位 {bin_location} 文件夹为空，跳过检测，返回异常结果")
+            try:
+                result = await process_one_bin(task_no, bin_location, use_sim_images)
+                push_bin_result(task_no, bin_location, result)
+                logger.info(f"[{task_no}] 库位 {bin_location} 检测完成: status={result.get('status')}, qty={result.get('actualQuantity')}")
+            except Exception as e:
+                logger.error(f"[{task_no}] 库位 {bin_location} 检测异常: {e}")
                 result = {
                     "status": "异常",
-                    "error": "文件夹为空，无照片可检测",
+                    "error": str(e),
                     "actualQuantity": -1,
                     "actualSpec": "未识别",
                     "photo3dPath": None,
