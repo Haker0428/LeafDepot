@@ -190,37 +190,46 @@ async def task_status(request: Request):
         single_robot_code = request_data.get("singleRobotCode")
         extra = request_data.get("extra", "")
 
+        # extra 字段完整打印（不管有没有值）
+        if extra:
+            if isinstance(extra, str):
+                logger.info(f"RCS extra（字符串）: {extra}")
+            else:
+                logger.info(f"RCS extra（对象）: {json.dumps(extra, ensure_ascii=False)}")
+        else:
+            logger.info("RCS extra 字段为空，无额外信息")
+
         if extra:
             try:
-                extra_data = json.loads(extra) if isinstance(extra, str) else extra
-                # extra 可能是 list [{"values": {...}}]（真实RCS）或 list [{"method":..., "data":{...}}]（模拟RCS）
+                # extra 可能是 dict（真实RCS）或 JSON 字符串（模拟RCS）
+                if isinstance(extra, str):
+                    extra_data = json.loads(extra)
+                else:
+                    extra_data = extra
+
+                # 真实 RCS: extra_data 是 {"async": "0", "values": {...}}
+                # 模拟 RCS: extra_data 是 [{"method": ..., "data": {...}}]
                 if isinstance(extra_data, list):
                     for item in extra_data:
-                        # 真实 RCS 格式: {"values": {"method": "end", ...}}
-                        # 模拟 RCS 格式: {"method": "end", "data": {...}}
                         values = item.get("values") or item
                         method = values.get("method", "")
-                        # 提取位置信息：真实 RCS 用 location，模拟 RCS 用 data.location
                         location_data = item.get("data") or {}
                         if location_data and "location" in location_data:
                             values["location"] = location_data["location"]
                         logger.info(f"处理method: {method}")
                         await update_robot_status(method, values, robot_task_code=robot_task_code)
                         if method == "start":
-                            # Sim 模式：记录 binCode → robotTaskCode 映射，供 END 查表
                             location = values.get("location", "")
                             if location and robot_task_code:
                                 _bin_to_robot_code[location] = robot_task_code
-                                logger.info(f"Sim 模式 bin 映射: {location} → {robot_task_code}")
                             logger.info("任务开始")
                         elif method == "outbin":
                             logger.info("走出储位")
                         elif method == "end":
                             logger.info("任务完成")
-                else:
+                elif isinstance(extra_data, dict):
                     values = extra_data.get("values") or extra_data
                     method = values.get("method", "")
-                    # 提取位置信息
                     location_data = extra_data.get("data") or {}
                     if location_data and "location" in location_data:
                         values["location"] = location_data["location"]
@@ -232,8 +241,8 @@ async def task_status(request: Request):
                         logger.info("走出储位")
                     elif method == "end":
                         logger.info("任务完成")
-            except (json.JSONDecodeError, TypeError) as e:
-                logger.error(f"无法解析extra字段: {extra}, error: {e}")
+            except Exception as e:
+                logger.error(f"处理 RCS 回调失败: {e}")
 
         response_body = {
             "code": "SUCCESS",

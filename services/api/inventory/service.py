@@ -1595,10 +1595,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 except Exception as e:
                     logger.error(f"发送 continue 失败: bin={bin_location}, rt_code={robot_task_code}, error={e}")
 
-            # 3. 推 Redis 触发 worker 检测
-            push_single_bin_task(task_no, bin_location)
-
-            # 4. 真实模式：拍照走 ThreadPoolExecutor 避免阻塞事件循环
+            # 3. 拍照完成后再发 continue（确保车等拍照完成才离开）
             if not is_sim:
                 def _capture_sync():
                     import asyncio as _a
@@ -1608,10 +1605,11 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     finally:
                         loop.close()
                 try:
-                    _capture_executor.submit(_capture_sync)
-                    logger.info(f"拍照已提交后台执行: {bin_location}")
+                    future = _capture_executor.submit(_capture_sync)
+                    capture_result = future.result()  # 阻塞等待拍照完成
+                    logger.info(f"拍照完成: bin={bin_location}, result={capture_result.get('success')}")
                 except Exception as e:
-                    logger.error(f"拍照提交后台失败: {bin_location}, error={e}")
+                    logger.error(f"拍照失败: bin={bin_location}, error={e}")
             else:
                 # 模拟模式：有测试图片走真实拍照，没有走模拟
                 try:
@@ -1626,6 +1624,17 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                         logger.info(f"模拟模式（无测试图片）：{bin_location}")
                 except Exception as e:
                     logger.error(f"模拟模式拍照异常: {bin_location}, error={e}")
+
+            # 4. 发 continue 让车离开
+            if robot_task_code:
+                try:
+                    cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=robot_task_code)
+                    logger.info(f"发送 continue: bin={bin_location}, rt_code={robot_task_code}, result={cr}")
+                except Exception as e:
+                    logger.error(f"发送 continue 失败: bin={bin_location}, rt_code={robot_task_code}, error={e}")
+
+            # 5. 推 Redis 触发 worker 检测
+            push_single_bin_task(task_no, bin_location)
 
             add_to_completed_set(task_no, "rcs_completed", bin_location)
             update_progress(task_no, i + 1)
