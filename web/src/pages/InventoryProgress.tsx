@@ -251,14 +251,11 @@ export default function InventoryProgress() {
   // };
 
 
+  // 任务完成时（全量结果更新后）触发统计，不在执行中实时更新
   useEffect(() => {
     const completedCount = inventoryItems.filter(
       (item) => item.actualQuantity !== null,
     ).length;
-    const newProgress = (completedCount / inventoryItems.length) * 100;
-    setProgress(Math.min(Math.round(newProgress), 100));
-
-    // 检查是否所有任务都已完成
     const allTasksCompleted = completedCount === inventoryItems.length;
 
     // 检查是否所有任务都已完成（排除空列表的误判）
@@ -303,20 +300,13 @@ export default function InventoryProgress() {
           abnormalTasks,
         });
       }
-    } else if (inventoryItems.length > 0) {
-      // 有任务但未全部完成，重置为进行中
-      setIsTaskCompleted(false);
     }
     console.log(
-      "进度已更新:",
+      "结果已更新:",
       completedCount,
       "/",
       inventoryItems.length,
-      "=",
-      newProgress,
-      "%",
     );
-    console.log("任务完成状态:", allTasksCompleted ? "已完成" : "进行中");
   }, [inventoryItems, taskStartTime]);
 
   // 在组件中添加调试效果
