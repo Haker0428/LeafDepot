@@ -2163,12 +2163,12 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                 {currentTaskManifest && (
                   <button
                     onClick={handleStartCountingTask}
-                    disabled={isStartingTask || isTaskCompleted}
+                    disabled={isStartingTask || isTaskCompleted || isTaskStarted}
                     className={`px-4 py-2 rounded-lg transition-all flex items-center ${
                       isTaskCompleted
                         ? "bg-green-600 text-white cursor-default"
-                        : isStartingTask
-                          ? "bg-orange-400 text-white cursor-not-allowed"
+                        : isStartingTask || isTaskStarted
+                          ? "bg-gray-400 text-gray-200 cursor-not-allowed"
                           : "bg-orange-600 hover:bg-orange-700 text-white"
                     }`}
                   >
@@ -2179,6 +2179,10 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                     ) : isTaskCompleted ? (
                       <>
                         <i className="fa-solid fa-check mr-2"></i>任务已完成
+                      </>
+                    ) : isTaskStarted ? (
+                      <>
+                        <i className="fa-solid fa-hourglass-half mr-2"></i>任务进行中
                       </>
                     ) : (
                       <>

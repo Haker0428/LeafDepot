@@ -49,6 +49,27 @@ def clear_robot_code_to_task_map():
     _robot_code_to_task.clear()
 
 
+def inject_cancel_end(bin_location: str, robot_task_code: str, task_no: str):
+    """注入假 END，唤醒 wait_for_robot_status，立即退出取消任务的等待循环。
+
+    Args:
+        bin_location: 当前等待的库位
+        robot_task_code: 当前等待的 robotTaskCode
+        task_no: 任务号
+    """
+    store = {
+        "method": "end",
+        "timestamp": time.time(),
+        "data": {"binCode": bin_location, "slotName": bin_location},
+        "robotTaskCode": robot_task_code,
+        "binCode": bin_location,
+        "task_no": task_no,
+    }
+    _robot_status_queue.append(store)
+    _status_event.set()
+    logger.info(f"[取消] 注入假 END，唤醒 wait: bin={bin_location}, rt_code={robot_task_code}, 队列长度: {len(_robot_status_queue)}")
+
+
 def clear_robot_status_queue():
     """清空状态队列（模拟模式循环开始时调用，防止旧状态残留）
     如果队列已有 END 则不清，避免丢失已到达的 END
@@ -113,13 +134,13 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_
         expected_method: 期望的方法名（如 "end"）
         timeout: 超时时间（秒）
         valid_robot_codes: 当前任务有效的 robotTaskCode 集合。
-                         若传入，队列中 robotTaskCode 不在集合内的 END 会被跳过（保留在队列中），
-                         防止上一个任务残留的旧回调被错误消费。
+                         若传入，队列中 robotTaskCode 不在集合内的 END 会被跳过（保留在队列中）。
         task_no: 当前任务号。END 必须匹配此 task_no 才消费，不匹配则保留在队列中供其他 workflow 使用。
         start_time: 已累计的等待开始时间戳（由外部传入，避免重复计时）
     """
     if start_time is None:
         start_time = time.time()
+    logger.info(f"[DEBUG router.wait_for_robot_status] expected={expected_method}, timeout={timeout}, task_no={task_no}")
     logger.debug(f"开始等待机器人状态: {expected_method}, 超时: {timeout}秒, task_no={task_no}")
 
     while True:
@@ -129,7 +150,7 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_
             if item.get("method") != expected_method:
                 continue
             # 按 task_no 过滤：不属于当前任务的 END 保留在队列中，不消费
-            # task_no 不匹配时直接跳过，不检查 valid_robot_codes，避免 robotCode 相同导致错误消费
+            # task_no 不匹配时直接跳过，不检查 valid_robot_codes
             if task_no:
                 item_task_no = item.get("task_no", "")
                 if item_task_no and item_task_no != task_no:
@@ -139,8 +160,7 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_
             if valid_robot_codes is not None:
                 item_code = item.get("robotTaskCode", "")
                 if item_code and item_code not in valid_robot_codes:
-                    logger.debug(f"跳过队列中的旧 END 回调 (binCode={item.get('binCode', '')}, "
-                                f"robotTaskCode={item_code}，不在当前任务集合 {valid_robot_codes} 中，保留在队列")
+                    logger.warning(f"[RCS回调] END的robotTaskCode不匹配！期望={valid_robot_codes}，实际={item_code}，slotName={item.get('binCode', '')}，保留在队列等待")
                     continue
             # 命中，弹出并返回
             del _robot_status_queue[j]

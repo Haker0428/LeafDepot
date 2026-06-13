@@ -331,8 +331,10 @@ async def submit_inventory_task(task_no: str, bin_locations: List[str], is_sim: 
                         logger.info(f"储位 {bin_locations} 已发送到机器人系统, robotTaskCode={robot_task_code}")
                         return {"success": True, "message": "盘点任务已下发", "robotTaskCode": robot_task_code}
                     else:
-                        last_error = f" RCS 返回错误: {response_data.get('message', '')} ({response_data.get('errorCode', '')})"
-                        logger.warning(f"下发任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+                        # 业务层失败（RCS 返回 success=false），立即返回不重试
+                        err_msg = f"RCS 返回错误: {response_data.get('message', '')} ({response_data.get('errorCode', '')})"
+                        logger.warning(f"下发任务业务失败: {err_msg}")
+                        return {"success": False, "message": err_msg, "robotTaskCode": ""}
                 else:
                     last_error = f" HTTP {response.status_code}"
                     logger.warning(f"下发任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
@@ -426,8 +428,10 @@ async def continue_inventory_task(is_sim: bool = True, robot_task_code: str = ""
                             logger.info("继续执行盘点任务命令已发送到机器人系统")
                             return {"success": True, "message": "盘点任务已继续"}
                         else:
-                            last_error = f" RCS 返回错误: {response_data.get('message', '')} ({response_data.get('errorCode', '')})"
-                            logger.warning(f"继续任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
+                            # 业务层失败（RCS 返回 success=false），立即返回不重试
+                            err_msg = f"RCS 返回错误: {response_data.get('message', '')} ({response_data.get('errorCode', '')})"
+                            logger.warning(f"继续任务业务失败: {err_msg}")
+                            return {"success": False, "message": err_msg}
                     else:
                         last_error = f" HTTP {response.status_code}"
                         logger.warning(f"继续任务失败 (尝试 {attempt + 1}/{max_retries}){last_error}")
@@ -570,9 +574,9 @@ async def update_robot_status(method: str, data: Optional[Dict] = None):
     await _router_update_status(method, data)
 
 
-async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_robot_codes: set = None, task_no: str = ""):
+async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_robot_codes: set = None, task_no: str = "", start_time: float = None):
     """等待特定机器人状态（委托给 robot/router）"""
-    return await _router_wait_status(expected_method, timeout, valid_robot_codes=valid_robot_codes, task_no=task_no)
+    return await _router_wait_status(expected_method, timeout, valid_robot_codes=valid_robot_codes, task_no=task_no, start_time=start_time)
 
 
 # ==================== 系统在线状态检查 ====================
@@ -1550,22 +1554,40 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
         from services.api.robot.router import register_task_for_robot_code, prune_robot_status_queue
 
         i = 0
+        # pending_next: 已提前下发的下一个 bin，避免 continue 跳转导致重复下发
+        pending_next_bin = ""
+        pending_next_rt_code = ""
         while i < len(sorted_bins):
             if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                # 取消时，发 continue 让 AMR 离开当前 bin，避免被锁死
+                if robot_task_code:
+                    try:
+                        cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=robot_task_code)
+                        logger.info(f"[取消] 已发送 continue: bin={bin_location}, rt_code={robot_task_code}, result={cr}")
+                    except Exception as e:
+                        logger.error(f"[取消] continue 发送失败: bin={bin_location}, error={e}")
                 logger.warning(f"任务 {task_no} 已被取消，退出等待循环")
                 break
 
-            bin_location = sorted_bins[i]
-            # 1. 逐个下发 RCS
-            submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=is_sim)
-            robot_task_code = submit_result.get("robotTaskCode", "")
-            if task_no in _inventory_tasks:
-                _inventory_tasks[task_no].robot_task_code = robot_task_code
-            register_task_for_robot_code(robot_task_code, task_no)
-            submitted_bins.append(bin_location)
-            logger.info(f"第 {i+1}/{len(sorted_bins)} 个库位已下发: {bin_location}, robotTaskCode={robot_task_code}")
-            _active_bin_tracker[task_no] = {"bin_to_task_code": {bin_location: robot_task_code}}
-            prune_robot_status_queue({robot_task_code})
+            # 优先使用 pending 的下一个 bin（已提前下发），否则正常下发
+            if pending_next_bin:
+                bin_location = pending_next_bin
+                robot_task_code = pending_next_rt_code
+                pending_next_bin = ""
+                pending_next_rt_code = ""
+                logger.info(f"接续 pending 的下一个库位: {bin_location}, rt_code={robot_task_code}")
+            else:
+                bin_location = sorted_bins[i]
+                # 1. 逐个下发 RCS
+                submit_result = await submit_inventory_task(task_no, [bin_location], is_sim=is_sim)
+                robot_task_code = submit_result.get("robotTaskCode", "")
+                if task_no in _inventory_tasks:
+                    _inventory_tasks[task_no].robot_task_code = robot_task_code
+                register_task_for_robot_code(robot_task_code, task_no)
+                submitted_bins.append(bin_location)
+                logger.info(f"第 {i+1}/{len(sorted_bins)} 个库位已下发: {bin_location}, robotTaskCode={robot_task_code}")
+                _active_bin_tracker[task_no] = {"bin_to_task_code": {bin_location: robot_task_code}}
+                prune_robot_status_queue({robot_task_code})
 
             _bin_start = time.time()
             try:
@@ -1577,36 +1599,52 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     start_time=_bin_start,
                 )
             except asyncio.TimeoutError:
-                # 超时跳过该库位，继续下一个
-                logger.error(f"等待 END 超时，跳过库位: {bin_location}")
-                i += 1
-                continue
+                # 超时：先检查队列里是否已有 END（可能刚好在超时前后到达）
+                from services.api.robot.router import _robot_status_queue
+                queued_end = None
+                for j in range(len(_robot_status_queue) - 1, -1, -1):
+                    item = _robot_status_queue[j]
+                    if item.get("method") != "end":
+                        continue
+                    item_code = item.get("robotTaskCode", "")
+                    if item_code == robot_task_code:
+                        queued_end = item
+                        del _robot_status_queue[j]
+                        logger.info(f"[超时前队列] 发现 END: bin={bin_location}, rt_code={robot_task_code}")
+                        break
+                if queued_end:
+                    # END 已在队列中，当作正常处理
+                    ctu_status = queued_end
+                    bin_code = ctu_status.get("binCode", "") or bin_location
+                    logger.info(f"[END from queue] bin={bin_code}, rt_code={ctu_status.get('robotTaskCode', '')}")
+                    _inventory_tasks[task_no].current_step = i
+                elif task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                    # 取消状态下超时：直接退出，不继续下发起新库位
+                    logger.warning(f"任务已取消，超时退出循环: {bin_location}")
+                    break
+                else:
+                    # END 确实没收到（未取消）。RCS 任务节点可能已清理，此时发 continue 无意义，直接跳过
+                    logger.warning(f"等待 END 超时且队列中无 END，跳过库位（不发送 continue）: {bin_location}")
+                    i += 1
+                    continue
 
             bin_code = ctu_status.get("binCode", "") or bin_location
             logger.info(f"[END] bin={bin_code}，rt_code={ctu_status.get('robotTaskCode', '')}")
 
             _inventory_tasks[task_no].current_step = i
 
-            # 2. 发送 continue
-            if robot_task_code:
-                try:
-                    cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=robot_task_code)
-                    logger.info(f"发送 continue: bin={bin_location}, rt_code={robot_task_code}, result={cr}")
-                except Exception as e:
-                    logger.error(f"发送 continue 失败: bin={bin_location}, rt_code={robot_task_code}, error={e}")
+            # END 到达后立即检查取消状态（cancel 注入的 fake END 触发的提前退出）
+            if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                logger.warning(f"任务已取消，END 到达后立即退出: {bin_location}")
+                # 当前 bin 未推 Redis，清除 submitted_bins 中最后一项，避免 worker 等待循环卡住
+                if submitted_bins and submitted_bins[-1] == bin_location:
+                    submitted_bins.pop()
+                break
 
-            # 3. 拍照完成后再发 continue（确保车等拍照完成才离开）
+            # 2. 拍照（异步等待，不阻塞事件循环，确保 RCS 回调能被及时处理）
             if not is_sim:
-                def _capture_sync():
-                    import asyncio as _a
-                    loop = _a.new_event_loop()
-                    try:
-                        return loop.run_until_complete(capture_images_with_scripts(task_no, bin_location))
-                    finally:
-                        loop.close()
                 try:
-                    future = _capture_executor.submit(_capture_sync)
-                    capture_result = future.result()  # 阻塞等待拍照完成
+                    capture_result = await capture_images_with_scripts(task_no, bin_location)
                     logger.info(f"拍照完成: bin={bin_location}, result={capture_result.get('success')}")
                 except Exception as e:
                     logger.error(f"拍照失败: bin={bin_location}, error={e}")
@@ -1625,26 +1663,55 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 except Exception as e:
                     logger.error(f"模拟模式拍照异常: {bin_location}, error={e}")
 
-            # 4. 发 continue 让车离开
-            if robot_task_code:
-                try:
-                    cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=robot_task_code)
-                    logger.info(f"发送 continue: bin={bin_location}, rt_code={robot_task_code}, result={cr}")
-                except Exception as e:
-                    logger.error(f"发送 continue 失败: bin={bin_location}, rt_code={robot_task_code}, error={e}")
-
-            # 5. 推 Redis 触发 worker 检测
+            # 推 Redis 触发 worker 检测（提前推，不等 continue）
             push_single_bin_task(task_no, bin_location)
 
             add_to_completed_set(task_no, "rcs_completed", bin_location)
             update_progress(task_no, i + 1)
             logger.info(f"RCS END 已处理: {bin_location}，进度 {i+1}/{len(sorted_bins)}")
+
+            # 保存当前 bin 的信息，用于发 continue
+            _prev_bin_location = bin_location
+            _prev_robot_code = robot_task_code
             i += 1
+
+            if i < len(sorted_bins):
+                # 有下一个库位：先下发下一个（存到 pending），让 AMR 在检测期间提前出发
+                next_bin = sorted_bins[i]
+                submit_result = await submit_inventory_task(task_no, [next_bin], is_sim=is_sim)
+                next_rt_code = submit_result.get("robotTaskCode", "")
+                pending_next_bin = next_bin
+                pending_next_rt_code = next_rt_code
+                logger.info(f"提前下发下一个库位: {next_bin}, rt_code={next_rt_code}，AMR 可在检测期间移动")
+                _active_bin_tracker[task_no] = {"bin_to_task_code": {next_bin: next_rt_code}}
+                from services.api.robot.router import prune_robot_status_queue
+                prune_robot_status_queue({next_rt_code})
+                # 发上一个 bin 的 continue，让车离开
+                if _prev_robot_code:
+                    try:
+                        cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=_prev_robot_code)
+                        logger.info(f"发送 continue（上一个库位）: bin={_prev_bin_location}, rt_code={_prev_robot_code}, result={cr}")
+                    except Exception as e:
+                        logger.error(f"发送 continue 失败: bin={_prev_bin_location}, rt_code={_prev_robot_code}, error={e}")
+                continue  # 回到循环开头，pending_next_bin 会生效，直接等 END
+            else:
+                # 最后一个库位：没有下一个可下发，直接发 continue 后退出
+                if _prev_robot_code:
+                    try:
+                        cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=_prev_robot_code)
+                        logger.info(f"发送 continue（最后一个库位）: bin={_prev_bin_location}, rt_code={_prev_robot_code}, result={cr}")
+                    except Exception as e:
+                        logger.error(f"发送 continue 失败: bin={_prev_bin_location}, rt_code={_prev_robot_code}, error={e}")
+                break  # 最后一个库位处理完毕，退出主循环
 
         logger.info(f"RCS END 全部处理完毕（{len(submitted_bins)}/{len(sorted_bins)}），等待 worker 检测结果...")
 
         worker_done_count = 0
         while worker_done_count < len(submitted_bins):
+            # 轮询期间也检查取消状态，实现取消立即响应
+            if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
+                logger.warning(f"任务已取消，worker 等待期间提前退出")
+                break
             await asyncio.sleep(3)
             worker_done_count = get_completed_count(task_no, "worker_completed")
             logger.debug(f"Worker 进度: {worker_done_count}/{len(submitted_bins)}")

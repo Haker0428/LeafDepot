@@ -53,6 +53,7 @@ from services.api.inventory.service import (
     _active_bin_tracker,
     _get_next_task_no,
 )
+from services.api.robot.router import inject_cancel_end
 from services.api.shared.websocket_manager import ws_manager
 from services.api.inventory.task_state import on_server_startup, clear_task, get_running_tasks, _load as load_task_state
 from services.api.shared.redis_queue import (
@@ -1077,18 +1078,21 @@ async def cancel_inventory(taskNo: str = Query(..., description="任务编号"))
         logger.info(f"任务不在内存中，仅清除 task_state.json 中的记录: {taskNo}")
 
     # 新模式（逐个下发）：tracker 只存当前下发的那个 bin
-    # 发 continue 让 RCS 正常完成当前 bin，再清空队列
+    # 注入假 END 唤醒 wait_for_robot_status，立即退出 workflow 循环
     tracker = _active_bin_tracker.get(taskNo)
     if tracker:
         bin_to_code = tracker.get("bin_to_task_code", {})
         # 找到未收到 END 的 bin（当前正在等待或刚下发的）
         for bin_loc, rt_code in bin_to_code.items():
             if not is_bin_completed(taskNo, "rcs_completed", bin_loc):
+                # 发 continue 让 AMR 离开当前 bin，避免被锁死
                 try:
                     await continue_inventory_task(is_sim=IS_SIM, robot_task_code=rt_code)
                     logger.info(f"[取消] continue 已发送: bin={bin_loc}, rt_code={rt_code}")
                 except Exception as e:
                     logger.error(f"[取消] continue 发送失败: bin={bin_loc}, error={e}")
+                # 注入假 END，唤醒 wait_for_robot_status，立即退出 workflow
+                inject_cancel_end(bin_loc, rt_code, taskNo)
         _active_bin_tracker.pop(taskNo, None)
 
     # 清空 worker 队列中属于本任务的所有条目
