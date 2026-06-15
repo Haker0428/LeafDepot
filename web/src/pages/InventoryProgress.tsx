@@ -1303,16 +1303,32 @@ export default function InventoryProgress() {
                   };
                 });
                 setInventoryItems(newItems);
+                setIsTaskCompleted(true);
+
                 if (failedBins.length > 0) {
                   setFailedBinsModal({
                     open: true,
                     bins: failedBins,
                     onOk: () => setFailedBinsModal((prev) => ({ ...prev, open: false })),
                   });
+                  toast.error(`${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`);
                 } else {
-                  showStatisticsModal(newItems);
+                  showStatisticsModal(newItems, taskStartTimeRef.current ? Date.now() - taskStartTimeRef.current : undefined);
                 }
-                setProgress(100);
+
+                loadedPhotoKeysRef.current.clear();
+                photoPathsRef.current.clear();
+                photoLoadingKeyRef.current = null;
+
+                if (selectedRowIndex === null) {
+                  const firstItemWithPhotos = inventoryItems.find(
+                    (item) => item.photo3dPath || item.photoDepthPath || item.photoScan1Path || item.photoScan2Path,
+                  );
+                  if (firstItemWithPhotos) {
+                    setSelectedRowIndex(inventoryItems.indexOf(firstItemWithPhotos));
+                  }
+                }
+
                 return;
               }
 
