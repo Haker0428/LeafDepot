@@ -8,6 +8,7 @@ import logging
 from collections import deque
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Request, HTTPException
+from services.api.shared.config import debug_logger
 
 from services.api.shared.config import logger, rcs_logger
 
@@ -160,7 +161,7 @@ async def wait_for_robot_status(expected_method: str, timeout: int = 300, valid_
             if valid_robot_codes is not None:
                 item_code = item.get("robotTaskCode", "")
                 if item_code and item_code not in valid_robot_codes:
-                    logger.warning(f"[RCS回调] END的robotTaskCode不匹配！期望={valid_robot_codes}，实际={item_code}，slotName={item.get('binCode', '')}，保留在队列等待")
+                    debug_logger.debug(f"[RCS回调] END的robotTaskCode不匹配！期望={valid_robot_codes}，实际={item_code}，slotName={item.get('binCode', '')}，保留在队列等待")
                     continue
             # 命中，弹出并返回
             del _robot_status_queue[j]

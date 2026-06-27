@@ -20,13 +20,12 @@ sys.path.insert(0, str(_project_root))
 
 
 async def capture_images(task_no: str, bin_location: str, is_sim: bool) -> Dict[str, Any]:
-    """拍照入口（兼容 sim/real 模式）
+    """检查照片是否存在（Worker 调用）
 
-    如果 capture_img/{task_no}/{bin_location}/ 下已有照片，跳过拍照。
-    Gateway 会提前拍好推 Redis，worker 不需要重复拍。
+    Worker 不具备拍照能力，仅检查 Gateway 是否已提前拍好照片。
+    - 照片存在 → 返回 success=True
+    - 照片不存在 → 返回 success=False，报错但不尝试拍照
     """
-    from services.api.shared.config import WITH_CAMERA
-
     # 先检查照片是否已存在（gateway 提前拍好的）
     capture_dir = _project_root / "capture_img" / task_no / bin_location
     has_photos = False
@@ -41,44 +40,10 @@ async def capture_images(task_no: str, bin_location: str, is_sim: bool) -> Dict[
         logger.info(f"[DetectionRunner] 照片已存在，跳过拍照: {task_no}/{bin_location}")
         return {"success": True}
 
-    if WITH_CAMERA:
-        from services.api.inventory.service import capture_images_with_scripts
-        return await capture_images_with_scripts(task_no, bin_location)
-
-    # sim without camera: 复制模拟图片
-    await asyncio.sleep(2)
-
-    # 复制前再检查一次（gateway 可能已经提前复制好了）
-    if capture_dir.exists():
-        has_photos = False
-        for sub in ("3d_camera", "scan_camera_1", "scan_camera_2"):
-            sub_dir = capture_dir / sub
-            if sub_dir.exists() and any(sub_dir.iterdir()):
-                has_photos = True
-                break
-        if has_photos:
-            logger.info(f"[DetectionRunner] 照片已存在（复制阶段复查），跳过: {task_no}/{bin_location}")
-            return {"success": True}
-    if not capture_dir.exists():
-        capture_dir.mkdir(parents=True, exist_ok=True)
-        public_dir = _project_root / "web" / "src" / "public"
-        image_mapping = [
-            ("1.jpg", "3d_camera", "main.jpg"),
-            ("2.jpg", "3d_camera", "depth.jpg"),
-            ("3.jpg", "scan_camera_1", "main.jpg"),
-            ("4.jpg", "scan_camera_2", "main.jpg")
-        ]
-        for img_file, camera_dir, dest_filename in image_mapping:
-            src = public_dir / img_file
-            dest_dir = capture_dir / camera_dir
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            dest = dest_dir / dest_filename
-            if src.exists():
-                shutil.copy(src, dest)
-                logger.info(f"[DetectionRunner] sim copy: {src} -> {dest}")
-            else:
-                logger.warning(f"[DetectionRunner] sim image not found: {src}")
-    return {"success": True}
+    # Worker 不应具备拍照能力，照片应由 Gateway 提前拍好
+    # 如果照片不存在，说明流程异常，记录错误但不尝试拍照
+    logger.error(f"[DetectionRunner] 照片不存在: {task_no}/{bin_location}")
+    return {"success": False, "error": "照片不存在，由 Gateway 提前拍照"}
 
 
 def _get_actual_spec(barcode_result: dict) -> str:

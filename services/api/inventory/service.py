@@ -1517,6 +1517,22 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
         _inventory_tasks[task_no].end_time = datetime.now().isoformat()
         _inventory_tasks[task_no].error_message = error_msg
         _inventory_tasks[task_no].error_type = error_type
+
+        # 先取出用户信息（清理后就取不到了）
+        user_info = _inventory_task_details.get(task_no, {}).get("userInfo", {})
+
+        # 广播任务失败通知
+        await ws_manager.broadcast_task_event(
+            "task_failed",
+            task_no,
+            {
+                "taskNo": task_no,
+                "status": "failed",
+                "operatorName": user_info.get("userName", ""),
+                "error": error_msg,
+            }
+        )
+
         # 清理持久化状态
         mark_finished(task_no, "failed")
         # 自动清理内存状态，避免阻塞后续任务
@@ -1575,6 +1591,7 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 robot_task_code = pending_next_rt_code
                 pending_next_bin = ""
                 pending_next_rt_code = ""
+                submitted_bins.append(bin_location)
                 logger.info(f"接续 pending 的下一个库位: {bin_location}, rt_code={robot_task_code}")
             else:
                 bin_location = sorted_bins[i]
@@ -1746,13 +1763,6 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 "difference": actual_qty - system_qty,
             }
             inventory_results.append(bin_result)
-
-            # 立即写入详情存储，让前端 /results 接口可以查到实时部分结果
-            if task_no not in _inventory_task_details:
-                _inventory_task_details[task_no] = {}
-            if "inventoryResults" not in _inventory_task_details[task_no]:
-                _inventory_task_details[task_no]["inventoryResults"] = []
-            _inventory_task_details[task_no]["inventoryResults"].append(bin_result)
 
         if task_no in _inventory_task_bins:
             for bs in _inventory_task_bins[task_no]:

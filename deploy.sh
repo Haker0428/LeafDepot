@@ -4,6 +4,8 @@
 # 用法:
 #   ./deploy.sh            # 完整部署
 #   ./deploy.sh restart    # 仅重启所有服务
+#   ./deploy.sh cron       # 设置定时重启（每天凌晨4点）
+#   ./deploy.sh cron-del   # 删除定时重启
 #
 # 完整部署包含：
 #   1. 清理 __pycache__ 和 .pyc（强制加载新代码）
@@ -66,24 +68,56 @@ restart_all() {
     echo ""
 }
 
+# PROJECT_ROOT 和颜色函数必须在最前面定义，cron/restart 命令会直接调用
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+info()    { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error()   { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# ===== 定时重启 cron =====
+setup_cron() {
+    CRON_USER=$(whoami)
+    CRON_CMD="0 4 * * * systemctl restart leafdepot-gateway leafdepot-worker leafdepot-lms leafdepot-rcs leafdepot-web >> /home/zihui-lang/code/LeafDepot/logs/restart.log 2>&1"
+    EXISTING=$(crontab -l 2>/dev/null | grep "leafdepot-" || true)
+    if [ -n "$EXISTING" ]; then
+        warn "定时重启已存在，先删除旧配置..."
+        crontab -l 2>/dev/null | grep -v "leafdepot-" | crontab - 2>/dev/null || true
+    fi
+    (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
+    info "定时重启已设置：每天凌晨 4:00 重启全部服务"
+    info "当前 crontab:"
+    crontab -l 2>/dev/null | grep "leafdepot-" | sed 's/^/    /'
+}
+
+remove_cron() {
+    EXISTING=$(crontab -l 2>/dev/null | grep "leafdepot-" || true)
+    if [ -z "$EXISTING" ]; then
+        info "定时重启未配置，无需删除"
+    else
+        crontab -l 2>/dev/null | grep -v "leafdepot-" | crontab -
+        info "定时重启已删除"
+    fi
+}
+
 # 根据参数决定执行哪个命令
 CMD="${1:-deploy}"
 if [ "$CMD" = "restart" ]; then
     restart_all
     exit 0
 fi
+if [ "$CMD" = "cron" ]; then
+    setup_cron
+    exit 0
+fi
+if [ "$CMD" = "cron-del" ]; then
+    remove_cron
+    exit 0
+fi
 # 默认执行完整部署
-PROJECT_ROOT="$SCRIPT_DIR"
-cd "$PROJECT_ROOT"
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-info()    { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
 echo ""
 echo "========================================"

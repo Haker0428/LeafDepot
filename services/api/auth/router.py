@@ -14,13 +14,10 @@ async def get_user_info_from_token(auth_token: str) -> dict:
     """根据authToken获取用户信息，LMS 不可用时返回模拟用户"""
     try:
         lms_auth_url = f"{LMS_BASE_URL}/auth/token?token={auth_token}"
-        logger.info(f"调用 LMS auth/token: {lms_auth_url}")
         response = requests.get(lms_auth_url, timeout=5)
-        logger.info(f"LMS auth/token 响应状态: {response.status_code}")
 
         if response.status_code == 200:
             response_data = response.json()
-            logger.info(f"LMS auth/token 响应数据: {response_data}")
             # 尝试从 data 字段获取，如果没有则直接返回整个响应
             user_data = response_data.get("data", {})
             if not user_data:

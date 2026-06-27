@@ -22,6 +22,7 @@ async def collect_frontend_log(request: FrontendLogRequest = Body(...)):
 
         web_logger = logging.getLogger("web")
         web_logger.setLevel(logging.DEBUG)
+        web_logger.propagate = False  # 不向上传递给 root logger，避免进入 gateway 日志
 
         if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(web_log_filename)
                    for h in web_logger.handlers):

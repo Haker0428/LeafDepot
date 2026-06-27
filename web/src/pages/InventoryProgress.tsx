@@ -301,12 +301,6 @@ export default function InventoryProgress() {
         });
       }
     }
-    console.log(
-      "结果已更新:",
-      completedCount,
-      "/",
-      inventoryItems.length,
-    );
   }, [inventoryItems, taskStartTime]);
 
   // 在组件中添加调试效果
@@ -858,25 +852,29 @@ export default function InventoryProgress() {
           }
 
           if (status === "completed" || status === "partial") {
-            // 已完成，直接加载结果
+            // 已完成，直接从 /results 获取全量结果（结果已包含所有库位，不需要依赖 inventoryItems 状态）
             const resultsRes = await fetch(
               `${GATEWAY_URL}/api/inventory/results?taskNo=${encodeURIComponent(currentTaskNo)}`
             );
             const resultsData = await resultsRes.json();
             const inventoryResults = resultsData.data?.inventoryResults || [];
-            const newItems = inventoryItems.map((item) => {
-              const ir = inventoryResults.find((r: any) => r.binLocation === item.locationName);
-              if (!ir) return item;
-              return {
-                ...item,
-                actualQuantity: ir.status === "异常" ? -1 : (ir.actualQuantity ?? item.actualQuantity),
-                actualSpec: ir.actualSpec || "未识别",
-                photo3dPath: ir.photo3dPath,
-                photoDepthPath: ir.photoDepthPath,
-                photoScan1Path: ir.photoScan1Path,
-                photoScan2Path: ir.photoScan2Path,
-              };
-            });
+            // 从 results 重建 inventoryItems（全量库位列表来自 results，不依赖前端状态）
+            const newItems = inventoryResults.map((r: any) => ({
+              id: r.binLocation,
+              locationName: r.binLocation,
+              binLocation: r.binLocation,
+              actualQuantity: r.status === "异常" ? -1 : (r.actualQuantity ?? null),
+              actualSpec: r.actualSpec || "未识别",
+              photo3dPath: r.photo3dPath || "",
+              photoDepthPath: r.photoDepthPath || "",
+              photoScan1Path: r.photoScan1Path || "",
+              photoScan2Path: r.photoScan2Path || "",
+              specName: r.specName || "",
+              systemQuantity: r.systemQuantity || 0,
+              status: r.status,
+              error: r.error,
+              difference: r.difference,
+            }));
             setInventoryItems(newItems);
             setIsTaskCompleted(true);
             setIsTaskStarted(true);  // 标记为已启动，防止出现"下发"按钮和阻止编辑
@@ -989,7 +987,7 @@ export default function InventoryProgress() {
       if (msg.event !== "task_failed") return;
       // 只处理当前任务的失败
       if (!currentTaskNo || msg.taskNo !== currentTaskNo) return;
-      const errorMsg = msg.data?.message || "盘点任务下发失败";
+      const errorMsg = msg.data?.message || msg.data?.error || "盘点任务下发失败";
       const errorType: "rcs" | "camera" | "other" =
         (msg.data?.error_type as "rcs" | "camera" | "other") || "other";
       localStorage.removeItem("currentTaskManifest");
@@ -1314,19 +1312,6 @@ export default function InventoryProgress() {
                   toast.error(`${failedBins.length} 个库位盘点失败：${failedBins.map((b) => b.binLocation).join("、")}`);
                 } else {
                   showStatisticsModal(newItems, taskStartTimeRef.current ? Date.now() - taskStartTimeRef.current : undefined);
-                }
-
-                loadedPhotoKeysRef.current.clear();
-                photoPathsRef.current.clear();
-                photoLoadingKeyRef.current = null;
-
-                if (selectedRowIndex === null) {
-                  const firstItemWithPhotos = inventoryItems.find(
-                    (item) => item.photo3dPath || item.photoDepthPath || item.photoScan1Path || item.photoScan2Path,
-                  );
-                  if (firstItemWithPhotos) {
-                    setSelectedRowIndex(inventoryItems.indexOf(firstItemWithPhotos));
-                  }
                 }
 
                 return;

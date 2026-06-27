@@ -138,6 +138,27 @@ CAMERA_TEST_DIR = _config.get("camera_test_dir", "")
 ENABLE_DEBUG = _config.get("enable_debug", False)
 ENABLE_VISUALIZATION = _config.get("enable_visualization", False)
 
+# Debug 日志：始终存在，但仅在 ENABLE_DEBUG=True 时才写文件到 debug/logs/ 目录
+_debug_log_dir = project_root / "debug" / "logs"
+_debug_log_dir.mkdir(parents=True, exist_ok=True)
+_debug_log_file = _debug_log_dir / f"gateway_{datetime.now().strftime('%Y%m%d')}.log"
+_debug_logger = logging.getLogger("debug")
+_debug_logger.setLevel(logging.DEBUG)
+_debug_logger.handlers = []
+_debug_logger.propagate = False
+if ENABLE_DEBUG:
+    try:
+        _debug_fh = logging.FileHandler(str(_debug_log_file), encoding='utf-8')
+        _debug_fh.setLevel(logging.DEBUG)
+        _debug_fh.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'))
+        _debug_logger.addHandler(_debug_fh)
+        _root_logger.info(f"[DEBUG] Debug 日志已启用: {_debug_log_file}")
+    except Exception as e:
+        print(f"[WARN] 无法创建 Debug 日志文件 {_debug_log_file}: {e}")
+debug_logger = _debug_logger  # 导出供其他模块使用
+
 # CORS 配置（从 JSON 文件读取）
 CORS_ORIGINS = _config.get("cors_origins", [
     f"http://{_HOST}", f"http://{_HOST}:{GATEWAY_PORT}",

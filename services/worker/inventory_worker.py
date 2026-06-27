@@ -32,15 +32,23 @@ from services.api.shared.redis_queue import (
 )
 from services.api.shared.config import CAMERA_TEST_DIR, IS_SIM, logs_dir
 from datetime import datetime
+from logging.handlers import TimedRotatingFileHandler
 
 # 设置 worker 日志文件（独立于 gateway，不调用 set_service_name 避免覆盖 gateway 的 root logger）
-_worker_log_file = logs_dir / f"worker_{datetime.now().strftime('%Y%m%d')}.log"
+# TimedRotatingFileHandler 每天午夜自动切换到新文件
+_worker_log_base = logs_dir / "worker.log"
 
 # 设置 root logger，让所有 services.api.* 子 logger 都写到 worker 文件
 _root_logger = logging.getLogger()
 _root_logger.handlers = []  # 清掉继承的 handler（gateway 可能已经配置过）
 _root_logger.setLevel(logging.DEBUG)
-_root_fh = logging.FileHandler(str(_worker_log_file), encoding='utf-8')
+_root_fh = TimedRotatingFileHandler(
+    str(_worker_log_base),
+    when="midnight",
+    interval=1,
+    backupCount=0,
+    encoding='utf-8'
+)
 _root_fh.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'))
@@ -48,6 +56,11 @@ _root_logger.addHandler(_root_fh)
 
 # worker 自己的 logger
 logger = logging.getLogger("inventory_worker")
+
+# 过滤 redis DEBUG 日志（连接失败通知和 MAINT_NOTIFICATIONS 每 5 秒打印一次，无用且冗余）
+for _redis_logger_name in ("redis.client", "redis.connection"):
+    _rl = logging.getLogger(_redis_logger_name)
+    _rl.setLevel(logging.WARNING)
 
 # 让 core.* 日志不传到 root logger，避免重复打印
 _core_logger = logging.getLogger("core")

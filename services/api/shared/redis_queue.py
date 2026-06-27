@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 _redis_client: Optional[Any] = None
 _redis_last_fail: float = 0.0  # 上次连接失败的时间戳
 _REDIS_RETRY_INTERVAL = 30     # 连接失败后 30 秒内不重试
-_REDIS_HOST = "10.16.82.95"
+_REDIS_HOST = "localhost"
 _REDIS_PORT = 6379
 
 # 队列/键名常量

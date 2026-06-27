@@ -360,6 +360,41 @@ async def get_inventory_results(taskNo: str):
     """获取盘点任务的完整结果"""
     try:
         if taskNo not in inventory_tasks:
+            # 内存中没有，可能是 gateway 重启后任务被清空，尝试从 Excel 文件恢复
+            xlsx_file = project_root / "output" / "history_data" / f"{taskNo}.xlsx"
+            if xlsx_file.exists():
+                try:
+                    import pandas as pd
+                    df = pd.read_excel(xlsx_file, sheet_name='盘点结果')
+                    inventory_results = []
+                    for _, row in df.iterrows():
+                        inventory_results.append({
+                            "binLocation": row.get("储位名称", ""),
+                            "actualQuantity": row.get("实际数量"),
+                            "actualSpec": row.get("实际品规", "未识别"),
+                            "photo3dPath": row.get("照片1路径", ""),
+                            "photoDepthPath": row.get("照片2路径", ""),
+                            "photoScan1Path": row.get("照片3路径", ""),
+                            "photoScan2Path": row.get("照片4路径", ""),
+                            "status": "成功" if row.get("有效状态") == "有效" else "异常",
+                            "specName": row.get("品规名称", ""),
+                            "systemQuantity": row.get("库存数量", 0),
+                            "difference": row.get("差异", 0),
+                        })
+                    return JSONResponse(
+                        status_code=status.HTTP_200_OK,
+                        content={
+                            "code": 200,
+                            "message": "从历史Excel恢复结果",
+                            "data": {
+                                "taskNo": taskNo,
+                                "status": "partial",
+                                "inventoryResults": inventory_results
+                            }
+                        }
+                    )
+                except Exception as ex:
+                    logger.warning(f"从Excel恢复结果失败: {ex}")
             return JSONResponse(
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={

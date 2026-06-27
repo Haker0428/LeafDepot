@@ -8,10 +8,35 @@ WebSocket 连接管理器
 import asyncio
 import json
 import logging
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Set
 from fastapi import WebSocket
 
 logger = logging.getLogger("websocket")
+logger.setLevel(logging.INFO)
+
+
+class _DailyFileHandler(logging.FileHandler):
+    """每天自动切换到新的日志文件"""
+    def __init__(self):
+        self._base_dir = Path(__file__).parent.parent.parent / "logs"
+        self._base_dir.mkdir(parents=True, exist_ok=True)
+        super().__init__(self._get_today_file(), encoding="utf-8")
+        self.setFormatter(logging.Formatter("%(message)s"))
+
+    def _get_today_file(self):
+        return self._base_dir / f"web_{datetime.now().strftime('%Y%m%d')}.log"
+
+    def emit(self, record):
+        # 每天首次写日志时切换文件
+        if self.baseFilename != str(self._get_today_file()):
+            self.close()
+            self.stream = open(self._get_today_file(), "a", encoding="utf-8")
+        super().emit(record)
+
+
+logger.addHandler(_DailyFileHandler())
 
 
 class WebSocketManager:
