@@ -849,5 +849,26 @@
       3,
       5
     ]
+  },
+  {
+    "pattern_id": "top_l_2",
+    "visible_count": 1,
+    "match": {
+      "width_ranges": [
+        [
+          0.3,
+          0.55
+        ]
+      ],
+      "depth_ranges": [
+        [
+          9200,
+          13950
+        ]
+      ]
+    },
+    "result_ids": [
+      0
+    ]
   }
 ]

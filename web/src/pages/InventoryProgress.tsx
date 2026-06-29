@@ -1741,7 +1741,7 @@ export default function InventoryProgress() {
     const rcsCodes = selectedItems.map((item) => item.rcsCode);
 
     // 生成独立的重新盘点任务号（避免与原任务状态冲突）
-    const recountTaskId = `${currentTaskNo}_recount_${Date.now()}`;
+    const recountTaskId = `${currentTaskNo}_R${Date.now() % 100000}`;
 
     setIsRecounting(true);
     toast.info(`正在重新盘点 ${selectedIds.length} 个库位...`);

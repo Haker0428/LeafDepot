@@ -797,8 +797,8 @@ export default function History() {
                 <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
                   <div className="flex flex-col md:flex-row">
                     {/* 左侧：任务基本信息 */}
-                    <div className="flex-1 px-6 py-5 border-b md:border-b-0 md:border-r border-gray-200">
-                      <h4 className="text-3xl font-bold text-green-800 mb-2">{selectedTask.taskId}</h4>
+                    <div className="flex-1 min-w-0 px-6 py-5 border-b md:border-b-0 md:border-r border-gray-200 overflow-hidden">
+                      <h4 className="text-3xl font-bold text-green-800 mb-2 truncate" title={selectedTask.taskId}>{selectedTask.taskId}</h4>
                       <div className="flex flex-col gap-y-1 text-lg text-gray-600">
                         <span><i className="fa-solid fa-calendar mr-2 w-5"></i>{formatDate(selectedTask.taskDate)}</span>
                         <span><i className="fa-solid fa-user mr-2 w-5"></i>{taskMeta.operator || "-"}</span>
@@ -814,7 +814,7 @@ export default function History() {
                       </div>
                     </div>
                     {/* 右侧：统计数字 + 详情按钮 */}
-                    <div className="flex items-center gap-0">
+                    <div className="flex items-center gap-0 flex-shrink-0">
                       {/* 盘点类型标志 */}
                       <div className="px-5 py-4 text-center border-r border-gray-200">
                         {taskMeta.isValid === false ? (

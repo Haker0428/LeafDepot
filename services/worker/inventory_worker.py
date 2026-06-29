@@ -32,23 +32,16 @@ from services.api.shared.redis_queue import (
 )
 from services.api.shared.config import CAMERA_TEST_DIR, IS_SIM, logs_dir
 from datetime import datetime
-from logging.handlers import TimedRotatingFileHandler
 
 # 设置 worker 日志文件（独立于 gateway，不调用 set_service_name 避免覆盖 gateway 的 root logger）
-# TimedRotatingFileHandler 每天午夜自动切换到新文件
-_worker_log_base = logs_dir / "worker.log"
+# 每天一个新文件
+_worker_log_file = logs_dir / f"worker_{datetime.now().strftime('%Y%m%d')}.log"
 
 # 设置 root logger，让所有 services.api.* 子 logger 都写到 worker 文件
 _root_logger = logging.getLogger()
 _root_logger.handlers = []  # 清掉继承的 handler（gateway 可能已经配置过）
 _root_logger.setLevel(logging.DEBUG)
-_root_fh = TimedRotatingFileHandler(
-    str(_worker_log_base),
-    when="midnight",
-    interval=1,
-    backupCount=0,
-    encoding='utf-8'
-)
+_root_fh = logging.FileHandler(str(_worker_log_file), encoding='utf-8')
 _root_fh.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'))
@@ -68,7 +61,7 @@ for h in list(_core_logger.handlers):
     _core_logger.removeHandler(h)
 _core_logger.propagate = False
 _core_logger.setLevel(logging.DEBUG)
-_core_fh = logging.FileHandler(str(_worker_log_file), encoding='utf-8')
+_core_fh = logging.FileHandler(str(_worker_log_base), encoding='utf-8')
 _core_fh.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'))

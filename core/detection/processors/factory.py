@@ -494,14 +494,14 @@ class StackProcessorFactory:
     
     def _process_layers(self, layers: List[Dict]) -> List[Dict]:
         """处理层：去除误层并重新索引"""
-        # 去除误层
-        layers = remove_fake_top_layer(layers)
-        
+        # 暂时禁用 remove_fake_top_layer（其宽度判断逻辑有 bug，会误删真正的顶层）
+        # layers = remove_fake_top_layer(layers)
+
         # 重新索引层（最上层为1）
         layers = sorted(layers, key=lambda l: l["avg_y"])
         for i, layer in enumerate(layers, 1):
             layer["index"] = i
-        
+
         return layers
     
     def _get_template_config(self, pile_id: int, layers: List[Dict]) -> List[int]:
