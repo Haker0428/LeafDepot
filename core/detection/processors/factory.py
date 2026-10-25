@@ -75,7 +75,7 @@ class StackProcessorFactory:
                  enable_visualization: bool = False,
                  model_path: Optional[Union[str, Path]] = None,
                  pile_config_path: Optional[Union[str, Path]] = None,
-                 confidence_threshold: float = 0.65,
+                 confidence_threshold: float = 0.7,
                  output_dir: Optional[Union[str, Path]] = None):
         """
         :param detector: 满层判断器（可选，默认使用 CoverageBasedDetector）
@@ -86,7 +86,7 @@ class StackProcessorFactory:
         :param enable_visualization: 是否启用可视化（保存效果图到output目录）
         :param model_path: YOLO模型路径（可选，用于count方法）
         :param pile_config_path: 堆垛配置路径（可选，用于count方法）
-        :param confidence_threshold: 置信度阈值（默认0.65）
+        :param confidence_threshold: 置信度阈值（默认0.7）
         :param output_dir: 可视化输出目录（可选，默认使用 core/detection/output）
         """
         self.detector = detector or CoverageBasedDetector(enable_debug=enable_debug)
@@ -113,12 +113,13 @@ class StackProcessorFactory:
         self.depth_processor = DepthProcessor(enable_debug=enable_debug)
         
         # 创建处理器，传递深度计算器
-        self.full_processor = full_processor or TemplateBasedFullProcessor(enable_debug=enable_debug)
+        self.full_processor = full_processor or TemplateBasedFullProcessor(enable_debug=enable_debug, pile_db=self.pile_db)
         # 创建非满层处理器，传递深度计算器
         if partial_processor is None:
             self.partial_processor = TemplateBasedPartialProcessor(
                 enable_debug=enable_debug,
-                depth_calculator=self.depth_calculator
+                depth_calculator=self.depth_calculator,
+                pile_db=self.pile_db
             )
         else:
             self.partial_processor = partial_processor

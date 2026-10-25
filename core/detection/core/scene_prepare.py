@@ -3,7 +3,7 @@
 from typing import Dict, List, Optional
 
 
-def prepare_logic(yolo_output: List[Dict], conf_thr: float = 0.6) -> Optional[Dict]:
+def prepare_logic(yolo_output: List[Dict], conf_thr: float = 0.3) -> Optional[Dict]:
     """
     过滤 YOLO 输出，只保留 pile 内目标（不做绘图）
     

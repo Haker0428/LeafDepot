@@ -870,6 +870,7 @@ export default function InventoryProgress() {
               photoScan1Path: r.photoScan1Path || "",
               photoScan2Path: r.photoScan2Path || "",
               specName: r.specName || "",
+              productName: r.specName || "", // 系统品规：保存时读取的是 productName，重建时必须回填
               systemQuantity: r.systemQuantity || 0,
               status: r.status,
               error: r.error,

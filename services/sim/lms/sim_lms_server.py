@@ -221,6 +221,15 @@ class UserRegistration(BaseModel):
     nationalCode: str = ""
 
 
+class UserUpdate(BaseModel):
+    """用户修改请求模型"""
+    userCode: str
+    password: Optional[str] = None  # 新密码（可不传）
+    userName: Optional[str] = None
+    mobile: Optional[str] = None
+    userLevel: Optional[str] = None
+
+
 class UserDelete(BaseModel):
     """用户删除请求模型"""
     userCode: str
@@ -554,13 +563,6 @@ async def get_users(request: Request):
             detail="Unauthorized"
         )
 
-    # 检查用户权限（只有管理员可以查看所有用户）
-    if current_user.get("userLevel") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="权限不足，只有管理员可以查看用户列表"
-        )
-
     # 返回用户列表（排除密码字段）
     users_response = []
     for user in users_data:
@@ -716,6 +718,52 @@ async def delete_user(request: Request, delete_data: UserDelete = Body(...)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="用户删除失败，无法保存到文件"
         )
+
+
+@app.post("/third/api/v1/userManagement/updateUser")
+async def update_user(request: Request, update_data: UserUpdate = Body(...)):
+    """用户修改接口（密码/姓名/手机号）"""
+    auth_token = request.headers.get('authToken')
+
+    # 验证token
+    current_user = get_current_user(auth_token)
+    if not current_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    # 操作员只能修改自己的密码；管理员可以修改任意用户
+    target_code = update_data.userCode
+    if current_user.get("userLevel") != "admin" and current_user.get("userCode") != target_code:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足，只能修改自己的信息")
+
+    # 查找目标用户
+    user_to_update = None
+    for user in users_data:
+        if user.get("userCode") == target_code:
+            user_to_update = user
+            break
+
+    if not user_to_update:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"用户 '{target_code}' 不存在")
+
+    # 更新字段
+    if update_data.password:
+        user_to_update["password"] = update_data.password
+    if update_data.userName:
+        user_to_update["userName"] = update_data.userName
+    if update_data.mobile is not None:
+        user_to_update["mobile"] = update_data.mobile
+    # 管理员才能改权限
+    if update_data.userLevel and current_user.get("userLevel") == "admin":
+        user_to_update["userLevel"] = update_data.userLevel
+
+    operator = f"{current_user.get('userCode', '?')}({current_user.get('userName', '?')})"
+    save_success = save_users_to_excel(operator=operator)
+
+    if save_success:
+        _lms_logger.info(f"[UPDATE] 修改用户 | 操作员: {operator} | 用户: {target_code}")
+        return {"code": 200, "message": "用户信息修改成功", "data": None}
+    else:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="用户信息修改失败，无法保存到文件")
 
 
 # 在 __main__ 部分添加导入

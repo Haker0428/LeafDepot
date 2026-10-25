@@ -1,6 +1,7 @@
 """
 认证路由
 """
+import re
 import requests
 from fastapi import APIRouter, Request, HTTPException, status
 
@@ -8,6 +9,23 @@ from services.api.shared.config import LMS_BASE_URL, logger, MOCK_USER
 from services.api.shared.operation_log import log_operation
 
 router = APIRouter(tags=["auth"])
+
+
+def validate_strong_password(password: str) -> str | None:
+    """校验强密码：大小写字母、数字、特殊字符，至少8位。返回错误信息或None。"""
+    if not password:
+        return "密码不能为空"
+    if len(password) < 8:
+        return "密码长度至少8位"
+    if not re.search(r"[a-z]", password):
+        return "密码必须包含小写字母"
+    if not re.search(r"[A-Z]", password):
+        return "密码必须包含大写字母"
+    if not re.search(r"\d", password):
+        return "密码必须包含数字"
+    if not re.search(r"[@!#_+=.,?/]", password):
+        return "密码必须包含特殊字符（@!#_+=.,?/）"
+    return None
 
 
 async def get_user_info_from_token(auth_token: str) -> dict:
@@ -146,6 +164,54 @@ async def login(request: Request):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"登录请求处理失败: {str(e)}"
         )
+
+
+@router.post("/userManagement/updateUser")
+async def update_user(request: Request):
+    """修改用户信息（密码/姓名/手机号）"""
+    data = await request.json()
+    auth_token = request.headers.get("authToken", "")
+
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="未提供认证令牌")
+
+    # 获取当前用户信息，检查权限
+    current_user = await get_user_info_from_token(auth_token)
+    current_level = current_user.get("userLevel", "")
+    current_user_code = current_user.get("userCode", "")
+
+    # 如果不是管理员，只能修改自己的信息
+    if current_level != "admin":
+        target_user_code = data.get("userCode", "")
+        if target_user_code != current_user_code:
+            raise HTTPException(
+                status_code=403,
+                detail="权限不足，只能修改自己的信息"
+            )
+        # 操作员只能修改密码，不能修改姓名
+        allowed_fields = {"userCode": data.get("userCode"), "password": data.get("password")}
+        data = {k: v for k, v in allowed_fields.items() if v is not None}
+
+    # 校验密码强度
+    if "password" in data and data["password"]:
+        pwd_error = validate_strong_password(data["password"])
+        if pwd_error:
+            raise HTTPException(status_code=400, detail=pwd_error)
+
+    try:
+        lms_url = f"{LMS_BASE_URL}/third/api/v1/userManagement/updateUser"
+        headers = {"authToken": auth_token}
+        response = requests.post(lms_url, json=data, headers=headers, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="无法连接到LMS服务")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"修改用户信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/auth/token")

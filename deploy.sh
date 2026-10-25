@@ -4,8 +4,8 @@
 # 用法:
 #   ./deploy.sh            # 完整部署
 #   ./deploy.sh restart    # 仅重启所有服务
-#   ./deploy.sh cron       # 设置定时重启（每天凌晨4点）
-#   ./deploy.sh cron-del   # 删除定时重启
+#   ./deploy.sh cron       # 设置每日维护timer（每天凌晨4点：拉取WMS数据+重启全部服务）
+#   ./deploy.sh cron-del   # 删除每日维护timer
 #
 # 完整部署包含：
 #   1. 清理 __pycache__ 和 .pyc（强制加载新代码）
@@ -30,13 +30,13 @@ restart_all() {
     find "$PROJECT_ROOT/services" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
     find "$PROJECT_ROOT/services" -name "*.pyc" -delete 2>/dev/null || true
 
-    info "重启 5 个服务..."
+    info "重启服务..."
     sudo systemctl restart \
         leafdepot-gateway \
         leafdepot-worker \
         leafdepot-lms \
         leafdepot-rcs \
-        leafdepot-web
+        leafdepot-web || true
 
     sleep 4
 
@@ -78,29 +78,125 @@ info()    { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# ===== 定时重启 cron =====
-setup_cron() {
-    CRON_USER=$(whoami)
-    CRON_CMD="0 4 * * * systemctl restart leafdepot-gateway leafdepot-worker leafdepot-lms leafdepot-rcs leafdepot-web >> /home/zihui-lang/code/LeafDepot/logs/restart.log 2>&1"
-    EXISTING=$(crontab -l 2>/dev/null | grep "leafdepot-" || true)
-    if [ -n "$EXISTING" ]; then
-        warn "定时重启已存在，先删除旧配置..."
-        crontab -l 2>/dev/null | grep -v "leafdepot-" | crontab - 2>/dev/null || true
-    fi
-    (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
-    info "定时重启已设置：每天凌晨 4:00 重启全部服务"
-    info "当前 crontab:"
-    crontab -l 2>/dev/null | grep "leafdepot-" | sed 's/^/    /'
+# 读取 is_sim 配置（全局变量，所有函数共享）
+IS_SIM=true
+if [ -f "$PROJECT_ROOT/config.json" ]; then
+    IS_SIM=$(python3 -c "import json; print(json.load(open('$PROJECT_ROOT/config.json')).get('is_sim', True))" 2>/dev/null || echo "true")
+fi
+
+# ===== 每日维护 timer（拉WMS数据 + 重启全部服务） =====
+
+# 清理遗留的定时机制（幂等，可重复调用）：
+#   1. crontab 里两条旧重启条目（manage.sh 死条目 + deploy.sh restart 条目；保留 NVIDIA 条目）
+#   2. 5 个旧的已安装但从未正常工作的 timer（/etc 和 repo systemd/ 两处）
+#   3. wms-sync 常驻服务残留（由 daily task 每日拉取取代）
+cleanup_legacy_scheduling() {
+    info "清理遗留定时机制..."
+
+    # crontab：精确删除旧条目（模式不匹配 NVIDIA updater 行）
+    crontab -l 2>/dev/null \
+        | grep -vE 'bash manage\.sh restart all|LeafDepot/deploy\.sh restart' \
+        | crontab - 2>/dev/null || true
+
+    # 5 个旧 timer：停用 + 删除（显式列出，避免 glob 误伤 daily.timer）
+    local old_timers="leafdepot-gateway.timer leafdepot-worker.timer leafdepot-lms.timer leafdepot-rcs.timer leafdepot-web.timer"
+    sudo systemctl disable --now $old_timers 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/leafdepot-gateway.timer /etc/systemd/system/leafdepot-worker.timer \
+        /etc/systemd/system/leafdepot-lms.timer /etc/systemd/system/leafdepot-rcs.timer /etc/systemd/system/leafdepot-web.timer
+    rm -f "$PROJECT_ROOT/systemd/leafdepot-gateway.timer" "$PROJECT_ROOT/systemd/leafdepot-worker.timer" \
+        "$PROJECT_ROOT/systemd/leafdepot-lms.timer" "$PROJECT_ROOT/systemd/leafdepot-rcs.timer" \
+        "$PROJECT_ROOT/systemd/leafdepot-web.timer"
+
+    # wms-sync 残留（防御性：跑过旧版 deploy 的机器）
+    sudo systemctl disable --now leafdepot-wms-sync 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/leafdepot-wms-sync.service
+
+    sudo systemctl daemon-reload
+    info "遗留清理完成"
 }
 
-remove_cron() {
-    EXISTING=$(crontab -l 2>/dev/null | grep "leafdepot-" || true)
-    if [ -z "$EXISTING" ]; then
-        info "定时重启未配置，无需删除"
-    else
-        crontab -l 2>/dev/null | grep -v "leafdepot-" | crontab -
-        info "定时重启已删除"
+# 设置每日维护 timer（生成 daily.service/.timer 并启用）
+setup_daily_timer() {
+    echo ""
+    echo "========================================"
+    echo "  设置 LeafDepot 每日维护 timer"
+    echo "  每天 04:00: 拉取 WMS 库存 + 重启全部服务"
+    echo "========================================"
+    echo ""
+
+    cleanup_legacy_scheduling
+
+    local systemd_dir="$PROJECT_ROOT/systemd"
+    mkdir -p "$systemd_dir"
+    chmod +x "$PROJECT_ROOT/daily_task.sh" "$PROJECT_ROOT/check_services.sh" 2>/dev/null || true
+
+    # 每日维护 oneshot 服务（root 运行；python 步骤在 daily_task.sh 内部 runuser 降权）
+    cat > "$systemd_dir/leafdepot-daily.service" << EOF
+[Unit]
+Description=LeafDepot Daily Maintenance (WMS fetch + services restart)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$PROJECT_ROOT/daily_task.sh
+TimeoutStartSec=600
+EOF
+
+    # 每天 04:00 触发；Persistent=true 关机错过则开机补跑（补跑时随机延迟不生效）
+    cat > "$systemd_dir/leafdepot-daily.timer" << EOF
+[Unit]
+Description=LeafDepot Daily Maintenance Timer (04:00)
+
+[Timer]
+OnCalendar=*-*-*  04:00:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    info "安装 timer（需要 sudo）..."
+    sudo cp "$systemd_dir/leafdepot-daily.service" "$systemd_dir/leafdepot-daily.timer" /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now leafdepot-daily.timer
+
+    echo ""
+    info "每日维护 timer 已启用："
+    systemctl list-timers leafdepot-daily.timer --no-pager 2>/dev/null | sed 's/^/    /' || true
+    # NEXT 必须有值（旧 timer 就僵死在 NEXT 为空）；为空则重排程一次
+    local next
+    next=$(systemctl show -p NextElapseUSecRealtime --value leafdepot-daily.timer 2>/dev/null || true)
+    if [ -z "$next" ] || [ "$next" = "n/a" ]; then
+        warn "timer NEXT 为空（疑似僵死），尝试重新排程..."
+        sudo systemctl restart leafdepot-daily.timer || true
+        next=$(systemctl show -p NextElapseUSecRealtime --value leafdepot-daily.timer 2>/dev/null || true)
+        if [ -z "$next" ] || [ "$next" = "n/a" ]; then
+            warn "仍未排程，请手动检查: systemctl list-timers leafdepot-daily.timer"
+        else
+            info "重新排程成功，NEXT: $next"
+        fi
     fi
+    local cron_out
+    cron_out=$(crontab -l 2>/dev/null || true)
+    if [ -n "$cron_out" ]; then
+        info "当前 crontab（应只剩非 LeafDepot 条目，如 NVIDIA updater）:"
+        echo "$cron_out" | sed 's/^/    /'
+    else
+        info "当前 crontab 为空"
+    fi
+}
+
+# 删除每日维护 timer
+remove_daily_timer() {
+    info "删除每日维护 timer..."
+    sudo systemctl disable --now leafdepot-daily.timer 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/leafdepot-daily.timer /etc/systemd/system/leafdepot-daily.service
+    rm -f "$PROJECT_ROOT/systemd/leafdepot-daily.timer" "$PROJECT_ROOT/systemd/leafdepot-daily.service"
+    sudo systemctl daemon-reload
+    sudo systemctl reset-failed leafdepot-daily.service 2>/dev/null || true
+    info "每日维护 timer 已删除"
 }
 
 # 根据参数决定执行哪个命令
@@ -110,11 +206,11 @@ if [ "$CMD" = "restart" ]; then
     exit 0
 fi
 if [ "$CMD" = "cron" ]; then
-    setup_cron
+    setup_daily_timer
     exit 0
 fi
 if [ "$CMD" = "cron-del" ]; then
-    remove_cron
+    remove_daily_timer
     exit 0
 fi
 # 默认执行完整部署
@@ -166,8 +262,8 @@ else
     info "8000 端口空闲"
 fi
 
-# ===== 4. 确保 log_wrapper.sh 有执行权限 =====
-chmod +x "$PROJECT_ROOT/log_wrapper.sh"
+# ===== 4. 确保运维脚本有执行权限 =====
+chmod +x "$PROJECT_ROOT/log_wrapper.sh" "$PROJECT_ROOT/daily_task.sh" "$PROJECT_ROOT/check_services.sh"
 
 # ===== 5. 检测 Redis =====
 REDIS_CLI="$CONDA_ENV_BIN/redis-cli"
@@ -255,12 +351,49 @@ Restart=always
 RestartSec=10
 EOF
 
+# daily 每日维护 oneshot（root 运行；python 步骤在 daily_task.sh 内部 runuser 降权）
+cat > "$SYSTEMD_DIR/leafdepot-daily.service" << EOF
+[Unit]
+Description=LeafDepot Daily Maintenance (WMS fetch + services restart)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$PROJECT_ROOT/daily_task.sh
+TimeoutStartSec=600
+EOF
+
+# daily 每日维护 timer（04:00；Persistent 关机错过则开机补跑）
+cat > "$SYSTEMD_DIR/leafdepot-daily.timer" << EOF
+[Unit]
+Description=LeafDepot Daily Maintenance Timer (04:00)
+
+[Timer]
+OnCalendar=*-*-*  04:00:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
 info "unit 文件生成完成"
+
+# ===== 6.5 部署时立即同步一次 WMS 数据 =====
+info "部署时立即同步一次 WMS 数据 (is_sim=$IS_SIM)..."
+$PYTHON_BIN "$PROJECT_ROOT/services/sim/lms/fetch_wms_stock.py" --once || warn "WMS 首次同步失败，请检查日志 logs/lms_YYYYMMDD.log"
+info "WMS 首次同步完成"
 
 # ===== 7. 安装并重启服务 =====
 info "安装 systemd 服务（需要 sudo）..."
-sudo cp "$SYSTEMD_DIR"/leafdepot-*.service /etc/systemd/system/
+sudo cp "$SYSTEMD_DIR"/leafdepot-*.service "$SYSTEMD_DIR"/leafdepot-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
+
+# 清理遗留定时机制 + 启用每日维护 timer
+cleanup_legacy_scheduling
+info "启用每日维护 timer（每天 04:00 拉取 WMS 数据 + 重启全部服务）..."
+sudo systemctl enable --now leafdepot-daily.timer 2>/dev/null || warn "daily timer 启用失败，可用 ./deploy.sh cron 单独设置"
 
 # 只启动 gateway 和 worker（lms/rcs/web 按需手动启）
 info "重启 gateway..."

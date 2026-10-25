@@ -1253,11 +1253,7 @@ async def process_single_bin_location(
             result["actualSpec"] = _get_actual_spec(barcode_result, None)
 
             result["status"] = "成功"
-            # 品规未识别时，数量不可信，强制归零
-            if result["actualSpec"] == "未识别":
-                result["actualQuantity"] = 0
-            else:
-                result["actualQuantity"] = detect_result.get("total_count", 0)
+            result["actualQuantity"] = detect_result.get("total_count", 0)
             result["barcodeResult"] = barcode_result
             result["detectResult"] = detect_result
             result["photos"] = recognition_result.get("photos", [])
@@ -1377,11 +1373,7 @@ async def process_single_bin_location(
                 result["actualSpec"] = _get_actual_spec(barcode_result, None)
 
                 result["status"] = "成功"
-                # 品规未识别时，数量不可信，强制归零
-                if result["actualSpec"] == "未识别":
-                    result["actualQuantity"] = 0
-                else:
-                    result["actualQuantity"] = detect_result.get("total_count", 0)
+                result["actualQuantity"] = detect_result.get("total_count", 0)
                 result["barcodeResult"] = barcode_result
                 result["detectResult"] = detect_result
                 result["photos"] = recognition_result.get("photos", [])

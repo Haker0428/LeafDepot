@@ -23,8 +23,17 @@ export default function UserManage() {
   const { userLevel, userName, authToken, logout } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]); // 改为存储userCode
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editForm, setEditForm] = useState({ password: "", confirmPassword: "", userName: "", mobile: "" });
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
   const [newUserForm, setNewUserForm] = useState({
     userName: "",
     userCode: "",
@@ -106,9 +115,14 @@ export default function UserManage() {
         } else if (response.status === 403) {
           throw new Error("权限不足，只有管理员可以查看用户列表");
         } else if (response.status === 422) {
-          // 422错误，尝试另一种方式
-          console.log("收到422错误");
-          return;
+          // 422错误，显示错误信息
+          let detail = "";
+          try {
+            const text = await response.text();
+            const data = JSON.parse(text);
+            detail = data?.detail || data?.message || text;
+          } catch {}
+          throw new Error(`请求参数错误: ${detail || response.statusText}`);
         } else if (response.status === 503) {
           throw new Error("无法连接到LMS服务，请确保服务已启动");
         } else {
@@ -117,19 +131,28 @@ export default function UserManage() {
       }
 
       // 解析JSON数据
-      const result = await response.json();
+      let result;
+      try {
+        result = await response.json();
+      } catch {
+        const text = await response.text();
+        throw new Error(text || `请求失败: ${response.status}`);
+      }
       console.log("接口返回数据:", result);
 
       if (result.code === 200 && result.data) {
         console.log("成功获取用户数据:", result.data.length, "个用户");
         setUsers(result.data);
+        setLoadError(null);
       } else {
-        throw new Error(result.message || "获取用户列表失败");
+        const msg = result?.detail || result?.message || "获取用户列表失败";
+        throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
       }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "获取用户列表失败";
       toast.error(errorMessage);
+      setLoadError(errorMessage);
       console.error("加载用户列表失败:", error);
     } finally {
       setLoading(false);
@@ -138,10 +161,18 @@ export default function UserManage() {
 
   // 组件加载时获取用户数据
   useEffect(() => {
-    if (userLevel === "admin" && authToken) {
+    if (authToken) {
       loadUsers();
     }
   }, [userLevel, authToken]);
+
+  // 获取当前登录用户的 userCode
+  const getCurrentUserCode = () => {
+    // 从 auth token 中解码或从用户列表中匹配
+    // userName 在 auth context 中是 display name，我们需要在用户列表中找到对应的 userCode
+    const me = users.find(u => u.userName === userName || u.userCode === userName);
+    return me?.userCode;
+  };
 
   // 处理用户选择
   const handleSelectUser = (userCode: string) => {
@@ -183,6 +214,8 @@ export default function UserManage() {
   // 关闭注册模态框
   const handleCloseRegisterModal = () => {
     setShowRegisterModal(false);
+    setShowRegPassword(false);
+    setShowRegConfirmPassword(false);
   };
 
   // 处理表单输入变化
@@ -217,16 +250,14 @@ export default function UserManage() {
 
     if (!newUserForm.password) {
       errors.password = "请输入密码";
-    } else if (newUserForm.password.length < 6) {
-      errors.password = "密码长度至少6位";
+    } else if (newUserForm.password.length < 8) {
+      errors.password = "密码长度至少8位";
+    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@!#_+=.,?/]).{8,}/.test(newUserForm.password)) {
+      errors.password = "密码必须包含大小写字母、数字和特殊字符（@!#_+=.,?/）";
     }
 
     if (newUserForm.password !== newUserForm.confirmPassword) {
       errors.confirmPassword = "两次输入的密码不一致";
-    }
-
-    if (newUserForm.mobile && !/^1[3-9]\d{9}$/.test(newUserForm.mobile)) {
-      errors.mobile = "请输入正确的手机号码";
     }
 
     setFormErrors(errors);
@@ -256,7 +287,13 @@ export default function UserManage() {
         }),
       });
 
-      const result = await response.json();
+      let result;
+      try {
+        result = await response.json();
+      } catch {
+        const text = await response.text();
+        throw new Error(text || `注册失败: ${response.status}`);
+      }
 
       if (response.ok && result.code === 200) {
         toast.success(`用户 ${newUserForm.userName} 注册成功！`);
@@ -288,7 +325,8 @@ export default function UserManage() {
         // 刷新用户列表
         loadUsers();
       } else {
-        throw new Error(result.message || "注册失败");
+        const msg = result?.detail || result?.message || `注册失败: ${response.status}`;
+        throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "注册失败";
@@ -309,6 +347,97 @@ export default function UserManage() {
           error: errorMessage
         }
       });
+    }
+  };
+
+  // 打开修改用户弹窗
+  const handleOpenEditModal = (user: User) => {
+    // 操作员只能改自己的密码
+    if (userLevel !== "admin" && user.userCode !== getCurrentUserCode()) {
+      toast.error("权限不足，只能修改自己的信息");
+      return;
+    }
+    setEditingUser(user);
+    setEditForm({ password: "", confirmPassword: "", userName: user.userName || "", mobile: user.mobile || "" });
+    setEditErrors({});
+    setShowEditModal(true);
+  };
+
+  // 关闭修改弹窗
+  const handleCloseEditModal = () => {
+    setShowEditModal(false);
+    setEditingUser(null);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+  };
+
+  // 修改提交
+  const handleEditSubmit = async () => {
+    const errors: Record<string, string> = {};
+    if (!editingUser) return;
+
+    // 操作员改密码必填
+    if (userLevel !== "admin") {
+      if (!editForm.password) {
+        errors.password = "请输入新密码";
+      } else if (editForm.password.length < 8) {
+        errors.password = "密码长度至少8位";
+      } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@!#_+=.,?/]).{8,}/.test(editForm.password)) {
+        errors.password = "密码必须包含大小写字母、数字和特殊字符（@!#_+=.,?/）";
+      }
+      if (editForm.password !== editForm.confirmPassword) {
+        errors.confirmPassword = "两次密码不一致";
+      }
+    } else {
+      // 管理员：密码选填
+      if (editForm.password) {
+        if (editForm.password.length < 8) {
+          errors.password = "密码长度至少8位";
+        } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@!#_+=.,?/]).{8,}/.test(editForm.password)) {
+          errors.password = "密码必须包含大小写字母、数字和特殊字符（@!#_+=.,?/）";
+        }
+        if (editForm.password !== editForm.confirmPassword) {
+          errors.confirmPassword = "两次密码不一致";
+        }
+      }
+    }
+    if (Object.keys(errors).length > 0) {
+      setEditErrors(errors);
+      return;
+    }
+
+    const body: Record<string, string> = { userCode: editingUser.userCode };
+    if (editForm.password) body.password = editForm.password;
+    // 操作员只能改密码
+    if (userLevel === "admin") {
+      if (editForm.userName) body.userName = editForm.userName;
+      // 手机号非必填，不校验格式
+      if (editForm.mobile !== undefined) body.mobile = editForm.mobile;
+    }
+
+    try {
+      const resp = await fetch(`${GATEWAY_URL}/userManagement/updateUser`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", authToken: authToken || "" },
+        body: JSON.stringify(body),
+      });
+      let result;
+      try {
+        result = await resp.json();
+      } catch {
+        const text = await resp.text();
+        throw new Error(text || `请求失败: ${resp.status}`);
+      }
+      if (resp.ok && result.code === 200) {
+        toast.success("修改成功");
+        handleCloseEditModal();
+        loadUsers();
+      } else {
+        const msg = result?.detail || result?.message || `修改失败: ${resp.status}`;
+        throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "修改失败");
     }
   };
 
@@ -467,115 +596,6 @@ export default function UserManage() {
     }
   };
 
-  // 权限不足时显示的内容
-  if (userLevel !== "admin") {
-    return (
-      <div className="min-h-screen flex flex-col bg-gray-50">
-        {/* 背景图片 */}
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-5"
-          style={{
-            backgroundImage:
-              "url(https://lf-code-agent.coze.cn/obj/x-ai-cn/attachment/3868529628819536/背景参考_20250808011802.jfif)",
-          }}
-        ></div>
-
-        {/* 顶部导航栏 - 根据当前用户显示 */}
-        <header className="relative bg-white shadow-md z-10">
-          <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <div className="w-10 h-10 bg-green-700 rounded-full flex items-center justify-center">
-                <i className="fa-solid fa-boxes-stacked text-white text-xl"></i>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-green-800">中国烟草</h1>
-                <p className="text-xs text-gray-500">智慧仓库盘点系统</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-4">
-              <div className="text-right hidden md:block">
-                <p className="text-sm font-medium text-gray-700">
-                  欢迎，{userName || "用户"}
-                </p>
-                <p className="text-xs text-gray-500">
-                  权限：{getLevelText(userLevel)}
-                </p>
-              </div>
-
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  userLevel === "admin"
-                    ? "bg-purple-100 text-purple-600"
-                    : "bg-blue-100 text-blue-600"
-                }`}
-              >
-                <i
-                  className={`fa-solid ${
-                    userLevel === "admin" ? "fa-user-shield" : "fa-user"
-                  }`}
-                ></i>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* 主内容区 - 权限不足提示 */}
-        <main className="flex-1 container mx-auto px-4 py-8 relative z-10 flex items-center justify-center">
-          <div className="bg-white rounded-xl shadow-md p-8 text-center max-w-md">
-            <div className="w-20 h-20 rounded-full bg-red-100 flex items-center justify-center text-red-600 mx-auto mb-6">
-              <i className="fa-solid fa-ban text-3xl"></i>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">权限不足</h2>
-            <p className="text-gray-600 mb-6">
-              您没有权限访问用户管理页面，只有管理员可以查看用户列表。
-            </p>
-            <a
-              href="/"
-              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-6 py-3 rounded-lg transition-all duration-300 inline-flex items-center"
-            >
-              <i className="fa-solid fa-arrow-left mr-2"></i>
-              返回首页
-            </a>
-          </div>
-        </main>
-
-        {/* 页脚 */}
-        <footer className="bg-white py-6 border-t border-gray-200 relative z-10">
-          <div className="container mx-auto px-4">
-            <div className="flex flex-col md:flex-row justify-between items-center">
-              <div className="mb-4 md:mb-0">
-                <p className="text-gray-500 text-sm">
-                  © 2025 中国烟草 - 智慧仓库盘点系统
-                </p>
-              </div>
-              <div className="flex space-x-6">
-                <a
-                  href="/"
-                  className="text-gray-500 hover:text-green-600 text-sm"
-                >
-                  <i className="fa-solid fa-home mr-1"></i> 返回首页
-                </a>
-                <a
-                  href="#"
-                  className="text-gray-500 hover:text-green-600 text-sm"
-                >
-                  <i className="fa-solid fa-question-circle mr-1"></i> 使用帮助
-                </a>
-                <a
-                  href="#"
-                  className="text-gray-500 hover:text-green-600 text-sm"
-                >
-                  <i className="fa-solid fa-phone mr-1"></i> 技术支持
-                </a>
-              </div>
-            </div>
-          </div>
-        </footer>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       {/* 背景图片 */}
@@ -665,26 +685,30 @@ export default function UserManage() {
             </div>
 
             <div className="flex space-x-3 mt-4 md:mt-0">
-              <button
-                onClick={handleOpenRegisterModal}
-                className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-5 py-2.5 rounded-lg transition-all duration-300 flex items-center shadow-md hover:shadow-lg"
-              >
-                <i className="fa-solid fa-user-plus mr-2"></i>
-                注册新用户
-              </button>
+              {userLevel === "admin" && (
+                <button
+                  onClick={handleOpenRegisterModal}
+                  className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-5 py-2.5 rounded-lg transition-all duration-300 flex items-center shadow-md hover:shadow-lg"
+                >
+                  <i className="fa-solid fa-user-plus mr-2"></i>
+                  注册新用户
+                </button>
+              )}
 
-              <button
-                onClick={handleDeleteUsers}
-                disabled={selectedUsers.length === 0}
-                className={`px-5 py-2.5 rounded-lg transition-all duration-300 flex items-center shadow-md hover:shadow-lg ${
-                  selectedUsers.length > 0
-                    ? "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white"
-                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                }`}
-              >
-                <i className="fa-solid fa-trash mr-2"></i>
-                删除用户 ({selectedUsers.length})
-              </button>
+              {userLevel === "admin" && (
+                <button
+                  onClick={handleDeleteUsers}
+                  disabled={selectedUsers.length === 0}
+                  className={`px-5 py-2.5 rounded-lg transition-all duration-300 flex items-center shadow-md hover:shadow-lg ${
+                    selectedUsers.length > 0
+                      ? "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white"
+                      : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  }`}
+                >
+                  <i className="fa-solid fa-trash mr-2"></i>
+                  删除用户 ({selectedUsers.length})
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -709,21 +733,23 @@ export default function UserManage() {
               <p className="text-gray-600">加载用户列表...</p>
             </div>
           ) : users.length === 0 ? (
-            // 无数据状态
+            // 无数据或加载失败状态
             <div className="p-12 text-center">
-              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 mx-auto mb-4">
-                <i className="fa-solid fa-users-slash text-2xl"></i>
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                loadError ? "bg-red-100 text-red-400" : "bg-gray-100 text-gray-400"
+              }`}>
+                <i className={`fa-solid ${loadError ? "fa-circle-exclamation text-2xl" : "fa-users-slash text-2xl"}`}></i>
               </div>
               <h5 className="text-lg font-semibold text-gray-700 mb-2">
-                暂无用户数据
+                {loadError ? "加载失败" : "暂无用户数据"}
               </h5>
-              <p className="text-gray-500 mb-6">还没有任何用户，请先注册用户</p>
+              <p className="text-gray-500 mb-6">{loadError || "无法获取用户列表"}</p>
               <button
-                onClick={handleOpenRegisterModal}
+                onClick={loadUsers}
                 className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-5 py-2.5 rounded-lg transition-all duration-300 flex items-center mx-auto"
               >
-                <i className="fa-solid fa-user-plus mr-2"></i>
-                注册新用户
+                <i className="fa-solid fa-rotate-right mr-2"></i>
+                重试
               </button>
             </div>
           ) : (
@@ -732,19 +758,21 @@ export default function UserManage() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-center w-12">
-                      <div className="flex items-center justify-center">
-                        <input
-                          type="checkbox"
-                          checked={
-                            selectedUsers.length === users.length &&
-                            users.length > 0
-                          }
-                          onChange={handleSelectAll}
-                          className="h-4 w-4 text-green-600 rounded border-gray-300 focus:ring-green-500"
-                        />
-                      </div>
-                    </th>
+                    {userLevel === "admin" && (
+                      <th className="px-4 py-3 text-center w-12">
+                        <div className="flex items-center justify-center">
+                          <input
+                            type="checkbox"
+                            checked={
+                              selectedUsers.length === users.length &&
+                              users.length > 0
+                            }
+                            onChange={handleSelectAll}
+                            className="h-4 w-4 text-green-600 rounded border-gray-300 focus:ring-green-500"
+                          />
+                        </div>
+                      </th>
+                    )}
                     <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
                       序号
                     </th>
@@ -766,6 +794,9 @@ export default function UserManage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       员工ID
                     </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      修改密码
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -778,14 +809,16 @@ export default function UserManage() {
                           : ""
                       }`}
                     >
-                      <td className="px-4 py-4 whitespace-nowrap text-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedUsers.includes(user.userCode)}
-                          onChange={() => handleSelectUser(user.userCode)}
-                          className="h-4 w-4 text-green-600 rounded border-gray-300 focus:ring-green-500"
-                        />
-                      </td>
+                      {userLevel === "admin" && (
+                        <td className="px-4 py-4 whitespace-nowrap text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedUsers.includes(user.userCode)}
+                            onChange={() => handleSelectUser(user.userCode)}
+                            className="h-4 w-4 text-green-600 rounded border-gray-300 focus:ring-green-500"
+                          />
+                        </td>
+                      )}
                       <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center w-16">
                         {index + 1}
                       </td>
@@ -840,6 +873,23 @@ export default function UserManage() {
                           <i className="fa-solid fa-id-badge mr-2 text-gray-400"></i>
                           {user.employeeId || "N/A"}
                         </div>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-center">
+                        {userLevel === "admin" || user.userCode === getCurrentUserCode() ? (
+                          <button
+                            onClick={() => handleOpenEditModal(user)}
+                            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
+                          >
+                            修改密码
+                          </button>
+                        ) : (
+                          <button
+                            disabled
+                            className="bg-gray-300 text-gray-500 px-4 py-1.5 rounded-lg text-sm font-medium cursor-not-allowed"
+                          >
+                            修改密码
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -1054,19 +1104,26 @@ export default function UserManage() {
                       <i className="fa-solid fa-lock"></i>
                     </span>
                     <input
-                      type="password"
+                      type={showRegPassword ? "text" : "password"}
                       value={newUserForm.password}
                       onChange={(e) =>
                         handleFormChange("password", e.target.value)
                       }
-                      className={`w-full pl-10 pr-4 py-2.5 rounded-lg border ${
+                      className={`w-full pl-10 pr-12 py-2.5 rounded-lg border ${
                         formErrors.password
                           ? "border-red-300 focus:ring-red-500 focus:border-red-500"
                           : "border-gray-300 focus:ring-green-500 focus:border-green-500"
                       } transition-all`}
-                      placeholder="至少6位字符"
-                      autoComplete="new-password" // 添加这个属性 修复BUG
+                      placeholder="至少8位，含大小写、数字、特殊字符"
+                      autoComplete="new-password"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword(!showRegPassword)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-gray-700 transition-colors"
+                    >
+                      <i className={`fa-solid ${showRegPassword ? "fa-eye-slash" : "fa-eye"}`}></i>
+                    </button>
                   </div>
                   {formErrors.password && (
                     <p className="mt-1 text-xs text-red-600">
@@ -1085,18 +1142,25 @@ export default function UserManage() {
                       <i className="fa-solid fa-lock"></i>
                     </span>
                     <input
-                      type="password"
+                      type={showRegConfirmPassword ? "text" : "password"}
                       value={newUserForm.confirmPassword}
                       onChange={(e) =>
                         handleFormChange("confirmPassword", e.target.value)
                       }
-                      className={`w-full pl-10 pr-4 py-2.5 rounded-lg border ${
+                      className={`w-full pl-10 pr-12 py-2.5 rounded-lg border ${
                         formErrors.confirmPassword
                           ? "border-red-300 focus:ring-red-500 focus:border-red-500"
                           : "border-gray-300 focus:ring-green-500 focus:border-green-500"
                       } transition-all`}
                       placeholder="再次输入密码"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegConfirmPassword(!showRegConfirmPassword)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-gray-700 transition-colors"
+                    >
+                      <i className={`fa-solid ${showRegConfirmPassword ? "fa-eye-slash" : "fa-eye"}`}></i>
+                    </button>
                   </div>
                   {formErrors.confirmPassword && (
                     <p className="mt-1 text-xs text-red-600">
@@ -1120,6 +1184,224 @@ export default function UserManage() {
                 >
                   <i className="fa-solid fa-user-plus mr-2"></i>
                   注册用户
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* 修改用户模态框 */}
+      {showEditModal && editingUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3 }}
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200"
+          >
+            {/* 模态框头部 */}
+            <div className={`p-6 ${userLevel === "admin" ? "bg-gradient-to-r from-blue-500 to-blue-600" : "bg-gradient-to-r from-green-500 to-green-600"} text-white`}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-bold">
+                    {userLevel === "admin" ? "编辑用户" : "修改密码"}
+                  </h3>
+                  <p className="text-green-100 text-sm mt-1">
+                    {userLevel === "admin"
+                      ? `编辑用户 ${editingUser.userName} 的信息`
+                      : "修改您的登录密码"}
+                  </p>
+                </div>
+                <button
+                  onClick={handleCloseEditModal}
+                  className="w-8 h-8 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center transition-all"
+                >
+                  <i className="fa-solid fa-times"></i>
+                </button>
+              </div>
+            </div>
+
+            {/* 模态框内容 */}
+            <div className="p-6">
+              <div className="space-y-4">
+                {/* 用户代码（只读展示） */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    用户代码
+                  </label>
+                  <div className="bg-gray-100 rounded-lg px-4 py-2.5 text-gray-700">
+                    {editingUser.userCode}
+                  </div>
+                </div>
+
+                {/* 用户名称（仅管理员可改） */}
+                {userLevel === "admin" && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      用户名称
+                    </label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                        <i className="fa-solid fa-user"></i>
+                      </span>
+                      <input
+                        type="text"
+                        value={editForm.userName}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, userName: e.target.value })
+                        }
+                        className={`w-full pl-10 pr-4 py-2.5 rounded-lg border ${
+                          editErrors.userName
+                            ? "border-red-300 focus:ring-red-500 focus:border-red-500"
+                            : "border-gray-300 focus:ring-green-500 focus:border-green-500"
+                        } transition-all`}
+                        placeholder="请输入用户名称"
+                      />
+                    </div>
+                    {editErrors.userName && (
+                      <p className="mt-1 text-xs text-red-600">{editErrors.userName}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* 手机号码（仅管理员可改） */}
+                {userLevel === "admin" && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      手机号码
+                    </label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                        <i className="fa-solid fa-phone"></i>
+                      </span>
+                      <input
+                        type="tel"
+                        value={editForm.mobile}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, mobile: e.target.value })
+                        }
+                        className={`w-full pl-10 pr-4 py-2.5 rounded-lg border ${
+                          editErrors.mobile
+                            ? "border-red-300 focus:ring-red-500 focus:border-red-500"
+                            : "border-gray-300 focus:ring-green-500 focus:border-green-500"
+                        } transition-all`}
+                        placeholder="请输入手机号码（可选）"
+                        autoComplete="off"
+                      />
+                    </div>
+                    {editErrors.mobile && (
+                      <p className="mt-1 text-xs text-red-600">{editErrors.mobile}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* 修改密码分隔栏 */}
+                <div className="border-t border-gray-200 pt-4">
+                  <div className="flex items-center mb-3">
+                    <i className="fa-solid fa-key text-gray-400 mr-2"></i>
+                    <span className="text-sm font-medium text-gray-700">修改密码</span>
+                  </div>
+
+                  {/* 密码 */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      新密码 <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                        <i className="fa-solid fa-lock"></i>
+                      </span>
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={editForm.password}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, password: e.target.value })
+                        }
+                        className={`w-full pl-10 pr-12 py-2.5 rounded-lg border ${
+                          editErrors.password
+                            ? "border-red-300 focus:ring-red-500 focus:border-red-500"
+                            : "border-gray-300 focus:ring-green-500 focus:border-green-500"
+                        } transition-all`}
+                        placeholder={
+                          userLevel === "admin"
+                            ? "留空则不修改密码"
+                            : "至少8位，含大小写、数字、特殊字符"
+                        }
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-gray-700 transition-colors"
+                      >
+                        <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"}`}></i>
+                      </button>
+                    </div>
+                    {editErrors.password && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {editErrors.password}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 确认密码 */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      确认密码 <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                        <i className="fa-solid fa-lock"></i>
+                      </span>
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={editForm.confirmPassword}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, confirmPassword: e.target.value })
+                        }
+                        className={`w-full pl-10 pr-12 py-2.5 rounded-lg border ${
+                          editErrors.confirmPassword
+                            ? "border-red-300 focus:ring-red-500 focus:border-red-500"
+                            : "border-gray-300 focus:ring-green-500 focus:border-green-500"
+                        } transition-all`}
+                        placeholder="再次输入密码"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-gray-700 transition-colors"
+                      >
+                        <i className={`fa-solid ${showConfirmPassword ? "fa-eye-slash" : "fa-eye"}`}></i>
+                      </button>
+                    </div>
+                    {editErrors.confirmPassword && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {editErrors.confirmPassword}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 操作按钮 */}
+              <div className="flex space-x-3 mt-8 pt-6 border-t border-gray-200">
+                <button
+                  onClick={handleCloseEditModal}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-3 px-4 rounded-lg transition-all"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleEditSubmit}
+                  className={`flex-1 font-medium py-3 px-4 rounded-lg transition-all flex items-center justify-center ${
+                    userLevel === "admin"
+                      ? "bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white"
+                      : "bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white"
+                  }`}
+                >
+                  <i className="fa-solid fa-check mr-2"></i>
+                  确认修改
                 </button>
               </div>
             </div>

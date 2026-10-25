@@ -62,7 +62,7 @@ class BarcodeRecognizer:
             self.yolo_detector = YoloDetection(
                 model_path=barcode_model_path,
                 class_mapping={0: 'barcode', 1: 'QR'},
-                confidence_threshold=0.5,
+                confidence_threshold=0.7,
                 padding=30
             )
 

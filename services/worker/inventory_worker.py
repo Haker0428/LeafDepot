@@ -61,7 +61,7 @@ for h in list(_core_logger.handlers):
     _core_logger.removeHandler(h)
 _core_logger.propagate = False
 _core_logger.setLevel(logging.DEBUG)
-_core_fh = logging.FileHandler(str(_worker_log_base), encoding='utf-8')
+_core_fh = logging.FileHandler(str(_worker_log_file), encoding='utf-8')
 _core_fh.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'))

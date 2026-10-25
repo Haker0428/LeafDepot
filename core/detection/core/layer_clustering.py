@@ -8,6 +8,18 @@ from pathlib import Path
 from core.detection.utils.path_utils import get_output_path
 
 
+def _adaptive_gap_threshold(avg_h: float, gap_ratio: float, total_box_count: int) -> float:
+    """
+    根据 YOLO 识别出的箱子总数自适应调整 gap 阈值。
+
+    当总箱子数 < 3 时认为是边缘case（相邻层箱中心距约 0.8~1.0×箱高），
+    阈值放大到 2.0×平均箱高 —— 两个箱无论在哪两层都必然聚为同一层。
+    """
+    if total_box_count < 3:
+        return avg_h * 2.0
+    return avg_h * gap_ratio
+
+
 def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: float = 0.6) -> Dict:
     """
     根据 box 的中心 y 坐标进行分层聚类（自动层数）
@@ -23,10 +35,10 @@ def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: flo
     centers.sort(key=lambda x: x[0])  # 从上到下排序
 
     avg_h = np.mean([c[1] for c in centers])
-    threshold = avg_h * gap_ratio
 
     layers, current = [], [centers[0]]
     for i in range(1, len(centers)):
+        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers))
         gap = centers[i][0] - centers[i-1][0]
         if gap > threshold:
             layers.append(current)
@@ -71,10 +83,10 @@ def cluster_layers_with_roi(
     centers.sort(key=lambda x: x[0])
 
     avg_h = np.mean([c[1] for c in centers])
-    threshold = avg_h * gap_ratio
 
     layers, current = [], [centers[0]]
     for i in range(1, len(centers)):
+        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers))
         gap = centers[i][0] - centers[i-1][0]
         if gap > threshold:
             layers.append(current)
@@ -128,11 +140,11 @@ def cluster_layers_with_box_roi(
     centers.sort(key=lambda x: x[0])
 
     avg_h = np.mean([c[1] for c in centers])
-    threshold = avg_h * gap_ratio
 
     # 聚类逻辑
     layers, current = [], [centers[0]]
     for i in range(1, len(centers)):
+        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers))
         gap = centers[i][0] - centers[i-1][0]
         if gap > threshold:
             layers.append(current)

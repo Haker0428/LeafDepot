@@ -40,7 +40,7 @@ class CoverageBasedDetector(FullLayerDetector):
                  coverage_threshold: float = 0.9,
                  cv_gap_threshold: float = 0.4,
                  enable_debug: bool = True,
-                 height_filter_ratio: float = 0.5):
+                 height_filter_ratio: float = 0.05):
         """
         :param coverage_threshold: 覆盖率阈值
         :param cv_gap_threshold: 间距变异系数阈值

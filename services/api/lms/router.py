@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from services.api.shared.config import LMS_BASE_URL, logger
 import services.api.custom_utils as custom_utils
+from services.api.auth.router import get_user_info_from_token, validate_strong_password
 
 router = APIRouter(prefix="/lms", tags=["lms"])
 
@@ -212,7 +213,19 @@ async def register_user(request: Request):
         if not auth_token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未提供认证令牌")
 
+        # 检查管理员权限
+        current_user = await get_user_info_from_token(auth_token)
+        if current_user.get("userLevel") != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足，只有管理员可以注册用户")
+
         data = await request.json()
+
+        # 校验密码强度
+        password = data.get("password", "")
+        pwd_error = validate_strong_password(password)
+        if pwd_error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=pwd_error)
+
         lms_register_url = f"{LMS_BASE_URL}/third/api/v1/userManagement/registerUser"
         headers = {"authToken": auth_token, "Content-Type": "application/json"}
         response = requests.post(lms_register_url, json=data, headers=headers, timeout=10)
@@ -235,6 +248,11 @@ async def delete_user(request: Request):
         auth_token = request.headers.get('authToken')
         if not auth_token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未提供认证令牌")
+
+        # 检查管理员权限
+        current_user = await get_user_info_from_token(auth_token)
+        if current_user.get("userLevel") != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足，只有管理员可以删除用户")
 
         data = await request.json()
         lms_delete_url = f"{LMS_BASE_URL}/third/api/v1/userManagement/deleteUser"

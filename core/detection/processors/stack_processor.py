@@ -43,11 +43,13 @@ class TemplateBasedFullProcessor(FullStackProcessor):
     2. 下层 → 模板层数之和
     """
 
-    def __init__(self, enable_debug: bool = True):
+    def __init__(self, enable_debug: bool = True, pile_db=None):
         """
         :param enable_debug: 是否启用调试输出
+        :param pile_db: PileTypeDatabase 实例，用于查询不同 pile 的模板层
         """
         self.enable_debug = enable_debug
+        self.pile_db = pile_db
 
     def _calculate_top_layer_count_with_depth(self,
                                                top_layer: Dict,
@@ -60,26 +62,40 @@ class TemplateBasedFullProcessor(FullStackProcessor):
         import json, re
         from core.detection.depth import DepthProcessor
 
-        pile_json_path = None
-        pile_patterns = None
+        config_dir = Path(__file__).parent.parent.parent / "config"
+
+        # ========== Step 1: 确定要遍历的 pile_ids ==========
+        # 有条形码（pile_id 已知）：只检查当前 pile
+        # 无条形码（pile_id 为 None 或 fallback）：遍历所有 pile 找匹配
+        all_pile_patterns = {}  # pile_id -> patterns list
+        all_pile_ids = []
+
         if pile_id is not None:
-            config_dir = Path(__file__).parent.parent.parent / "config"
-            for f in config_dir.glob(f"pile_ID_{pile_id}_*.json"):
-                pile_json_path = f
+            # 有指定 pile_id：只检查该 pile 的 pattern
+            all_pile_ids = [pile_id]
+        else:
+            # 无指定 pile_id：遍历所有 pile
+            all_pile_ids.append(None)  # 先用 None 占位，表示 fallback 模式
+            for f in sorted(config_dir.glob("pile_ID_*.json")):
+                matched = re.match(r"pile_ID_(\d+)", f.name)
+                if matched:
+                    all_pile_ids.append(int(matched.group(1)))
+
+        for pid in all_pile_ids:
+            if pid is None:
+                continue
+            for f in config_dir.glob(f"pile_ID_{pid}_*.json"):
+                with open(f, "r", encoding="utf-8") as fp:
+                    all_pile_patterns[pid] = json.load(fp)
+                logger.info(f"[FullProcessor] 加载pile_ID={pid}配置: {f.name}, 共{len(all_pile_patterns[pid])}条规则")
                 break
 
-        if pile_json_path is None or not pile_json_path.exists():
+        if not all_pile_patterns:
             count = len(top_layer_boxes)
-            logger.info(f"[FullProcessor] 未找到pile_ID_{pile_id}配置，回落YOLO: {count}")
-            return count
+            logger.info(f"[FullProcessor] 未找到任何pile配置，回落YOLO: {count}")
+            return {"count": count, "matched_pile_id": None}
 
-        with open(pile_json_path, "r", encoding="utf-8") as f:
-            pile_patterns = json.load(f)
-
-        logger.info(f"[FullProcessor] 加载pile_ID={pile_id}配置: {pile_json_path.name}, 共{len(pile_patterns)}条规则")
-        logger.info(f"[FullProcessor] YOLO顶层箱数: {len(top_layer_boxes)}")
-
-        # 加载深度矩阵
+        # ========== Step 2: 加载深度矩阵 ==========
         depth_matrix = None
         if depth_matrix_csv_path and Path(depth_matrix_csv_path).exists():
             try:
@@ -92,6 +108,7 @@ class TemplateBasedFullProcessor(FullStackProcessor):
         if depth_matrix is None and depth_image is not None:
             depth_matrix = depth_image
 
+        # ========== Step 3: 提取 box 特征 ==========
         pile_w = float(pile_roi["x2"]) - float(pile_roi["x1"])
         image_width = pile_roi.get("image_width", pile_w)
         image_height = pile_roi.get("image_height", 0)
@@ -114,7 +131,7 @@ class TemplateBasedFullProcessor(FullStackProcessor):
             depth_mm = None
             if depth_matrix is not None:
                 cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
-                cy_n = max(0.0, min(1.0, cy / image_height)) if image_height > 0 else 0
+                cy_n = max(0.0, min(1.0, cy / image_height + 0.05)) if image_height > 0 else 0.05
                 dp2 = DepthProcessor(enable_debug=False)
                 res = dp2.extract_depth_at_position(depth_matrix, cx_n, cy_n)
                 if res.get("success") and res.get("value", 0) > 0:
@@ -132,18 +149,26 @@ class TemplateBasedFullProcessor(FullStackProcessor):
             logger.info(f"[FullProcessor] box[{i}]: norm_w={norm_w:.4f}, depth={depth_mm:.0f}mm" if depth_mm
                         else f"[FullProcessor] box[{i}]: norm_w={norm_w:.4f}, depth=None")
 
-        # 匹配 pattern
-        detected_count = len(box_data)
-        patterns_by_count = {}
-        for p in pile_patterns:
-            vc = p.get("visible_count", 1)
-            patterns_by_count.setdefault(vc, []).append(p)
+        # ========== Step 4: 过滤误识别BOX（深度>21950视为误识别） ==========
+        MAX_DEPTH = 21950
+        original_count = len(box_data)
+        box_data = [bd for bd in box_data if bd["depth_mm"] is None or bd["depth_mm"] <= MAX_DEPTH]
+        if len(box_data) < original_count:
+            removed = original_count - len(box_data)
+            logger.info(f"[FullProcessor] 过滤误识别BOX: 移除{removed}个深度超限的box，剩余{len(box_data)}个")
 
-        logger.info(f"[FullProcessor] 检测到{detected_count}个box，尝试匹配visible_count={detected_count}的patterns")
-        if detected_count in patterns_by_count:
-            candidates = patterns_by_count[detected_count]
-            logger.info(f"[FullProcessor] 命中{len(candidates)}条候选规则，逐条匹配...")
-            for p in candidates:
+        # ========== Step 5: 遍历垛型找匹配 ==========
+        detected_count = len(box_data)
+        logger.info(f"[FullProcessor] 过滤后剩余{detected_count}个box，开始遍历垛型pattern...")
+
+        for try_pile_id in all_pile_ids:
+            if try_pile_id is None:
+                logger.info(f"[FullProcessor] 指定pile未匹配，继续遍历其他垛型...")
+                continue
+            patterns = all_pile_patterns.get(try_pile_id, [])
+            if not patterns:
+                continue
+            for p in patterns:
                 pid = p.get("pattern_id", "?")
                 w_ranges = p.get("match", {}).get("width_ranges", [])
                 d_ranges = p.get("match", {}).get("depth_ranges", [])
@@ -156,23 +181,23 @@ class TemplateBasedFullProcessor(FullStackProcessor):
                     w_lo, w_hi = w_ranges[j]
                     if not (w_lo <= bd["norm_width"] <= w_hi):
                         match_ok = False
-                        logger.info(f"[FullProcessor] ❌ {pid}: box[{j}] width={bd['norm_width']:.4f} not in [{w_lo:.4f},{w_hi:.4f}]")
+                        logger.info(f"[FullProcessor] ❌ pile={try_pile_id} {pid}: box[{j}] width={bd['norm_width']:.4f} not in [{w_lo:.4f},{w_hi:.4f}]")
                         break
                     if bd["depth_mm"] is not None:
                         d_lo, d_hi = d_ranges[j]
                         if not (d_lo <= bd["depth_mm"] <= d_hi):
                             match_ok = False
-                            logger.info(f"[FullProcessor] ❌ {pid}: box[{j}] depth={bd['depth_mm']:.0f} not in [{d_lo:.0f},{d_hi:.0f}]")
+                            logger.info(f"[FullProcessor] ❌ pile={try_pile_id} {pid}: box[{j}] depth={bd['depth_mm']:.0f} not in [{d_lo:.0f},{d_hi:.0f}]")
                             break
 
                 if match_ok:
                     nums = re.findall(r'\d+', pid)
                     matched = int(nums[-1]) if nums else detected_count
-                    logger.info(f"[FullProcessor] ✅ {pid} 匹配成功，箱数={matched}")
-                    return matched
+                    logger.info(f"[FullProcessor] ✅ pile={try_pile_id} {pid} 匹配成功，箱数={matched}")
+                    return {"count": matched, "matched_pile_id": try_pile_id}
 
-        logger.info(f"[FullProcessor] 未匹配到任何规则，回落YOLO: {detected_count}")
-        return detected_count
+        logger.info(f"[FullProcessor] 所有垛型pattern均未匹配，回落YOLO: {detected_count}")
+        return {"count": detected_count, "matched_pile_id": None}
 
     def process(self, layers: List[Dict], template_layers: List[int],
                 detection_result: Dict,
@@ -222,10 +247,23 @@ class TemplateBasedFullProcessor(FullStackProcessor):
                 pile_roi = {"x1": 0, "y1": 0, "x2": 1000, "y2": 1000}
 
         # 顶层始终通过深度算法计算
-        top_count = self._calculate_top_layer_count_with_depth(
+        depth_result = self._calculate_top_layer_count_with_depth(
             top_layer, top_layer_boxes, pile_roi, pile_id,
             depth_image, depth_matrix_csv_path
         )
+        top_count = depth_result["count"]
+        matched_pile_id = depth_result["matched_pile_id"]
+
+        # 如果顶层匹配到了其他 pile_id，用该 pile 的模板重新计算下层
+        if matched_pile_id is not None and matched_pile_id != pile_id and self.pile_db is not None:
+            try:
+                template_layers = self.pile_db.get_template_layers(matched_pile_id)
+                pile_name = self.pile_db.get_pile(matched_pile_id).get("name", str(matched_pile_id))
+                logger.info(f"[FullProcessor] 顶层匹配到pile={matched_pile_id}({pile_name})，重新计算下层模板: {template_layers}")
+            except Exception as e:
+                logger.info(f"[FullProcessor] 获取匹配pile模板失败，沿用原模板: {e}")
+        else:
+            matched_pile_id = pile_id  # 保持原 pile_id
 
         # 下层：检测到的层数中，顶层以下的部分用模板值
         # 例如检测2层：顶层深度+第2层模板(=template_layers[0])，第3层不可见不计入
@@ -253,6 +291,7 @@ class TemplateBasedFullProcessor(FullStackProcessor):
         return {
             "total": int(total),
             "strategy": strategy,
+            "matched_pile_id": matched_pile_id,
             "details": {
                 "n_detected": n_detected,
                 "n_template": n_template,
@@ -328,13 +367,15 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
     顶层不满 → 总箱数 = 下层模板之和 + 顶层实际检测数
     """
     
-    def __init__(self, enable_debug: bool = True, depth_calculator=None):
+    def __init__(self, enable_debug: bool = True, depth_calculator=None, pile_db=None):
         """
         :param enable_debug: 是否启用调试输出
         :param depth_calculator: 深度计算器实例（可选，用于深度图处理）
+        :param pile_db: PileTypeDatabase 实例，用于查询不同 pile 的模板层
         """
         self.enable_debug = enable_debug
         self.depth_calculator = depth_calculator
+        self.pile_db = pile_db
         self.depth_image_path_for_processing = None
         self.depth_image = None
     
@@ -469,39 +510,48 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
         使用深度图 + pile JSON 配置计算顶层箱子数量。
 
         算法：
-        1. 加载 pile_ID_{pile_id}_*.json 配置文件
+        1. 遍历所有垛型的所有 pattern，找一个能匹配的
         2. 提取每个顶层 box 的归一化宽度和中心点深度值
-        3. 按 visible_count 分组匹配 JSON 中的 pattern
-        4. 命中 pattern 后返回其 visible_count
+        3. 按 visible_count + width/depth 匹配
+        4. 命中 pattern 后返回其 visible_count（末尾数字）
 
         :param top_layer: 顶层layer信息
         :param top_layer_boxes: 顶层的所有烟箱boxes（已过滤）
         :param pile_roi: 堆垛ROI区域
-        :param pile_id: 垛型ID
+        :param pile_id: 垛型ID（优先尝试，匹配不上再试其他垛型）
         :param depth_image: 深度图（可选，numpy数组）
         :param depth_matrix_csv_path: 深度矩阵CSV路径（可选）
         :return: 顶层箱子数量
         """
-        import json
+        import json, re
 
-        # ========== Step 1: 加载 pile JSON ==========
-        pile_json_path = None
-        pile_patterns = None
+        config_dir = Path(__file__).parent.parent.parent / "config"
+
+        # ========== Step 1: 收集所有可用垛型的 pattern ==========
+        all_pile_patterns = {}
+        all_pile_ids = []
+
         if pile_id is not None:
-            config_dir = Path(__file__).parent.parent.parent / "config"
-            for f in config_dir.glob(f"pile_ID_{pile_id}_*.json"):
-                pile_json_path = f
+            all_pile_ids.append(pile_id)
+        for f in sorted(config_dir.glob("pile_ID_*.json")):
+            matched = re.match(r"pile_ID_(\d+)", f.name)
+            if matched:
+                pid = int(matched.group(1))
+                if pid not in all_pile_ids:
+                    all_pile_ids.append(pid)
+
+        for pid in all_pile_ids:
+            for f in config_dir.glob(f"pile_ID_{pid}_*.json"):
+                with open(f, "r", encoding="utf-8") as fp:
+                    all_pile_patterns[pid] = json.load(fp)
+                logger.info(f"[PartialProcessor] 加载pile_ID={pid}配置: {f.name}, 共{len(all_pile_patterns[pid])}条规则")
                 break
 
-        if pile_json_path is None or not pile_json_path.exists():
+        if not all_pile_patterns:
             count = len(top_layer_boxes)
-            logger.info(f"[PartialProcessor] 未找到pile_ID_{pile_id}对应的JSON配置，回落YOLO: {count}")
+            logger.info(f"[PartialProcessor] 未找到任何pile配置，回落YOLO: {count}")
             return count
 
-        with open(pile_json_path, "r", encoding="utf-8") as f:
-            pile_patterns = json.load(f)
-
-        logger.info(f"[PartialProcessor] 加载pile_ID={pile_id}配置: {pile_json_path.name}, 共{len(pile_patterns)}条规则")
         logger.info(f"[PartialProcessor] YOLO检测到顶层箱数: {len(top_layer_boxes)}")
 
         # ========== Step 2: 提取每个 box 的宽度和深度 ==========
@@ -543,7 +593,7 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
             depth_mm = None
             if depth_matrix is not None:
                 cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
-                cy_n = max(0.0, min(1.0, cy / image_height)) if image_height > 0 else 0
+                cy_n = max(0.0, min(1.0, cy / image_height + 0.05)) if image_height > 0 else 0.05
                 if depth_matrix is not None:
                     from core.detection.depth import DepthProcessor
                     dp2 = DepthProcessor(enable_debug=False)
@@ -565,27 +615,28 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
                         f"box_w={box_w:.0f}px, norm_w={norm_w:.4f}, depth={depth_mm:.0f}mm" if depth_mm
                         else f"[PartialProcessor] box[{i}]: box_w={box_w:.0f}px, norm_w={norm_w:.4f}, depth=None")
 
-        # ========== Step 3: 按 visible_count 分组匹配 ==========
+        # ========== Step 3: 过滤误识别BOX（深度>21950视为误识别） ==========
+        MAX_DEPTH = 21950
+        original_count = len(box_data)
+        box_data = [bd for bd in box_data if bd["depth_mm"] is None or bd["depth_mm"] <= MAX_DEPTH]
+        if len(box_data) < original_count:
+            removed = original_count - len(box_data)
+            logger.info(f"[PartialProcessor] 过滤误识别BOX: 移除{removed}个深度超限的box，剩余{len(box_data)}个")
+
+        # ========== Step 4: 遍历所有垛型的所有 pattern，找一个能匹配的 ==========
         detected_count = len(box_data)
-        matched_pattern_id = None
-        matched_visible_count = None
+        logger.info(f"[PartialProcessor] 过滤后剩余{detected_count}个box，开始遍历所有垛型pattern...")
 
-        # 按 visible_count 分组
-        patterns_by_count = {}
-        for p in pile_patterns:
-            vc = p.get("visible_count", 1)
-            patterns_by_count.setdefault(vc, []).append(p)
-
-        logger.info(f"[PartialProcessor] 检测到{detected_count}个box，尝试匹配visible_count={detected_count}的patterns")
-        if detected_count in patterns_by_count:
-            candidates = patterns_by_count[detected_count]
-            logger.info(f"[PartialProcessor] 命中{len(candidates)}条候选规则，开始逐一匹配...")
-            for p in candidates:
+        for try_pile_id in all_pile_ids:
+            patterns = all_pile_patterns.get(try_pile_id, [])
+            if not patterns:
+                continue
+            for p in patterns:
                 pid = p.get("pattern_id", "?")
                 w_ranges = p.get("match", {}).get("width_ranges", [])
                 d_ranges = p.get("match", {}).get("depth_ranges", [])
 
-                logger.info(f"[PartialProcessor]   候选: {pid}, width_ranges={w_ranges}, depth_ranges={d_ranges}")
+                logger.info(f"[PartialProcessor]   候选: pile={try_pile_id} {pid}, width_ranges={w_ranges}, depth_ranges={d_ranges}")
 
                 if len(w_ranges) != detected_count or len(d_ranges) != detected_count:
                     continue
@@ -595,35 +646,26 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
                     w_lo, w_hi = w_ranges[j]
                     if not (w_lo <= bd["norm_width"] <= w_hi):
                         match_ok = False
-                        logger.info(f"[PartialProcessor]     box[{j}] norm_w={bd['norm_width']:.4f} 不在 [{w_lo},{w_hi}]")
+                        logger.info(f"[PartialProcessor]     pile={try_pile_id} {pid}: box[{j}] norm_w={bd['norm_width']:.4f} 不在 [{w_lo},{w_hi}]")
                         break
                     if bd["depth_mm"] is not None:
                         d_lo, d_hi = d_ranges[j]
                         if not (d_lo <= bd["depth_mm"] <= d_hi):
                             match_ok = False
-                            logger.info(f"[PartialProcessor]     box[{j}] depth={bd['depth_mm']:.0f} 不在 [{d_lo},{d_hi}]")
+                            logger.info(f"[PartialProcessor]     pile={try_pile_id} {pid}: box[{j}] depth={bd['depth_mm']:.0f} 不在 [{d_lo},{d_hi}]")
                             break
                     else:
-                        logger.info(f"[PartialProcessor]     box[{j}] depth=None，跳过深度匹配")
+                        logger.info(f"[PartialProcessor]     pile={try_pile_id} {pid}: box[{j}] depth=None，跳过深度匹配")
 
                 if match_ok:
-                    matched_pattern_id = pid
-                    # 从 pattern_id 末尾提取数字作为箱数（如 single_l_3 → 3）
-                    import re
                     nums = re.findall(r'\d+', pid)
-                    matched_visible_count = int(nums[-1]) if nums else detected_count
+                    matched = int(nums[-1]) if nums else detected_count
                     result_ids = p.get("result_ids", [])
-                    logger.info(f"[PartialProcessor] ✅ 匹配成功! pattern_id={pid}, 箱数={matched_visible_count}, result_ids={result_ids}")
-                    break
-        else:
-            logger.info(f"[PartialProcessor] 没有visible_count={detected_count}的规则，回落YOLO检测数")
+                    logger.info(f"[PartialProcessor] ✅ pile={try_pile_id} 匹配成功! pattern_id={pid}, 箱数={matched}, result_ids={result_ids}")
+                    return {"count": matched, "matched_pile_id": try_pile_id, "result_ids": result_ids}
 
-        if matched_visible_count is not None:
-            logger.info(f"[PartialProcessor] 最终结果: 箱数={matched_visible_count} (pattern={matched_pattern_id}), result_ids={p.get('result_ids', [])}")
-            return matched_visible_count
-        else:
-            logger.info(f"[PartialProcessor] 未匹配到规则，回落YOLO: {detected_count}")
-            return detected_count
+        logger.info(f"[PartialProcessor] 所有垛型pattern均未匹配，回落YOLO: {detected_count}")
+        return {"count": detected_count, "matched_pile_id": None, "result_ids": []}
     
     def process(self, layers: List[Dict], template_layers: List[int],
                 detection_result: Dict,
@@ -731,7 +773,7 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
             logger.info("="*60)
 
         # 使用深度图算法计算顶层箱子数量
-        top_layer_observed = self._calculate_top_layer_count_with_depth(
+        depth_result = self._calculate_top_layer_count_with_depth(
             top_layer=top_layer,
             top_layer_boxes=top_layer_boxes,
             pile_roi=pile_roi,
@@ -739,6 +781,17 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
             depth_image=depth_image,
             depth_matrix_csv_path=depth_matrix_csv_path
         )
+        top_layer_observed = depth_result["count"]
+        matched_pile_id = depth_result["matched_pile_id"]
+
+        # 如果顶层匹配到了其他 pile_id，用该 pile 的模板重新计算下层
+        if matched_pile_id is not None and matched_pile_id != pile_id and self.pile_db is not None:
+            try:
+                template_layers = self.pile_db.get_template_layers(matched_pile_id)
+                pile_name = self.pile_db.get_pile(matched_pile_id).get("name", str(matched_pile_id))
+                logger.info(f"[PartialProcessor] 顶层匹配到pile={matched_pile_id}({pile_name})，重新计算下层模板: {template_layers}")
+            except Exception as e:
+                logger.info(f"[PartialProcessor] 获取匹配pile模板失败，沿用原模板: {e}")
 
         # ========== 核心公式 ==========
         # 下层使用：检测到的层数 - 1（而非模板层数），避免模板层数 > 检测层数时多算
@@ -762,16 +815,17 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
 
         # 顶层不满 → 总箱数 = 下层模板之和 + 顶层实际检测数
         total = lower_layers_sum + top_layer_observed
-        
+
         strategy = "partial_with_template"
         calculation = (
             f"顶层不满 → 下层检测({lower_layers_sum}) + "
             f"顶层实际检测数({top_layer_observed}) = {total}"
         )
-        
+
         result = {
             "total": int(total),
             "strategy": strategy,
+            "matched_pile_id": matched_pile_id,
             "details": {
                 "n_detected": n_detected,
                 "n_template": n_template,
@@ -783,7 +837,7 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
                 "top_layer": top_layer  # 完整的顶层layer信息
             }
         }
-        
+
         if self.enable_debug:
             logger.info("\n" + "="*50)
             logger.info("📦 非满层处理模块 - 处理结果")
@@ -795,7 +849,7 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
             logger.info(f"💡 计算说明: {calculation}")
             logger.info(f"✅ 总箱数: {total}")
             logger.info("="*50 + "\n")
-        
+
         return result
 
 

@@ -37,7 +37,7 @@ def build_excel_data(
         )
         mod_record = "人工修改" if is_manually_calibrated else ""
 
-        spec_name = result.get("specName", "")
+        spec_name = result.get("specName") or result.get("productName", "")
         actual_spec = result.get("actualSpec", "")
         quantity_diff = result.get("difference", 0)
 
