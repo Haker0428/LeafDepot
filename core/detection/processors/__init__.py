@@ -14,7 +14,7 @@ from .stack_processor import (
     PartialStackProcessor,
     TemplateBasedPartialProcessor,
 )
-from .factory import StackProcessorFactory, count_boxes
+from .factory import StackProcessorFactory, count_boxes, count_boxes_with_info
 # 向后兼容：导出旧接口
 from .full_layer_verification import (
     calc_coverage,

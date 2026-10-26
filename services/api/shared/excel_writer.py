@@ -41,7 +41,9 @@ def build_excel_data(
         actual_spec = result.get("actualSpec", "")
         quantity_diff = result.get("difference", 0)
 
-        if actual_spec and actual_spec != spec_name and actual_spec != "未识别":
+        # 括号归一化比较：WMS 与烟箱表的全角/半角括号混用，逐字符比较会误判"品规不一致"
+        _norm = lambda s: str(s or "").replace("（", "(").replace("）", ")")
+        if actual_spec and _norm(actual_spec) != _norm(spec_name) and actual_spec != "未识别":
             diff_desc = "品规不一致"
         elif actual_spec == "未识别":
             diff_desc = "品规不一致"

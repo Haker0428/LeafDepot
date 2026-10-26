@@ -275,7 +275,9 @@ export default function InventoryProgress() {
               if (item.actualQuantity === null) return false;
               const qtyWrong = item.actualQuantity !== item.systemQuantity;
               const specUnrecognized = item.actualSpec === "未识别";
-              const specMismatch = !!item.actualSpec && item.actualSpec !== item.productName;
+              // 括号归一化：WMS(半角)与烟箱表(全角)混用，直接比较会全部误判品规不一致
+              const normName = (s?: string) => (s || "").replace(/（/g, "(").replace(/）/g, ")");
+              const specMismatch = !!item.actualSpec && normName(item.actualSpec) !== normName(item.productName);
               const specWrong = specUnrecognized || specMismatch;
               return qtyWrong || specWrong;
             },
@@ -1502,6 +1504,8 @@ export default function InventoryProgress() {
 
     try {
       // 准备盘点结果数据，包含品规名称和库存数量
+      // 括号归一化：WMS(半角)与烟箱表(全角)混用，品规比较前先统一括号
+      const normName = (s?: string) => (s || "").replace(/（/g, "(").replace(/）/g, ")");
       const inventoryResults = inventoryItems.map((item) => ({
         binLocation: item.locationName,
         status: item.actualQuantity !== null ? "成功" : "异常",
@@ -1514,7 +1518,7 @@ export default function InventoryProgress() {
             ? item.actualQuantity - item.systemQuantity
             : 0,
         // 品规不匹配（检测到但与系统品规不一致）时标记为异常
-        specMismatch: item.actualSpec && item.actualSpec !== item.productName,
+        specMismatch: item.actualSpec && normName(item.actualSpec) !== normName(item.productName),
         photo3dPath: item.photo3dPath || "",
         photoDepthPath: item.photoDepthPath || "",
         photoScan1Path: item.photoScan1Path || "",

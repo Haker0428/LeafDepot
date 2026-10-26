@@ -48,6 +48,7 @@ export default function InventoryStart() {
   const [inventoryTasks, setInventoryTasks] = useState<InventoryTask[]>([]);
   const [binsData, setBinsData] = useState<BinItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // 新增状态：选中的库位信息
   const [selectedBins, setSelectedBins] = useState<string[]>([]);
@@ -308,6 +309,32 @@ export default function InventoryStart() {
   // 获取当前库位信息
   const fetchbinData = async () => {
     await fetchBins(selectedWarehouse, selectedArea, selectedPositions);
+  };
+
+  // 手动从 WMS 同步库存数据（与每日凌晨定时同步相同），完成后刷新库位列表
+  const handleSyncWms = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    toast.info("正在从 WMS 同步库存数据，请稍候...");
+    try {
+      const response = await fetch(`${GATEWAY_URL}/lms/sync-wms`, {
+        method: "POST",
+      });
+      const result = await response.json();
+      if (!response.ok || result.code !== 200) {
+        throw new Error(result.message || `同步失败 (${response.status})`);
+      }
+      toast.success(
+        `WMS 同步成功，共 ${result.data?.count ?? "?"} 条储位数据，正在刷新库位列表...`,
+      );
+      await fetchbinData();
+    } catch (error) {
+      toast.error(
+        `数据同步失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // 处理返回按钮点击
@@ -654,9 +681,27 @@ export default function InventoryStart() {
             className="lg:w-1/4"
           >
             <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 h-full flex flex-col">
-              <h3 className="text-xl font-bold text-green-800 mb-6 pb-3 border-b border-gray-100">
-                <i className="fa-solid fa-filter mr-2 text-green-600"></i>
-                库位选择
+              <h3 className="text-xl font-bold text-green-800 mb-6 pb-3 border-b border-gray-100 flex items-center justify-between">
+                <span>
+                  <i className="fa-solid fa-filter mr-2 text-green-600"></i>
+                  库位选择
+                </span>
+                <button
+                  onClick={handleSyncWms}
+                  disabled={isSyncing || isLoading}
+                  title="手动从 WMS 同步库存数据（与每日凌晨定时同步相同）"
+                  className="text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white px-3 py-1.5 rounded-lg transition-all flex items-center"
+                >
+                  {isSyncing ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin mr-1"></i> 同步中...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-rotate mr-1"></i> 数据同步
+                    </>
+                  )}
+                </button>
               </h3>
               <div className="flex flex-col flex-grow space-y-6">
                 {/* 仓库选择下拉框 */}

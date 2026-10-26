@@ -268,3 +268,69 @@ async def delete_user(request: Request):
     except Exception as e:
         logger.error(f"删除用户请求失败: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="删除用户请求处理失败")
+
+
+# ===== 手动 WMS 同步（与每日 04:00 定时任务执行相同脚本）=====
+_wms_sync_running = False
+
+
+@router.post("/sync-wms")
+async def sync_wms_data():
+    """手动触发一次 WMS 库存同步：执行 services/sim/lms/fetch_wms_stock.py --once
+
+    与 daily_task.sh 凌晨定时同步完全相同的执行方式（子进程跑脚本、
+    原子写 bins_data.xlsx、日志进 logs/lms_YYYYMMDD.log）。
+    注意：与定时任务不同，本接口不重启服务——前端读取走本地文件路径，
+    同步完成后立即生效；sim LMS 进程内存需等下次服务重启才更新。
+    """
+    import sys
+    import asyncio
+    from services.api.shared.config import project_root
+
+    global _wms_sync_running
+    if _wms_sync_running:
+        return JSONResponse(status_code=409, content={"code": 409, "message": "同步正在进行中，请稍候"})
+
+    script = project_root / "services" / "sim" / "lms" / "fetch_wms_stock.py"
+    if not script.exists():
+        return JSONResponse(status_code=500, content={"code": 500, "message": f"同步脚本不存在: {script}"})
+
+    _wms_sync_running = True
+    try:
+        logger.info("[手动同步] 触发 WMS 库存同步 (fetch_wms_stock.py --once)...")
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(script), "--once",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(project_root),
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return JSONResponse(status_code=504, content={"code": 504, "message": "同步超时（120s），请检查 WMS 服务器状态"})
+
+        output = (stdout or b"").decode("utf-8", errors="ignore")
+        if proc.returncode != 0:
+            logger.error(f"[手动同步] 失败 (exit={proc.returncode}): {output[-500:]}")
+            return JSONResponse(
+                status_code=502,
+                content={"code": 502, "message": "同步失败（WMS 不可达或返回空数据），详情见 logs/lms_YYYYMMDD.log"},
+            )
+
+        # 统计同步后的储位数反馈给前端
+        count = None
+        try:
+            from openpyxl import load_workbook
+            bins_path = project_root / "services" / "sim" / "lms" / "bins_data.xlsx"
+            ws = load_workbook(bins_path, read_only=True).active
+            count = max(0, (ws.max_row or 1) - 1)
+        except Exception:
+            pass
+        logger.info(f"[手动同步] 成功，bins_data.xlsx 共 {count} 条储位数据")
+        return {"code": 200, "message": "同步成功", "data": {"count": count}}
+    except Exception as e:
+        logger.error(f"[手动同步] 执行异常: {e}")
+        return JSONResponse(status_code=500, content={"code": 500, "message": f"同步执行失败: {e}"})
+    finally:
+        _wms_sync_running = False

@@ -220,7 +220,7 @@ total = lower_sum + top_count
 ① 逐箱提取特征：
      norm_width = 箱像素宽 / pile_roi 像素宽          ← 归一化宽度（0~1，透视线索：越近越宽）
      depth_mm   = 深度矩阵在箱中心归一化坐标处的值
-                 （cy_n = cy/图高 + 0.05 纵向标定偏移：深度图与可见光 FOV 垂直不重叠的硬件错位补偿）
+                 （cy_n = cy/图高 + 0.1 纵向标定偏移：深度图与可见光 FOV 垂直不重叠的硬件错位补偿）
                  （采样：5×5 邻域中位数，|值-中位数|≤500mm 过滤离群点，取均值）
 ② 误检过滤：depth_mm > 21950mm（≈22m）的箱剔除
 ③ pattern 匹配（按 pile 优先级遍历 pile_ID_*.json 里的每条 pattern）：
@@ -608,7 +608,7 @@ WMS 服务器                     bins_data.xlsx               sim LMS 进程
 | 顶层高度过滤 | 0.05×最大箱高 | full_layer_detector.py | 剔除误检小框 |
 | 原 coverage/cv_gap 阈值 | 0.9 / 0.4 | full_layer_detector.py | （当前恒满层，仅保留参数） |
 | 深度误检上限 | 21950 mm | stack_processor.py | 顶层箱深度超限剔除 |
-| 深度采样 y 偏移 | +0.05 | stack_processor.py | 深度图与可见光 FOV 垂直错位补偿（x 同相机天然对齐） |
+| 深度采样 y 偏移 | +0.10 | stack_processor.py | 深度图与可见光 FOV 垂直错位补偿（x 同相机天然对齐） |
 | 深度采样窗口 | 5×5 邻域，±500mm | depth_processor.py | 中位数过滤取均值 |
 | 焦距/基线 | 6400px / 120mm | depth_calculator.py | depth = 768000 / disparity |
 | 每 bin 超时 | 300 s | service.py | 等 AMR 到位 END |

@@ -141,7 +141,11 @@ async def run_detection(task_no: str, bin_location: str, is_sim: bool) -> Dict[s
         result["photoDepthPath"] = f"/{task_no}/{bin_location}/3d_camera/depth_color.jpg"
         result["actualSpec"] = _get_actual_spec(barcode_result)
         result["status"] = "成功"
-        if result["actualSpec"] == "未识别":
+        if detect_result.get("empty_pile"):
+            # 空垛位：YOLO 未检出任何 pile 框，品规显示与 bins_data 空库位一致（"无"）
+            result["actualSpec"] = "无"
+            result["actualQuantity"] = 0
+        elif result["actualSpec"] == "未识别":
             result["actualQuantity"] = 0
         else:
             result["actualQuantity"] = detect_result.get("total_count", 0)

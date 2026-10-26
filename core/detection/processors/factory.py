@@ -1,7 +1,7 @@
 """堆垛处理器工厂：根据满层判断结果自动选择对应的处理模块"""
 
 import logging
-from typing import Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple
 from pathlib import Path
 from ultralytics import YOLO
 import cv2
@@ -178,6 +178,8 @@ class StackProcessorFactory:
 
         # Step 1: YOLO检测（使用旋转后的图像）
         detections = self._run_yolo_detection(processing_image_path)
+        # 空垛位判定：整张图自始至终没有任何 pile 检测框（无论置信度）→ 认为库位为空
+        self.last_empty_pile = not any(d.get("cls") == "pile" for d in (detections or []))
         if not detections:
             logger.warning("[Detection] YOLO未检测到任何目标（pile可能为空或不可见）")
             return 0
@@ -852,4 +854,30 @@ def count_boxes(image_path: Union[str, Path], pile_id: int,
         output_dir=output_dir
     )
     return factory.count(image_path, pile_id, depth_image_path=depth_image_path)
+
+
+def count_boxes_with_info(image_path: Union[str, Path], pile_id: int,
+                          depth_image_path: Optional[Union[str, Path]] = None,
+                          model_path: Optional[Union[str, Path]] = None,
+                          pile_config_path: Optional[Union[str, Path]] = None,
+                          enable_debug: bool = False,
+                          enable_visualization: bool = False,
+                          output_dir: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+    """
+    同 count_boxes，但额外返回空垛位标记。
+
+    :return: {"total_count": 总箱数, "empty_pile": YOLO未检出任何pile框（判定为空垛位）}
+    """
+    factory = StackProcessorFactory(
+        enable_debug=enable_debug,
+        enable_visualization=enable_visualization,
+        model_path=model_path,
+        pile_config_path=pile_config_path,
+        output_dir=output_dir
+    )
+    total = factory.count(image_path, pile_id, depth_image_path=depth_image_path)
+    return {
+        "total_count": total,
+        "empty_pile": bool(getattr(factory, "last_empty_pile", False)),
+    }
 

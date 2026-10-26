@@ -131,7 +131,7 @@ class TemplateBasedFullProcessor(FullStackProcessor):
             depth_mm = None
             if depth_matrix is not None:
                 cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
-                cy_n = max(0.0, min(1.0, cy / image_height + 0.05)) if image_height > 0 else 0.05
+                cy_n = max(0.0, min(1.0, cy / image_height + 0.1)) if image_height > 0 else 0.1
                 dp2 = DepthProcessor(enable_debug=False)
                 res = dp2.extract_depth_at_position(depth_matrix, cx_n, cy_n)
                 if res.get("success") and res.get("value", 0) > 0:
@@ -593,7 +593,7 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
             depth_mm = None
             if depth_matrix is not None:
                 cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
-                cy_n = max(0.0, min(1.0, cy / image_height + 0.05)) if image_height > 0 else 0.05
+                cy_n = max(0.0, min(1.0, cy / image_height + 0.1)) if image_height > 0 else 0.1
                 if depth_matrix is not None:
                     from core.detection.depth import DepthProcessor
                     dp2 = DepthProcessor(enable_debug=False)

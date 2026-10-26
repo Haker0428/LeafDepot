@@ -1054,7 +1054,7 @@ async def run_barcode_and_detect(
     # 数量检测：处理 3d_camera 目录
     if DETECT_MODULE_AVAILABLE:
         try:
-            from core.detection import count_boxes
+            from core.detection import count_boxes_with_info
 
             image_files = []
 
@@ -1077,7 +1077,7 @@ async def run_barcode_and_detect(
                 depth_path = detect_dir / "depth.jpg"
                 debug_output_dir = project_root / "debug" / task_no / bin_location
                 debug_output_dir.mkdir(parents=True, exist_ok=True)
-                total_count = count_boxes(
+                detect_info = count_boxes_with_info(
                     image_path=str(image_files[0]),
                     pile_id=pile_id,
                     depth_image_path=str(depth_path) if depth_path.exists() else None,
@@ -1088,8 +1088,9 @@ async def run_barcode_and_detect(
 
                 result["detect_result"] = {
                     "status": "success",
-                    "total_count": total_count,
-                    "pile_id": pile_id
+                    "total_count": detect_info["total_count"],
+                    "pile_id": pile_id,
+                    "empty_pile": detect_info["empty_pile"],
                 }
             else:
                 result["detect_result"] = {"status": "failed", "error": "未找到图片"}

@@ -35,6 +35,7 @@ from core.detection.core import (
 from core.detection.processors import (
     StackProcessorFactory,
     count_boxes,  # 算法统一入口：count_boxes(image_path, pile_id)
+    count_boxes_with_info,  # 带空垛位标记的入口
 )
 
 # 可视化模块
@@ -75,6 +76,7 @@ __all__ = [
     # 堆垛处理模块（推荐使用）
     "StackProcessorFactory",
     "count_boxes",  # 算法统一入口：count_boxes(image_path, pile_id)
+    "count_boxes_with_info",
     
     # 可视化模块
     "prepare_scene",
