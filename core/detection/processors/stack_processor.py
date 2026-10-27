@@ -130,11 +130,15 @@ class TemplateBasedFullProcessor(FullStackProcessor):
 
             depth_mm = None
             if depth_matrix is not None:
+                # 深度采样点: 箱子上部2/3区域的中心(顶边往下1/3箱高处, 避开底部层间缝隙)
+                # Y偏移(2026-10-28实测): 深度图内容比RGB高约1%, 采样点相应上移1%
+                sample_y = by1 + (by2 - by1) / 3.0
                 cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
-                cy_n = max(0.0, min(1.0, cy / image_height + 0.1)) if image_height > 0 else 0.1
+                cy_n = max(0.0, min(1.0, sample_y / image_height - 0.01)) if image_height > 0 else 0.0
                 dp2 = DepthProcessor(enable_debug=False)
                 res = dp2.extract_depth_at_position(depth_matrix, cx_n, cy_n)
-                if res.get("success") and res.get("value", 0) > 0:
+                # 视差无效点在矩阵中是7.68e9哨兵值(非0): 超大量程视为无深度, 避免真箱被MAX_DEPTH误删
+                if res.get("success") and 0 < res.get("value", 0) < 1e6:
                     depth_mm = res["value"]
 
             box_data.append({
@@ -592,13 +596,17 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
 
             depth_mm = None
             if depth_matrix is not None:
+                # 深度采样点: 箱子上部2/3区域的中心(顶边往下1/3箱高处, 避开底部层间缝隙)
+                # Y偏移(2026-10-28实测): 深度图内容比RGB高约1%, 采样点相应上移1%
+                sample_y = by1 + (by2 - by1) / 3.0
                 cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
-                cy_n = max(0.0, min(1.0, cy / image_height + 0.1)) if image_height > 0 else 0.1
+                cy_n = max(0.0, min(1.0, sample_y / image_height - 0.01)) if image_height > 0 else 0.0
                 if depth_matrix is not None:
                     from core.detection.depth import DepthProcessor
                     dp2 = DepthProcessor(enable_debug=False)
                     res = dp2.extract_depth_at_position(depth_matrix, cx_n, cy_n)
-                    if res.get("success") and res.get("value", 0) > 0:
+                    # 视差无效点在矩阵中是7.68e9哨兵值(非0): 超大量程视为无深度, 避免真箱被MAX_DEPTH误删
+                    if res.get("success") and 0 < res.get("value", 0) < 1e6:
                         depth_mm = res["value"]
 
             box_data.append({
