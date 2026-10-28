@@ -20,7 +20,7 @@ def _adaptive_gap_threshold(avg_h: float, gap_ratio: float, total_box_count: int
     return avg_h * gap_ratio
 
 
-def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: float = 0.6) -> Dict:
+def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: float = 0.85) -> Dict:
     """
     根据 box 的中心 y 坐标进行分层聚类（自动层数）
     """
@@ -66,7 +66,7 @@ def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: flo
 def cluster_layers_with_roi(
     boxes: List[Dict],
     pile_roi: Dict[str, float],
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.85,
     padding_ratio: float = 0.1
 ) -> Dict:
     """
@@ -123,7 +123,7 @@ def cluster_layers_with_roi(
 def cluster_layers_with_box_roi(
     boxes: List[Dict],
     pile_roi: Dict[str, float],
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.85,
     padding_ratio: float = 0.1
 ) -> Dict:
     """
@@ -413,7 +413,7 @@ def visualize_layers(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers.jpg",
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.85,
     show: bool = False,
     output_dir: Path = None
 ):
@@ -438,7 +438,7 @@ def visualize_layers_with_roi(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers_roi.jpg",
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.85,
     padding_ratio: float = 0.1,
     show: bool = False,
     output_dir: Path = None
@@ -464,7 +464,7 @@ def visualize_layers_with_box_roi(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers_boxes.jpg",
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.85,
     padding_ratio: float = 0.1,
     show: bool = False,
     target_layers: Union[int, List[int], None] = None,   # 👈 新增参数

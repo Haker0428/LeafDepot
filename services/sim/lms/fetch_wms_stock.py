@@ -127,6 +127,15 @@ def wms_logical_state_to_bin_status(state: str) -> str:
     return mapping.get(str(state), "1")
 
 
+def _clean_product_name(name) -> str:
+    """品规名统一清洗: 全角括号转半角 + 删除所有空白字符(空格/全角空格/换行等)
+
+    与烟箱信息汇总完整版.xlsx 的干净格式对齐, 避免比对端再做字符级兜底。
+    """
+    s = str(name).replace("（", "(").replace("）", ")")
+    return "".join(s.split())
+
+
 def wms_to_bins_row(item: dict) -> list:
     bin_name = item.get("binName", "")
     product_code = item.get("productCode", "")
@@ -137,6 +146,8 @@ def wms_to_bins_row(item: dict) -> list:
         product_code = None
     if product_name in ("-", "", None):
         product_name = "无"
+    else:
+        product_name = _clean_product_name(product_name)
     if quantity == 0 or quantity == "0" or quantity == "-" or quantity == "":
         quantity = "0"
 
