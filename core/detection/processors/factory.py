@@ -203,8 +203,8 @@ class StackProcessorFactory:
             pile_roi["image_width"] = img.shape[1]
             pile_roi["image_height"] = img.shape[0]
 
-        # Step 3: 分层聚类（使用旋转后的图像）
-        layers = self._cluster_layers(boxes, pile_roi, processing_image_path, vis_output_dir)
+        # Step 3: 分层聚类（使用旋转后的图像，传入垛型名用于自适应阈值）
+        layers = self._cluster_layers(boxes, pile_roi, processing_image_path, vis_output_dir, pile_id=pile_id)
         if not layers:
             logger.warning("[Detection] 分层聚类失败，未提取到有效层")
             return 0
@@ -457,9 +457,16 @@ class StackProcessorFactory:
         return prepared
     
     def _cluster_layers(self, boxes: List[Dict], pile_roi: Dict[str, float],
-                       image_path: Union[str, Path], vis_output_dir: Optional[Path]) -> List[Dict]:
-        """分层聚类"""
-        layer_result = cluster_layers_with_box_roi(boxes, pile_roi)
+                       image_path: Union[str, Path], vis_output_dir: Optional[Path],
+                       pile_id: Optional[int] = None) -> List[Dict]:
+        """分层聚类（pile_name 用于自适应阈值: 宽垛型少箱数时放宽到0.85）"""
+        pile_name = ""
+        if pile_id is not None and self.pile_db:
+            try:
+                pile_name = str(self.pile_db.get_pile(pile_id).get("name", ""))
+            except Exception:
+                pile_name = ""
+        layer_result = cluster_layers_with_box_roi(boxes, pile_roi, pile_name=pile_name)
         layers = layer_result.get("layers", [])
         
         if not layers:

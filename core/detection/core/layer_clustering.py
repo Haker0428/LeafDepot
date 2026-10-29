@@ -8,19 +8,27 @@ from pathlib import Path
 from core.detection.utils.path_utils import get_output_path
 
 
-def _adaptive_gap_threshold(avg_h: float, gap_ratio: float, total_box_count: int) -> float:
+def _adaptive_gap_threshold(avg_h: float, gap_ratio: float, total_box_count: int,
+                            pile_name: str = "") -> float:
     """
-    根据 YOLO 识别出的箱子总数自适应调整 gap 阈值。
+    根据 YOLO 识别出的箱子总数和垛型自适应调整 gap 阈值。
 
-    当总箱子数 < 3 时认为是边缘case（相邻层箱中心距约 0.8~1.0×箱高），
-    阈值放大到 2.0×平均箱高 —— 两个箱无论在哪两层都必然聚为同一层。
+    - 总箱子数 < 3（≤2箱）：阈值 2.0×平均箱高 —— 两个箱无论在哪两层都必然聚为同一层。
+    - 宽垛型 5*6/5*8 且箱数 < 4，或 4*7+2 且箱数 < 5：阈值 0.85×平均箱高 ——
+      箱数偏少（部分遮挡/顶层残缺）时同层箱中心距偏大，放宽判定避免误分层。
+    - 其余情况：gap_ratio（默认 0.6×平均箱高）。
     """
     if total_box_count < 3:
         return avg_h * 2.0
+    if pile_name in ("5*6", "5*8") and total_box_count < 4:
+        return avg_h * 0.85
+    if pile_name == "4*7+2" and total_box_count < 5:
+        return avg_h * 0.85
     return avg_h * gap_ratio
 
 
-def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: float = 0.85) -> Dict:
+def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: float = 0.6,
+                  pile_name: str = "") -> Dict:
     """
     根据 box 的中心 y 坐标进行分层聚类（自动层数）
     """
@@ -38,7 +46,7 @@ def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: flo
 
     layers, current = [], [centers[0]]
     for i in range(1, len(centers)):
-        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers))
+        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers), pile_name)
         gap = centers[i][0] - centers[i-1][0]
         if gap > threshold:
             layers.append(current)
@@ -66,8 +74,9 @@ def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: flo
 def cluster_layers_with_roi(
     boxes: List[Dict],
     pile_roi: Dict[str, float],
-    gap_ratio: float = 0.85,
-    padding_ratio: float = 0.1
+    gap_ratio: float = 0.6,
+    padding_ratio: float = 0.1,
+    pile_name: str = ""
 ) -> Dict:
     """
     分层聚类 + 每层ROI提取
@@ -86,7 +95,7 @@ def cluster_layers_with_roi(
 
     layers, current = [], [centers[0]]
     for i in range(1, len(centers)):
-        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers))
+        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers), pile_name)
         gap = centers[i][0] - centers[i-1][0]
         if gap > threshold:
             layers.append(current)
@@ -123,8 +132,9 @@ def cluster_layers_with_roi(
 def cluster_layers_with_box_roi(
     boxes: List[Dict],
     pile_roi: Dict[str, float],
-    gap_ratio: float = 0.85,
-    padding_ratio: float = 0.1
+    gap_ratio: float = 0.6,
+    padding_ratio: float = 0.1,
+    pile_name: str = ""
 ) -> Dict:
     """
     分层聚类 + 每层ROI + 每个box的ROI信息
@@ -144,7 +154,7 @@ def cluster_layers_with_box_roi(
     # 聚类逻辑
     layers, current = [], [centers[0]]
     for i in range(1, len(centers)):
-        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers))
+        threshold = _adaptive_gap_threshold(avg_h, gap_ratio, len(centers), pile_name)
         gap = centers[i][0] - centers[i-1][0]
         if gap > threshold:
             layers.append(current)
@@ -413,7 +423,7 @@ def visualize_layers(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers.jpg",
-    gap_ratio: float = 0.85,
+    gap_ratio: float = 0.6,
     show: bool = False,
     output_dir: Path = None
 ):
@@ -438,7 +448,7 @@ def visualize_layers_with_roi(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers_roi.jpg",
-    gap_ratio: float = 0.85,
+    gap_ratio: float = 0.6,
     padding_ratio: float = 0.1,
     show: bool = False,
     output_dir: Path = None
@@ -464,7 +474,7 @@ def visualize_layers_with_box_roi(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers_boxes.jpg",
-    gap_ratio: float = 0.85,
+    gap_ratio: float = 0.6,
     padding_ratio: float = 0.1,
     show: bool = False,
     target_layers: Union[int, List[int], None] = None,   # 👈 新增参数
