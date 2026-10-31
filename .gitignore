@@ -41,3 +41,6 @@ capture_img/
 
 # Test
 .pytest_cache/
+
+# 标定数据(update工具包, 照片体积大不入库, 见 update/README.md)
+update/data/
