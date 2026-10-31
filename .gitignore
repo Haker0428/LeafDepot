@@ -29,6 +29,7 @@ logs/
 debug/
 output/
 capture_img/
+runs/
 .pids/
 
 # Backup
