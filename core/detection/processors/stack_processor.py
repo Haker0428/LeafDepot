@@ -131,10 +131,11 @@ class TemplateBasedFullProcessor(FullStackProcessor):
             depth_mm = None
             if depth_matrix is not None:
                 # 深度采样点: 箱子上部2/3区域的中心(顶边往下1/3箱高处, 避开底部层间缝隙)
-                # Y偏移(2026-10-28实测): 深度图内容比RGB高约1%, 采样点相应上移1%
+                # Y偏移(2026-11-05实测修正): 深度图内容比RGB高2.6%~3.3%, 采样点相应上移3%
+                # (原1%不足: 后方垛堆细条的采样点落在近垛顶沿, 读成近距, 漏过MAX_DEPTH过滤)
                 sample_y = by1 + (by2 - by1) / 3.0
                 cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
-                cy_n = max(0.0, min(1.0, sample_y / image_height - 0.01)) if image_height > 0 else 0.0
+                cy_n = max(0.0, min(1.0, sample_y / image_height - 0.03)) if image_height > 0 else 0.0
                 dp2 = DepthProcessor(enable_debug=False)
                 res = dp2.extract_depth_at_position(depth_matrix, cx_n, cy_n)
                 # 视差无效点在矩阵中是7.68e9哨兵值(非0): 超大量程视为无深度, 避免真箱被MAX_DEPTH误删
@@ -153,10 +154,15 @@ class TemplateBasedFullProcessor(FullStackProcessor):
             logger.info(f"[FullProcessor] box[{i}]: norm_w={norm_w:.4f}, depth={depth_mm:.0f}mm" if depth_mm
                         else f"[FullProcessor] box[{i}]: norm_w={norm_w:.4f}, depth=None")
 
-        # ========== Step 4: 过滤误识别BOX（深度>21950视为误识别） ==========
+        # ========== Step 4: 过滤误识别BOX（深度>21950或采样区全无效均视为误识别） ==========
+        # (2026-11-05) 采样区域全为哨兵值(depth=None)的box也直接删除——落进立体匹配死区的框不可信。
+        # 注: 仅当深度矩阵存在时执行None删除; 整张深度数据缺失时保留旧行为(全保留, 仅宽度匹配)
         MAX_DEPTH = 21950
         original_count = len(box_data)
-        box_data = [bd for bd in box_data if bd["depth_mm"] is None or bd["depth_mm"] <= MAX_DEPTH]
+        if depth_matrix is not None:
+            box_data = [bd for bd in box_data if bd["depth_mm"] is not None and bd["depth_mm"] <= MAX_DEPTH]
+        else:
+            box_data = [bd for bd in box_data if bd["depth_mm"] is None or bd["depth_mm"] <= MAX_DEPTH]
         if len(box_data) < original_count:
             removed = original_count - len(box_data)
             logger.info(f"[FullProcessor] 过滤误识别BOX: 移除{removed}个深度超限的box，剩余{len(box_data)}个")
@@ -597,10 +603,11 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
             depth_mm = None
             if depth_matrix is not None:
                 # 深度采样点: 箱子上部2/3区域的中心(顶边往下1/3箱高处, 避开底部层间缝隙)
-                # Y偏移(2026-10-28实测): 深度图内容比RGB高约1%, 采样点相应上移1%
+                # Y偏移(2026-11-05实测修正): 深度图内容比RGB高2.6%~3.3%, 采样点相应上移3%
+                # (原1%不足: 后方垛堆细条的采样点落在近垛顶沿, 读成近距, 漏过MAX_DEPTH过滤)
                 sample_y = by1 + (by2 - by1) / 3.0
                 cx_n = max(0.0, min(1.0, cx / image_width)) if image_width > 0 else 0
-                cy_n = max(0.0, min(1.0, sample_y / image_height - 0.01)) if image_height > 0 else 0.0
+                cy_n = max(0.0, min(1.0, sample_y / image_height - 0.03)) if image_height > 0 else 0.0
                 if depth_matrix is not None:
                     from core.detection.depth import DepthProcessor
                     dp2 = DepthProcessor(enable_debug=False)
@@ -623,10 +630,15 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
                         f"box_w={box_w:.0f}px, norm_w={norm_w:.4f}, depth={depth_mm:.0f}mm" if depth_mm
                         else f"[PartialProcessor] box[{i}]: box_w={box_w:.0f}px, norm_w={norm_w:.4f}, depth=None")
 
-        # ========== Step 3: 过滤误识别BOX（深度>21950视为误识别） ==========
+        # ========== Step 3: 过滤误识别BOX（深度>21950或采样区全无效均视为误识别） ==========
+        # (2026-11-05) 采样区域全为哨兵值(depth=None)的box也直接删除——落进立体匹配死区的框不可信。
+        # 注: 仅当深度矩阵存在时执行None删除; 整张深度数据缺失时保留旧行为(全保留, 仅宽度匹配)
         MAX_DEPTH = 21950
         original_count = len(box_data)
-        box_data = [bd for bd in box_data if bd["depth_mm"] is None or bd["depth_mm"] <= MAX_DEPTH]
+        if depth_matrix is not None:
+            box_data = [bd for bd in box_data if bd["depth_mm"] is not None and bd["depth_mm"] <= MAX_DEPTH]
+        else:
+            box_data = [bd for bd in box_data if bd["depth_mm"] is None or bd["depth_mm"] <= MAX_DEPTH]
         if len(box_data) < original_count:
             removed = original_count - len(box_data)
             logger.info(f"[PartialProcessor] 过滤误识别BOX: 移除{removed}个深度超限的box，剩余{len(box_data)}个")
