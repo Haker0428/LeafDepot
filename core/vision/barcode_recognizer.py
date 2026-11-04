@@ -9,6 +9,11 @@ from pathlib import Path
 
 from core.vision.yolo_detector import YoloDetection
 
+# 裁剪图宽度低于此值时放大后再送读码器
+# (2026-11-04实测: scan2远景标签原生~717px宽时CLI解码0条码; 放大到2400/3600px
+#  仍失败, 4800px可稳定解出且两个条码都能识别, CLI耗时~0.6s; 勿加锐化/对比度增强)
+MIN_DECODE_WIDTH = 4800
+
 
 class BarcodeRecognizer:
     def __init__(self,
@@ -163,6 +168,11 @@ class BarcodeRecognizer:
 
                 # 裁剪条形码区域
                 cropped = original_image[y1_pad:y2_pad, x1_pad:x2_pad]
+                # 分辨率不足时放大, 保证条码条宽达到CLI解码下限
+                if cropped.shape[1] < MIN_DECODE_WIDTH:
+                    scale = MIN_DECODE_WIDTH / cropped.shape[1]
+                    cropped = cv2.resize(cropped, None, fx=scale, fy=scale,
+                                         interpolation=cv2.INTER_LANCZOS4)
                 cropped_dir = os.path.dirname(image_path)
                 name, ext = os.path.splitext(os.path.basename(image_path))
                 crop_filename = f"{name}_barcode_crop_{crop_index}{ext}"
