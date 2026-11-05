@@ -108,6 +108,29 @@ export default function HistoryDetail() {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [lightboxAlt, setLightboxAlt] = useState<string>("");
 
+  // 品规 → 系统垛型映射（品规下方小字展示）
+  const [specPileTypes, setSpecPileTypes] = useState<Record<string, string>>({});
+  useEffect(() => {
+    fetch(`${GATEWAY_URL}/inventory/spec-pile-types`)
+      .then((res) => res.json())
+      .then((result) => {
+        if (result.code === 200 && result.data?.pileTypes) {
+          setSpecPileTypes(result.data.pileTypes as Record<string, string>);
+        }
+      })
+      .catch((err) => console.error("加载品规垛型映射失败:", err));
+  }, []);
+  const pileTypeOf = (specName?: string): string => {
+    if (!specName) return "";
+    const norm = (s: string) => s.replace(/（/g, "(").replace(/）/g, ")");
+    return (
+      specPileTypes[specName] ||
+      specPileTypes[norm(specName)] ||
+      specPileTypes[specName.replace(/\(/g, "（").replace(/\)/g, "）")] ||
+      ""
+    );
+  };
+
   // 加载任务详情
   useEffect(() => {
     if (!taskId) return;
@@ -375,12 +398,22 @@ export default function HistoryDetail() {
                               {detail.储位名称}
                             </td>
                             <td className="px-5 py-4 text-gray-600">
-                              {detail.品规名称}
+                              <div>{detail.品规名称}</div>
+                              {pileTypeOf(detail.品规名称) && (
+                                <div className="text-xs text-gray-400 mt-0.5" title="系统垛型">
+                                  垛型 {pileTypeOf(detail.品规名称)}
+                                </div>
+                              )}
                             </td>
                             <td className="px-5 py-4 text-gray-600">
                               <span className={detail.实际品规 !== detail.品规名称 ? "text-red-600 font-medium" : ""}>
                                 {detail.实际品规 || "-"}
                               </span>
+                              {pileTypeOf(detail.实际品规) && (
+                                <div className="text-xs text-gray-400 mt-0.5" title="系统垛型">
+                                  垛型 {pileTypeOf(detail.实际品规)}
+                                </div>
+                              )}
                             </td>
                             <td className="px-5 py-4 text-center text-blue-600 font-medium">
                               {detail.库存数量}
