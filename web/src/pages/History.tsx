@@ -180,11 +180,13 @@ export default function History() {
             isValid: task.isValid !== false,
           }));
 
-        // 按任务时间倒序排列，最新任务置顶
-        validTasks.sort(
-          (a: HistoryTask, b: HistoryTask) =>
-            (b.taskDate?.getTime() || 0) - (a.taskDate?.getTime() || 0),
-        );
+        // 按任务时间倒序排列，最新任务置顶（taskDate 只精确到天，同日内按任务号倒序）
+        validTasks.sort((a: HistoryTask, b: HistoryTask) => {
+          const timeDiff =
+            (b.taskDate?.getTime() || 0) - (a.taskDate?.getTime() || 0);
+          if (timeDiff !== 0) return timeDiff;
+          return b.taskId.localeCompare(a.taskId);
+        });
         console.log("加载的历史任务:", validTasks);
         setTasks(validTasks);
 
