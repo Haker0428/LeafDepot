@@ -63,7 +63,7 @@ export default function History() {
   // 品规 → 系统垛型映射（品规下方小字展示）
   const [specPileTypes, setSpecPileTypes] = useState<Record<string, string>>({});
   useEffect(() => {
-    fetch(`${GATEWAY_URL}/inventory/spec-pile-types`)
+    fetch(`${GATEWAY_URL}/api/inventory/spec-pile-types`)
       .then((res) => res.json())
       .then((result) => {
         if (result.code === 200 && result.data?.pileTypes) {
