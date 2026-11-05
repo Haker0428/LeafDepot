@@ -64,6 +64,29 @@ export default function InventoryStart() {
   const [positionOptions, setPositionOptions] = useState<{ value: string; label: string }[]>([]);
   // 位号区域多选
   const [selectedPositions, setSelectedPositions] = useState<string[]>([]);
+  // 过滤空库位（隐藏 LMS 数量为 0 的库位）
+  const [hideEmptyBins, setHideEmptyBins] = useState<boolean>(false);
+
+  // 表格实际展示的库位列表
+  const displayBins = hideEmptyBins
+    ? binsData.filter((bin) => (bin.tobaccoQty ?? 0) > 0)
+    : binsData;
+
+  // 切换空库位过滤；开启时同步清掉已被隐藏库位的选中状态
+  const toggleHideEmptyBins = () => {
+    setHideEmptyBins((prev) => {
+      const next = !prev;
+      if (next) {
+        setSelectedBins((sel) => {
+          const visibleIds = new Set(
+            binsData.filter((b) => (b.tobaccoQty ?? 0) > 0).map((b) => b.id),
+          );
+          return sel.filter((id) => visibleIds.has(id));
+        });
+      }
+      return next;
+    });
+  };
 
   // 新增状态：确认对话框和消息提示
   const [showConfirmDialog, setShowConfirmDialog] = useState<boolean>(false);
@@ -489,11 +512,13 @@ export default function InventoryStart() {
 
   // 处理全选/全不选（库位信息）
   const handleSelectAllBins = () => {
-    const allSelected = binsData.every((bin) => selectedBins.includes(bin.id));
+    const allSelected = displayBins.every((bin) =>
+      selectedBins.includes(bin.id),
+    );
     if (allSelected) {
       setSelectedBins([]);
     } else {
-      setSelectedBins(binsData.map((bin) => bin.id));
+      setSelectedBins(displayBins.map((bin) => bin.id));
     }
   };
 
@@ -867,6 +892,18 @@ export default function InventoryStart() {
                       <h4 className="text-lg font-semibold text-green-800">
                         库位信息（已选中 {selectedBins.length} 项）
                       </h4>
+                      <button
+                        onClick={toggleHideEmptyBins}
+                        className={`ml-4 px-3 py-1 text-sm rounded-md border transition-colors ${
+                          hideEmptyBins
+                            ? "bg-green-700 text-white border-green-700 hover:bg-green-800"
+                            : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                        }`}
+                        title="隐藏 LMS 系统中数量为 0 的库位"
+                      >
+                        <i className="fas fa-filter mr-1"></i>
+                        {hideEmptyBins ? "显示空库位" : "过滤空库位"}
+                      </button>
                     </div>
                     {/* 可滚动容器 - 限制高度为20行 */}
                     <div className="overflow-x-auto overflow-y-auto max-h-[300px] border rounded-lg">
@@ -879,8 +916,8 @@ export default function InventoryStart() {
                               <input
                                 type="checkbox"
                                 checked={
-                                  binsData.length > 0 &&
-                                  selectedBins.length === binsData.length
+                                  displayBins.length > 0 &&
+                                  selectedBins.length >= displayBins.length
                                 }
                                 onChange={handleSelectAllBins}
                                 className="h-4 w-4 text-green-600 rounded border-gray-300"
@@ -924,7 +961,7 @@ export default function InventoryStart() {
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                          {binsData.map((item, index) => (
+                          {displayBins.map((item, index) => (
                             <tr
                               key={item.id}
                               className="hover:bg-gray-50 transition-colors cursor-pointer"

@@ -146,7 +146,20 @@ async def run_detection(task_no: str, bin_location: str, is_sim: bool) -> Dict[s
             result["actualSpec"] = "无"
             result["actualQuantity"] = 0
         elif result["actualSpec"] == "未识别":
-            result["actualQuantity"] = 0
+            # (2026-11-06) 扫码失败但深度相机检测到有垛: 品规直接采用LMS系统品规,
+            # 仅后台log记录(specSource标记), 前端不感知兜底过程
+            from services.api.inventory.service import get_lms_spec_for_bin
+            lms_spec = get_lms_spec_for_bin(bin_location)
+            if lms_spec:
+                result["actualSpec"] = lms_spec["name"]
+                result["actualQuantity"] = detect_result.get("total_count", 0)
+                result["specSource"] = "lms_fallback"
+                logger.info(
+                    f"[LMS兜底] 扫码失败但检测到垛, 品规采用LMS系统值: bin={bin_location}, "
+                    f"spec={lms_spec['name']}, code={lms_spec['code']}, qty={result['actualQuantity']}"
+                )
+            else:
+                result["actualQuantity"] = 0
         else:
             result["actualQuantity"] = detect_result.get("total_count", 0)
         logger.info(f"[DetectionRunner] 识别成功: qty={result['actualQuantity']}, spec={result['actualSpec']}")

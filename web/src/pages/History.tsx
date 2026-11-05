@@ -180,6 +180,11 @@ export default function History() {
             isValid: task.isValid !== false,
           }));
 
+        // 按任务时间倒序排列，最新任务置顶
+        validTasks.sort(
+          (a: HistoryTask, b: HistoryTask) =>
+            (b.taskDate?.getTime() || 0) - (a.taskDate?.getTime() || 0),
+        );
         console.log("加载的历史任务:", validTasks);
         setTasks(validTasks);
 

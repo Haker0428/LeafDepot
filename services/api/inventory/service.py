@@ -828,6 +828,35 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[s
     # 成功的相机状态跨重试保留，只重试仍然失败的相机
     camera_results = {cam_name: {"success": False, "error": ""} for cam_name in CAMERA_NAMES}
 
+    async def _capture_one(i: int, script_path: str):
+        """执行单个未成功相机的抓图脚本（供并行调用）"""
+        cam_name = CAMERA_NAMES[i]
+        if camera_results[cam_name].get("success"):
+            # 已成功，跳过
+            return
+        if not os.path.exists(script_path):
+            camera_results[cam_name] = {"success": False, "error": "脚本不存在"}
+            logger.warning(f"抓图脚本不存在: {script_path}")
+            return
+        try:
+            result = await execute_capture_script(script_path, task_no, bin_location)
+            if result.get("success"):
+                camera_results[cam_name] = {"success": True}
+                logger.info(f"相机 {cam_name} 抓图成功")
+            else:
+                camera_results[cam_name] = {"success": False, "error": result.get("error", "未知错误")}
+                logger.warning(f"相机 {cam_name} 抓图失败: {result.get('error')}")
+        except Exception as cam_err:
+            camera_results[cam_name] = {"success": False, "error": str(cam_err)}
+            logger.warning(f"相机 {cam_name} 抓图异常: {cam_err}")
+
+    def _dir_has_image(i: int) -> bool:
+        """检查相机目录是否已有图片文件"""
+        cam_dir = project_root / "capture_img" / task_no / bin_location / CAMERA_DIRS[i]
+        if not cam_dir.exists():
+            return False
+        return bool(list(cam_dir.glob("*.jpg")) + list(cam_dir.glob("*.png")))
+
     while retry_count < max_retries:
         # 检查仍然失败的相机
         failed_cameras = [name for name, r in camera_results.items() if not r.get("success")]
@@ -842,31 +871,17 @@ async def capture_images_with_scripts(task_no: str, bin_location: str) -> Dict[s
 
             logger.info(f"开始抓图: {task_no}/{bin_location}, 第 {retry_count + 1} 次尝试，失败相机: {failed_cameras}")
 
-            # 只对仍未成功的相机执行脚本
-            for i, script_path in enumerate(CAPTURE_SCRIPTS):
-                cam_name = CAMERA_NAMES[i]
-                if camera_results[cam_name].get("success"):
-                    # 已成功，跳过
-                    continue
-                if not os.path.exists(script_path):
-                    camera_results[cam_name] = {"success": False, "error": "脚本不存在"}
-                    logger.warning(f"抓图脚本不存在: {script_path}")
-                    continue
+            # 并行执行未成功相机的抓图脚本（三台相机独立 IP，无共享资源）
+            await asyncio.gather(*[
+                _capture_one(i, script_path) for i, script_path in enumerate(CAPTURE_SCRIPTS)
+            ])
 
-                try:
-                    result = await execute_capture_script(script_path, task_no, bin_location)
-                    if result.get("success"):
-                        camera_results[cam_name] = {"success": True}
-                        logger.info(f"相机 {cam_name} 抓图成功")
-                    else:
-                        camera_results[cam_name] = {"success": False, "error": result.get("error", "未知错误")}
-                        logger.warning(f"相机 {cam_name} 抓图失败: {result.get('error')}")
-                except Exception as cam_err:
-                    camera_results[cam_name] = {"success": False, "error": str(cam_err)}
-                    logger.warning(f"相机 {cam_name} 抓图异常: {cam_err}")
-
-            # 等待图片生成
-            await asyncio.sleep(2)
+            # 等待图片生成：轮询各相机目录，全部到位即继续（最长 2s，取代原固定 sleep(2)）
+            poll_deadline = time.monotonic() + 2.0
+            while time.monotonic() < poll_deadline:
+                if all(_dir_has_image(i) for i in range(len(CAMERA_NAMES))):
+                    break
+                await asyncio.sleep(0.25)
 
             # 检查各目录下的图片（无论之前是否成功都检查，确保状态正确）
             for i, cam_name in enumerate(CAMERA_NAMES):
@@ -945,6 +960,60 @@ def _extract_barcode_text_from_recognizer_result(br: dict) -> str | None:
         pass
 
     return br.get('text')
+
+
+def get_lms_spec_for_bin(bin_location: str) -> Optional[Dict[str, Any]]:
+    """查询库位在 LMS(bins_data.xlsx) 中的品规信息。
+
+    :return: {"name": 品规名称, "code": 品规代码, "pile_id": 垛型映射后的pile_id(可能为None)} 或 None
+    """
+    try:
+        import pandas as pd
+        from services.api.shared.tobacco_resolver import get_tobacco_case_resolver
+
+        bins_path = project_root / "services" / "sim" / "lms" / "bins_data.xlsx"
+        if not bins_path.exists():
+            return None
+        df = pd.read_excel(bins_path, dtype=str)
+        row = df[df["储位名称"].astype(str).str.strip() == str(bin_location).strip()]
+        if row.empty:
+            return None
+        name = str(row.iloc[0].get("品规名称", "") or "").strip()
+        code = str(row.iloc[0].get("品规代码", "") or "").strip()
+        if not name or name == "nan":
+            return None
+        pile_id = None
+        if code and code != "nan":
+            # 品规代码即六位号, 复用resolver的 字典→垛型 映射
+            resolved = get_tobacco_case_resolver().resolve(f"91{code}")
+            if resolved.get("success"):
+                pile_id = resolved.get("pile_id")
+        return {"name": name, "code": "" if code == "nan" else code, "pile_id": pile_id}
+    except Exception as e:
+        logger.warning(f"[LMS兜底] 查询库位品规失败 bin={bin_location}: {e}")
+        return None
+
+
+def get_spec_pile_types() -> Dict[str, str]:
+    """品名 → 系统垛型(垛型_1)映射，供前端展示（同时收录全角/半角括号两种键）。"""
+    try:
+        import pandas as pd
+        path = project_root / "shared" / "data" / "烟箱信息汇总完整版.xlsx"
+        if not path.exists():
+            return {}
+        df = pd.read_excel(path, dtype=str)
+        mapping: Dict[str, str] = {}
+        for _, row in df.iterrows():
+            name = str(row.get("品名", "") or "").strip()
+            pile = str(row.get("垛型_1", "") or "").strip()
+            if name and name != "nan" and pile and pile != "nan":
+                mapping[name] = pile
+                half = name.replace("（", "(").replace("）", ")")
+                mapping.setdefault(half, pile)
+        return mapping
+    except Exception as e:
+        logger.warning(f"加载品规垛型映射失败: {e}")
+        return {}
 
 
 async def run_barcode_and_detect(
@@ -1041,6 +1110,14 @@ async def run_barcode_and_detect(
                     "status": "no_match",
                     "message": "未匹配到烟箱信息"
                 }
+                # (2026-11-06) 条码识别失败时, 用LMS品规的垛型兜底计数(仅后台log记录, 前端不感知)
+                lms_spec = get_lms_spec_for_bin(bin_location)
+                if lms_spec and lms_spec.get("pile_id"):
+                    pile_id = lms_spec["pile_id"]
+                    logger.info(
+                        f"[LMS兜底] 条码识别失败, 数量检测采用LMS品规垛型: bin={bin_location}, "
+                        f"spec={lms_spec['name']}, code={lms_spec['code']}, pile_id={pile_id}"
+                    )
 
             # 更新 pile_id
             result["pile_id"] = pile_id

@@ -87,6 +87,15 @@ async def get_next_task_no():
     return {"taskNo": _get_next_task_no()}
 
 
+# ==================== 品规垛型映射（前端展示用） ====================
+
+@router.get("/spec-pile-types")
+async def get_spec_pile_types():
+    """品名 → 系统垛型(垛型_1)映射，供盘点结果页在品规下显示垛型小字"""
+    from services.api.inventory.service import get_spec_pile_types as _load_map
+    return {"code": 200, "data": {"pileTypes": _load_map()}}
+
+
 # ==================== 用户进行中任务查询 ====================
 
 @router.get("/running-task")

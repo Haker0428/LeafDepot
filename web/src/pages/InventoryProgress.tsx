@@ -194,6 +194,29 @@ export default function InventoryProgress() {
     window.dispatchEvent(new Event("clear-task-notify"));
   }, []);
 
+  // 品规 → 系统垛型映射（结果显示页品规下方小字展示）
+  const [specPileTypes, setSpecPileTypes] = useState<Record<string, string>>({});
+  useEffect(() => {
+    fetch(`${GATEWAY_URL}/inventory/spec-pile-types`)
+      .then((res) => res.json())
+      .then((result) => {
+        if (result.code === 200 && result.data?.pileTypes) {
+          setSpecPileTypes(result.data.pileTypes as Record<string, string>);
+        }
+      })
+      .catch((err) => console.error("加载品规垛型映射失败:", err));
+  }, []);
+  const pileTypeOf = (specName?: string): string => {
+    if (!specName) return "";
+    const norm = (s: string) => s.replace(/（/g, "(").replace(/）/g, ")");
+    return (
+      specPileTypes[specName] ||
+      specPileTypes[norm(specName)] ||
+      specPileTypes[specName.replace(/\(/g, "（").replace(/\)/g, "）")] ||
+      ""
+    );
+  };
+
 
   // 在组件中添加 WebSocket 连接函数
   // const connectWebSocket = () => {
@@ -2323,7 +2346,15 @@ className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
                                 />
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                {item.productName || "未知品规"}
+                                <div>{item.productName || "未知品规"}</div>
+                                {pileTypeOf(item.productName) && (
+                                  <div
+                                    className="text-xs text-gray-400 mt-0.5"
+                                    title="系统垛型"
+                                  >
+                                    垛型 {pileTypeOf(item.productName)}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {item.locationName}

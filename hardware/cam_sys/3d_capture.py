@@ -116,7 +116,8 @@ def main(task_no: str, bin_location: str):
         # 预览第四码流（分辨率更高，等待解码器初始化）
         print("再次开始预览...")
         cam.startRealPlay(1, 3, 0, 1)
-        time.sleep(3)
+        # 解码器初始化等待：3s -> 1.5s 提速（2026-11-06）；若深度图偶发空白/缺失，优先回调此值
+        time.sleep(1.5)
 
         # 捕获第四码流
         print("再次获取捕获...")

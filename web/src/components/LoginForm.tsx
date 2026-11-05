@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 export default function LoginForm({ className }: { className?: string }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
 
@@ -72,15 +73,24 @@ export default function LoginForm({ className }: { className?: string }) {
                 <i className="fas fa-lock"></i>
               </span>
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                className="w-full pl-10 pr-12 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                 placeholder="请输入密码"
                 disabled={isLoading}
                 autoComplete="new-password"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-gray-700"
+                aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                tabIndex={-1}
+              >
+                <i className={showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'}></i>
+              </button>
             </div>
           </div>
 
