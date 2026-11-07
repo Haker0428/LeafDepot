@@ -962,14 +962,33 @@ def _extract_barcode_text_from_recognizer_result(br: dict) -> str | None:
     return br.get('text')
 
 
+def _pile_id_by_spec_name(name: str) -> Optional[int]:
+    """品名 → 垛型_1 → pile_id。字典里同名但代码不一致的品规走此通道。"""
+    try:
+        pile_map = get_spec_pile_types()
+        pile_type = pile_map.get(name) or pile_map.get(name.replace("（", "(").replace("）", ")"))
+        if not pile_type:
+            return None
+        from services.api.shared.config import STACK_TYPE_TO_CODE, STACK_TYPE_CODE_TO_PILE_ID
+        stack_code = STACK_TYPE_TO_CODE.get(str(pile_type).strip(), -1)
+        if stack_code == -1:
+            return None  # 垛型串不在映射表（如字典里填了非标准垛型），不猜测
+        return STACK_TYPE_CODE_TO_PILE_ID.get(stack_code)
+    except Exception:
+        return None
+
+
 def get_lms_spec_for_bin(bin_location: str) -> Optional[Dict[str, Any]]:
     """查询库位在 LMS(bins_data.xlsx) 中的品规信息。
 
-    :return: {"name": 品规名称, "code": 品规代码, "pile_id": 垛型映射后的pile_id(可能为None)} 或 None
+    只取 LMS 的品规名称；垛型/pile_id 一律按品名查本地字典
+    （烟箱信息汇总完整版.xlsx 的 品名→垛型_1），完全不使用 LMS 的品规代码
+    （远程数据该列为工厂代码，与条码六位号不同源，不可用于解析）。
+
+    :return: {"name": 品规名称, "code": 品规代码(仅日志展示用，不参与解析), "pile_id": 字典垛型映射后的pile_id(可能为None)} 或 None
     """
     try:
         import pandas as pd
-        from services.api.shared.tobacco_resolver import get_tobacco_case_resolver
 
         bins_path = project_root / "services" / "sim" / "lms" / "bins_data.xlsx"
         if not bins_path.exists():
@@ -982,12 +1001,13 @@ def get_lms_spec_for_bin(bin_location: str) -> Optional[Dict[str, Any]]:
         code = str(row.iloc[0].get("品规代码", "") or "").strip()
         if not name or name == "nan":
             return None
-        pile_id = None
-        if code and code != "nan":
-            # 品规代码即六位号, 复用resolver的 字典→垛型 映射
-            resolved = get_tobacco_case_resolver().resolve(f"91{code}")
-            if resolved.get("success"):
-                pile_id = resolved.get("pile_id")
+        # 垛型只按品名查本地字典, LMS代码不参与
+        pile_id = _pile_id_by_spec_name(name)
+        if pile_id is None:
+            logger.warning(
+                f"[LMS兜底] 品名[{name}]未命中本地字典, 数量检测将按默认3*10计数: "
+                f"bin={bin_location} (需补字典)"
+            )
         return {"name": name, "code": "" if code == "nan" else code, "pile_id": pile_id}
     except Exception as e:
         logger.warning(f"[LMS兜底] 查询库位品规失败 bin={bin_location}: {e}")
