@@ -154,10 +154,10 @@ class TemplateBasedFullProcessor(FullStackProcessor):
             logger.info(f"[FullProcessor] box[{i}]: norm_w={norm_w:.4f}, depth={depth_mm:.0f}mm" if depth_mm
                         else f"[FullProcessor] box[{i}]: norm_w={norm_w:.4f}, depth=None")
 
-        # ========== Step 4: 过滤误识别BOX（深度>21950或采样区全无效均视为误识别） ==========
+        # ========== Step 4: 过滤误识别BOX（深度>21500或采样区全无效均视为误识别） ==========
         # (2026-11-05) 采样区域全为哨兵值(depth=None)的box也直接删除——落进立体匹配死区的框不可信。
         # 注: 仅当深度矩阵存在时执行None删除; 整张深度数据缺失时保留旧行为(全保留, 仅宽度匹配)
-        MAX_DEPTH = 21950
+        MAX_DEPTH = 21500
         original_count = len(box_data)
         if depth_matrix is not None:
             box_data = [bd for bd in box_data if bd["depth_mm"] is not None and bd["depth_mm"] <= MAX_DEPTH]
@@ -630,10 +630,10 @@ class TemplateBasedPartialProcessor(PartialStackProcessor):
                         f"box_w={box_w:.0f}px, norm_w={norm_w:.4f}, depth={depth_mm:.0f}mm" if depth_mm
                         else f"[PartialProcessor] box[{i}]: box_w={box_w:.0f}px, norm_w={norm_w:.4f}, depth=None")
 
-        # ========== Step 3: 过滤误识别BOX（深度>21950或采样区全无效均视为误识别） ==========
+        # ========== Step 3: 过滤误识别BOX（深度>21500或采样区全无效均视为误识别） ==========
         # (2026-11-05) 采样区域全为哨兵值(depth=None)的box也直接删除——落进立体匹配死区的框不可信。
         # 注: 仅当深度矩阵存在时执行None删除; 整张深度数据缺失时保留旧行为(全保留, 仅宽度匹配)
-        MAX_DEPTH = 21950
+        MAX_DEPTH = 21500
         original_count = len(box_data)
         if depth_matrix is not None:
             box_data = [bd for bd in box_data if bd["depth_mm"] is not None and bd["depth_mm"] <= MAX_DEPTH]

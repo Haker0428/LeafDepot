@@ -14,15 +14,15 @@ def _adaptive_gap_threshold(avg_h: float, gap_ratio: float, total_box_count: int
     根据 YOLO 识别出的箱子总数和垛型自适应调整 gap 阈值。
 
     - 总箱子数 < 3（≤2箱）：阈值 2.0×平均箱高 —— 两个箱无论在哪两层都必然聚为同一层。
-    - 宽垛型 5*6/5*8 且箱数 < 4，或 4*7+2 且箱数 < 5：阈值 0.85×平均箱高 ——
+    - 宽垛型 5*6/5*8 且箱数 ≤ 4，或 4*7+2 且箱数 ≤ 5：阈值 0.85×平均箱高 ——
       箱数偏少（部分遮挡/顶层残缺）时同层箱中心距偏大，放宽判定避免误分层。
     - 其余情况：gap_ratio（默认 0.6×平均箱高）。
     """
     if total_box_count < 3:
         return avg_h * 2.0
-    if pile_name in ("5*6", "5*8") and total_box_count < 4:
+    if pile_name in ("5*6", "5*8") and total_box_count <= 4:
         return avg_h * 0.85
-    if pile_name == "4*7+2" and total_box_count < 5:
+    if pile_name == "4*7+2" and total_box_count <= 5:
         return avg_h * 0.85
     return avg_h * gap_ratio
 
