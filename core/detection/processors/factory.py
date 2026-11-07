@@ -178,6 +178,9 @@ class StackProcessorFactory:
 
         # Step 1: YOLO检测（使用旋转后的图像）
         detections = self._run_yolo_detection(processing_image_path)
+        # 几何去重（2026-11-07）: 同类box框 IoU>0.3 且低置信框中心落在高置信框内 → 判为
+        # 重复检测（如真箱上缘的方形碎片框），删除低置信框。深度过滤拦不住这类同表面重复框。
+        detections = self._dedup_contained_boxes(detections)
         # 空垛位判定：整张图自始至终没有任何 pile 检测框（无论置信度）→ 认为库位为空
         self.last_empty_pile = not any(d.get("cls") == "pile" for d in (detections or []))
         if not detections:
@@ -429,6 +432,45 @@ class StackProcessorFactory:
         
         return detections
     
+    def _dedup_contained_boxes(self, detections: List[Dict]) -> List[Dict]:
+        """几何去重：同类别(box)两个框 IoU>0.3 且低置信框中心落在高置信框内部时，
+        判为同一实体的重复检测（典型：真箱上缘被再检出的方形碎片框），删除低置信框。
+
+        只处理 box 类；并排相邻的真箱 IoU 低且中心互不包含，不受影响。
+        """
+        def _iou(a: Dict, b: Dict) -> float:
+            ix = max(0.0, min(a["x2"], b["x2"]) - max(a["x1"], b["x1"]))
+            iy = max(0.0, min(a["y2"], b["y2"]) - max(a["y1"], b["y1"]))
+            inter = ix * iy
+            if inter <= 0:
+                return 0.0
+            area_a = (a["x2"] - a["x1"]) * (a["y2"] - a["y1"])
+            area_b = (b["x2"] - b["x1"]) * (b["y2"] - b["y1"])
+            return inter / (area_a + area_b - inter)
+
+        def _center_inside(c: Dict, box: Dict) -> bool:
+            cx, cy = (c["x1"] + c["x2"]) / 2.0, (c["y1"] + c["y2"]) / 2.0
+            return box["x1"] <= cx <= box["x2"] and box["y1"] <= cy <= box["y2"]
+
+        boxes = sorted([d for d in detections if d.get("cls") == "box"],
+                       key=lambda d: -d["conf"])
+        drop = set()
+        for i in range(len(boxes)):
+            if i in drop:
+                continue
+            for j in range(len(boxes)):
+                if i == j or j in drop:
+                    continue
+                if _iou(boxes[i], boxes[j]) > 0.3 and _center_inside(boxes[j], boxes[i]):
+                    drop.add(j)
+        if drop:
+            logger.info(
+                f"[Detection] 几何去重: 移除{len(drop)}个中心包含的重复box "
+                f"(conf={[round(boxes[k]['conf'], 2) for k in sorted(drop)]})"
+            )
+        return [b for k, b in enumerate(boxes) if k not in drop] + \
+               [d for d in detections if d.get("cls") != "box"]
+
     def _prepare_scene(self, detections: List[Dict], image_path: Path,
                       vis_output_dir: Optional[Path]) -> Optional[Dict]:
         """场景准备"""

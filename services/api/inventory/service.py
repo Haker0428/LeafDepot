@@ -1693,7 +1693,9 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 register_task_for_robot_code(robot_task_code, task_no)
                 submitted_bins.append(bin_location)
                 logger.info(f"第 {i+1}/{len(sorted_bins)} 个库位已下发: {bin_location}, robotTaskCode={robot_task_code}")
-                _active_bin_tracker[task_no] = {"bin_to_task_code": {bin_location: robot_task_code}}
+                # 累积记录已下发的bin(取消时逐个补发continue用), 不整体覆盖:
+                # 超时跳过的库位可能仍被车攥着, 覆盖会导致取消时漏发continue
+                _active_bin_tracker.setdefault(task_no, {"bin_to_task_code": {}})["bin_to_task_code"][bin_location] = robot_task_code
                 prune_robot_status_queue({robot_task_code})
 
             _bin_start = time.time()
@@ -1730,8 +1732,17 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     logger.warning(f"任务已取消，超时退出循环: {bin_location}")
                     break
                 else:
-                    # END 确实没收到（未取消）。RCS 任务节点可能已清理，此时发 continue 无意义，直接跳过
-                    logger.warning(f"等待 END 超时且队列中无 END，跳过库位（不发送 continue）: {bin_location}")
+                    # END 确实没收到（未取消）。跳过前补发 continue 尽力放行车攥着的任务:
+                    # (2026-11-07) 实测存在 RCS 收下任务不执行、节点仍在的情况(车卡住),
+                    # 不发 continue 会持续锁死; 若节点确已被 RCS 清理, 返回业务错误, 忽略即可
+                    try:
+                        cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=robot_task_code)
+                        logger.warning(
+                            f"等待 END 超时，跳过库位（已补发continue）: {bin_location}, "
+                            f"rt_code={robot_task_code}, result={cr}"
+                        )
+                    except Exception as ce:
+                        logger.error(f"等待 END 超时，跳过库位（补发continue失败）: {bin_location}, error={ce}")
                     i += 1
                     continue
 
@@ -1790,7 +1801,8 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 pending_next_bin = next_bin
                 pending_next_rt_code = next_rt_code
                 logger.info(f"提前下发下一个库位: {next_bin}, rt_code={next_rt_code}，AMR 可在检测期间移动")
-                _active_bin_tracker[task_no] = {"bin_to_task_code": {next_bin: next_rt_code}}
+                # 累积记录(同上, 不覆盖)
+                _active_bin_tracker.setdefault(task_no, {"bin_to_task_code": {}})["bin_to_task_code"][next_bin] = next_rt_code
                 from services.api.robot.router import prune_robot_status_queue
                 prune_robot_status_queue({next_rt_code})
                 # 发上一个 bin 的 continue，让车离开
