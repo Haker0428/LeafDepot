@@ -60,18 +60,6 @@ export default function History() {
   });
   const navigate = useNavigate();
 
-  // 清理确认弹窗预览: 勾选记录中最早的日期 + 受影响条数（防止误删方向搞反）
-  const selectedForCleanup = tasks.filter((t) => selectedTaskIds.includes(t.taskId));
-  const cutoffPreview = selectedForCleanup.length
-    ? selectedForCleanup.reduce<Date>(
-        (min, t) => (t.taskDate && t.taskDate.getTime() < min.getTime() ? t.taskDate : min),
-        selectedForCleanup[0].taskDate ?? new Date(),
-      )
-    : null;
-  const affectedCount = cutoffPreview
-    ? tasks.filter((t) => t.taskDate && t.taskDate.getTime() < cutoffPreview.getTime()).length
-    : 0;
-
   // 品规 → 系统垛型映射（品规下方小字展示）
   const [specPileTypes, setSpecPileTypes] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -103,6 +91,19 @@ export default function History() {
   const [cleanupMode, setCleanupMode] = useState<"selected" | "beforeSelected">(
     "selected",
   ); // 清理模式
+
+  // 清理确认弹窗预览: 勾选记录中最早的日期 + 受影响条数（防止误删方向搞反）
+  // 注意: 必须放在全部 useState 声明之后, 否则 TDZ 报错白屏
+  const selectedForCleanup = tasks.filter((t) => selectedTaskIds.includes(t.taskId));
+  const cutoffPreview = selectedForCleanup.length
+    ? selectedForCleanup.reduce<Date>(
+        (min, t) => (t.taskDate && t.taskDate.getTime() < min.getTime() ? t.taskDate : min),
+        selectedForCleanup[0].taskDate ?? new Date(),
+      )
+    : null;
+  const affectedCount = cutoffPreview
+    ? tasks.filter((t) => t.taskDate && t.taskDate.getTime() < cutoffPreview.getTime()).length
+    : 0;
 
   // 处理返回按钮点击
   const handleBack = () => {
