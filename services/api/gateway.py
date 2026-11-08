@@ -4,6 +4,7 @@ Gateway服务 - API 网关入口点
 将所有服务模块的路由聚合到一起，提供统一的 API 入口。
 """
 import os
+import asyncio
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -128,6 +129,20 @@ async def startup_event():
         status="success",
         details={"version": "1.0.0"}
     )
+
+    # (2026-11-08) 每日自动清理超过保留期(180天)的历史盘点记录
+    async def _history_auto_cleanup_loop():
+        import asyncio
+        from services.api.history.router import cleanup_expired_history_files
+        while True:
+            await asyncio.sleep(300)          # 启动后5分钟先执行一次
+            try:
+                cleanup_expired_history_files()
+            except Exception as e:
+                logger.error(f"[历史自动清理] 执行失败: {e}")
+            await asyncio.sleep(86400 - 300)  # 之后每天一次
+
+    asyncio.create_task(_history_auto_cleanup_loop())
 
 
 # 关闭事件

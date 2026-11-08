@@ -3,11 +3,12 @@
 """
 import os
 import json
+import time
 import asyncio
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List, Set, Tuple, Optional
 
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, status, Body, Query
 from fastapi.responses import JSONResponse, Response
@@ -131,6 +132,14 @@ async def get_running_task(request: Request):
 
 # ==================== 任务进度接口 ====================
 
+# ===== 启动防抖 =====
+# (2026-11-08) 卡顿期操作员/前端重复点击会生成连环任务(HS2026110803单日14个recount并发,
+# RCS重复提交+网关负载雪崩)。同一(任务号,库位集合)在防抖窗口内重复启动时,
+# 直接返回上次成功启动的任务信息, 不新建工作流。
+_START_DEDUP: Dict[Tuple[str, Tuple[str, ...]], Tuple[float, Dict[str, Any]]] = {}
+_START_DEDUP_SECONDS = 120
+
+
 @router.post("/start-inventory")
 async def start_inventory(request: Request, background_tasks: BackgroundTasks):
     """启动盘点任务，接收任务编号和储位名称列表"""
@@ -152,6 +161,23 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
 
         logger.info(f"启动盘点任务: {task_no}, 包含 {len(bin_locations)} 个储位, 模拟模式: {is_sim}, 存储键: {storage_key}")
 
+        # 启动防抖: 窗口内同(任务号,库位集合)的重复下发直接返回已有任务
+        dedup_key = (str(task_no), tuple(sorted(set(bin_locations))))
+        dedup_hit = _START_DEDUP.get(dedup_key)
+        if dedup_hit and time.time() - dedup_hit[0] < _START_DEDUP_SECONDS:
+            logger.warning(
+                f"[启动防抖] {_START_DEDUP_SECONDS}秒内重复启动 {task_no}, "
+                f"返回已有任务: {dedup_hit[1].get('actualTaskNo')}"
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "code": 200,
+                    "message": f"任务已启动过，{_START_DEDUP_SECONDS}秒内请勿重复下发（防抖）",
+                    "data": {**dedup_hit[1], "deduplicated": True},
+                },
+            )
+
         # 重新盘点的独立任务号不受"任务已在执行中"检查影响
         if not recount_task_id:
             # 已取消的任务，清除内存状态，允许重新下发
@@ -172,70 +198,75 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"获取到的 user_info: {user_info}")
 
         # ===== 全局并发检查：不允许两个盘点任务同时运行 =====
-        # 重新盘点使用独立的 storage_key，不受其他任务状态影响
+        # (2026-11-08) 重新盘点不再完全豁免: 有任务 running 时同样拦截——此前豁免导致
+        # 卡顿期重复点击生成连环 recount(HS2026110803 单日14个并发, RCS重复提交+网关负载雪崩);
+        # 保留 completed/partial 不拦截 recount(否则无法对已完成任务重盘), 普通任务维持原语义。
         if not recount_task_id:
-            # 检查1: 内存中的 inventory_tasks
             BLOCKED_STATUSES = {"running", "completed", "partial"}
-            for running_task_no, task_status in inventory_tasks.items():
-                if task_status.status in BLOCKED_STATUSES:
-                    running_user_info = inventory_task_details.get(running_task_no, {}).get("userInfo", {})
-                    operator_name = running_user_info.get("userName", "未知")
-                    operator_id = running_user_info.get("userId", "")
-                    start_time = task_status.start_time or ""
-                    if task_status.status == "running":
-                        conflict_msg = (
-                            f"有其他盘点任务正在进行中（任务号: {running_task_no}，"
-                            f"操作人: {operator_name}{f'（{operator_id}）' if operator_id else ''}，"
-                            f"开始时间: {start_time}），请等待该任务结束后再下发新任务。"
-                        )
-                    else:
-                        conflict_msg = (
-                            f"存在未确认的盘点任务（任务号: {running_task_no}，状态: {task_status.status}），"
-                            f"请先确认或取消该任务后再下发新任务。"
-                        )
-                    logger.warning(f"[并发冲突] 用户 {user_info.get('userName','未知')} 试图下发任务 {task_no}，"
-                                   f"但任务 {running_task_no} 状态为 {task_status.status}")
-                    return JSONResponse(
-                        status_code=status.HTTP_409_CONFLICT,
-                        content={
-                            "code": 409,
-                            "message": conflict_msg,
-                            "data": {
-                                "runningTaskNo": running_task_no,
-                                "operatorName": operator_name,
-                                "operatorId": operator_id,
-                                "startTime": start_time,
-                            }
-                        }
-                    )
+        else:
+            BLOCKED_STATUSES = {"running"}
 
-            # 检查2: task_state.json 中的未完成任务
-            task_state_data = load_task_state()
-            for task_no_check, task_info in task_state_data.items():
-                task_status = task_info.get("status", "")
-                if task_status in BLOCKED_STATUSES:
-                    if task_status == "running":
-                        conflict_msg = (
-                            f"有其他盘点任务正在进行中（任务号: {task_no_check}），"
-                            f"请等待该任务结束后再下发新任务。"
-                        )
-                    else:
-                        conflict_msg = (
-                            f"存在未确认的盘点任务（任务号: {task_no_check}，状态: {task_status}），"
-                            f"请先确认或取消该任务后再下发新任务。"
-                        )
-                    logger.warning(f"[并发冲突] 用户 {user_info.get('userName','未知')} 试图下发任务 {task_no}，"
-                                   f"但 task_state.json 中任务 {task_no_check} 状态为 {task_status}")
-                    return JSONResponse(
-                        status_code=status.HTTP_409_CONFLICT,
-                        content={
-                            "code": 409,
-                            "message": conflict_msg,
-                            "data": {
-                                "runningTaskNo": task_no_check,
-                            }
-                        }
+        # 检查1: 内存中的 inventory_tasks
+        for running_task_no, task_status in inventory_tasks.items():
+            if task_status.status in BLOCKED_STATUSES:
+                running_user_info = inventory_task_details.get(running_task_no, {}).get("userInfo", {})
+                operator_name = running_user_info.get("userName", "未知")
+                operator_id = running_user_info.get("userId", "")
+                start_time = task_status.start_time or ""
+                if task_status.status == "running":
+                    conflict_msg = (
+                        f"有其他盘点任务正在进行中（任务号: {running_task_no}，"
+                        f"操作人: {operator_name}{f'（{operator_id}）' if operator_id else ''}，"
+                        f"开始时间: {start_time}），请等待该任务结束后再下发新任务。"
                     )
+                else:
+                    conflict_msg = (
+                        f"存在未确认的盘点任务（任务号: {running_task_no}，状态: {task_status.status}），"
+                        f"请先确认或取消该任务后再下发新任务。"
+                    )
+                logger.warning(f"[并发冲突] 用户 {user_info.get('userName','未知')} 试图下发任务 {task_no}，"
+                               f"但任务 {running_task_no} 状态为 {task_status.status}")
+                return JSONResponse(
+                    status_code=status.HTTP_409_CONFLICT,
+                    content={
+                        "code": 409,
+                        "message": conflict_msg,
+                        "data": {
+                            "runningTaskNo": running_task_no,
+                            "operatorName": operator_name,
+                            "operatorId": operator_id,
+                            "startTime": start_time,
+                        }
+                    }
+                )
+
+        # 检查2: task_state.json 中的未完成任务
+        task_state_data = load_task_state()
+        for task_no_check, task_info in task_state_data.items():
+            task_status = task_info.get("status", "")
+            if task_status in BLOCKED_STATUSES:
+                if task_status == "running":
+                    conflict_msg = (
+                        f"有其他盘点任务正在进行中（任务号: {task_no_check}），"
+                        f"请等待该任务结束后再下发新任务。"
+                    )
+                else:
+                    conflict_msg = (
+                        f"存在未确认的盘点任务（任务号: {task_no_check}，状态: {task_status}），"
+                        f"请先确认或取消该任务后再下发新任务。"
+                    )
+                logger.warning(f"[并发冲突] 用户 {user_info.get('userName','未知')} 试图下发任务 {task_no}，"
+                               f"但 task_state.json 中任务 {task_no_check} 状态为 {task_status}")
+                return JSONResponse(
+                    status_code=status.HTTP_409_CONFLICT,
+                    content={
+                        "code": 409,
+                        "message": conflict_msg,
+                        "data": {
+                            "runningTaskNo": task_no_check,
+                        }
+                    }
+                )
 
         # 保存用户信息到任务详情，供后台任务使用
         inventory_task_details[storage_key]["userInfo"] = user_info
@@ -276,6 +307,14 @@ async def start_inventory(request: Request, background_tasks: BackgroundTasks):
             bin_locations=bin_locations,
             is_sim=is_sim
         )
+
+        # 登记防抖(启动成功后): 窗口内同(任务号,库位集合)重复启动将直接返回本任务
+        _START_DEDUP[dedup_key] = (time.time(), {
+            "taskNo": task_no,
+            "actualTaskNo": storage_key,
+            "bin_locations": bin_locations,
+            "is_sim": is_sim,
+        })
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,

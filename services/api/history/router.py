@@ -59,6 +59,45 @@ def invalidate_task_index():
     _TASK_INDEX_CACHE = {}
 
 
+def _prune_task_index_entries(task_ids):
+    """从磁盘索引 task_index.json 中剔除指定任务并回写。
+
+    删除历史文件后必须调用：invalidate_task_index 只清内存缓存，磁盘索引仍留有
+    已删任务，下次列表从磁盘加载旧索引会"复活"已删记录。
+    """
+    try:
+        idx = _load_task_index()
+        changed = False
+        for tid in task_ids:
+            if idx.pop(tid, None) is not None:
+                changed = True
+        if changed:
+            _save_task_index(idx)
+    except Exception as e:
+        logger.warning(f"剔除任务索引失败: {e}")
+
+
+def cleanup_expired_history_files(retention_days: int = 180) -> int:
+    """删除超过保留期的历史任务xlsx并同步剔除索引，供每日定时任务调用。"""
+    history_dir = OUTPUT_ROOT / "history_data"
+    if not history_dir.exists():
+        return 0
+    deleted = []
+    for xlsx_file in history_dir.glob("*.xlsx"):
+        task_date = parse_task_date_from_filename(xlsx_file.stem)
+        if task_date and (datetime.now() - task_date).days > retention_days:
+            try:
+                xlsx_file.unlink()
+                deleted.append(xlsx_file.stem)
+            except Exception as e:
+                logger.warning(f"删除历史文件失败 {xlsx_file.name}: {e}")
+    if deleted:
+        _prune_task_index_entries(deleted)
+        invalidate_task_index()
+        logger.info(f"[历史自动清理] 已删除{len(deleted)}个超过{retention_days}天的记录: {deleted}")
+    return len(deleted)
+
+
 def _rebuild_task_index(history_dir: Path) -> Dict[str, Dict]:
     """扫描所有 Excel 文件，重建索引缓存"""
     import openpyxl
@@ -433,6 +472,7 @@ async def delete_history_task(task_id: str, request: Request):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"任务 {task_id} 的历史文件不存在")
 
         xlsx_file.unlink()
+        _prune_task_index_entries([task_id])  # 磁盘索引同步剔除, 防止列表"复活"
         invalidate_task_index()  # 刷新缓存
         logger.info(f"已删除历史任务文件: {xlsx_file.name}")
 
@@ -551,25 +591,46 @@ async def cleanup_history(request: Request):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足")
 
         data = await request.json()
+        cutoff_date = data.get("cutoff_date")
         days = data.get("days", 180)
 
         history_tasks_dir = OUTPUT_ROOT / "history_data"
-        deleted_count = 0
+        deleted_ids = []
+
+        # 截止日期模式：清理该日期之前的全部记录（不含当天），由前端"清理选中之前"传入
+        cutoff_dt = None
+        if cutoff_date:
+            try:
+                cutoff_dt = datetime.strptime(str(cutoff_date), "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="cutoff_date 格式应为 YYYY-MM-DD")
 
         for xlsx_file in history_tasks_dir.glob("*.xlsx"):
             task_id = xlsx_file.stem
             task_date = parse_task_date_from_filename(task_id)
-            if task_date and is_task_expired(task_date):
+            if not task_date:
+                continue
+            if cutoff_dt is not None:
+                should_delete = task_date < cutoff_dt
+            else:
+                should_delete = is_task_expired(task_date)
+            if should_delete:
                 xlsx_file.unlink()
-                deleted_count += 1
+                deleted_ids.append(task_id)
                 logger.info(f"已清理过期文件: {xlsx_file.name}")
 
-        if deleted_count > 0:
+        if deleted_ids:
+            _prune_task_index_entries(deleted_ids)
             invalidate_task_index()  # 刷新缓存
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"code": 200, "message": f"已清理 {deleted_count} 个过期文件", "data": {"deletedCount": deleted_count}}
+            content={
+                "code": 200,
+                "message": f"已清理 {len(deleted_ids)} 个过期文件",
+                # cleaned_count 与前端读取字段对齐; deletedCount 保留兼容
+                "data": {"cleaned_count": len(deleted_ids), "deletedCount": len(deleted_ids)},
+            },
         )
 
     except HTTPException:
