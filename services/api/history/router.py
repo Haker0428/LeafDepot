@@ -60,11 +60,7 @@ def invalidate_task_index():
 
 
 def _prune_task_index_entries(task_ids):
-    """从磁盘索引 task_index.json 中剔除指定任务并回写。
-
-    删除历史文件后必须调用：invalidate_task_index 只清内存缓存，磁盘索引仍留有
-    已删任务，下次列表从磁盘加载旧索引会"复活"已删记录。
-    """
+    """（已废弃保留兼容）从磁盘索引中剔除指定任务。"""
     try:
         idx = _load_task_index()
         changed = False
@@ -75,6 +71,50 @@ def _prune_task_index_entries(task_ids):
             _save_task_index(idx)
     except Exception as e:
         logger.warning(f"剔除任务索引失败: {e}")
+
+
+def _rebuild_and_save_index():
+    """从目录全量重建索引并落盘（删除/清理后调用）。
+
+    此前磁盘索引只增不更（_get_task_meta 只写内存不落盘），长期停留为陈年账本，
+    重启后列表依赖增量补扫；删除操作后若只做内存失效，会出现幽灵条目/漏条目。
+    重建后磁盘索引与目录严格一致。
+    """
+    global _TASK_INDEX_CACHE, _INDEX_LOADED
+    history_dir = OUTPUT_ROOT / "history_data"
+    try:
+        idx = _rebuild_task_index(history_dir) if history_dir.exists() else {}
+        _TASK_INDEX_CACHE = idx
+        _INDEX_LOADED = True
+        _save_task_index(idx)
+        logger.info(f"[历史索引] 已从目录重建并落盘: {len(idx)}条")
+    except Exception as e:
+        logger.warning(f"[历史索引] 重建失败: {e}")
+        invalidate_task_index()
+
+
+def _remove_task_assets(task_ids):
+    """删除任务对应的 capture_img 照片目录（含 _R 重新盘点派生目录）。
+
+    照片占存储大头, 历史删除/清理时必须一并删除, 否则磁盘永远清不下去。
+    """
+    import shutil
+    from services.api.shared.config import project_root
+    capture_root = project_root / "capture_img"
+    if not capture_root.exists():
+        return
+    for task_id in task_ids:
+        removed = []
+        # 任务本体目录 + 该任务的 _R 派生目录（HS..._R45548 / HS..._R45548_R...）
+        for d in [capture_root / task_id, *capture_root.glob(f"{task_id}_R*")]:
+            if d.is_dir():
+                try:
+                    shutil.rmtree(d, ignore_errors=True)
+                    removed.append(d.name)
+                except Exception as e:
+                    logger.warning(f"删除照片目录失败 {d}: {e}")
+        if removed:
+            logger.info(f"[历史清理] 已删除照片目录: {', '.join(removed)}")
 
 
 def cleanup_expired_history_files(retention_days: int = 180) -> int:
@@ -92,9 +132,10 @@ def cleanup_expired_history_files(retention_days: int = 180) -> int:
             except Exception as e:
                 logger.warning(f"删除历史文件失败 {xlsx_file.name}: {e}")
     if deleted:
-        _prune_task_index_entries(deleted)
+        _remove_task_assets(deleted)
+        _rebuild_and_save_index()
         invalidate_task_index()
-        logger.info(f"[历史自动清理] 已删除{len(deleted)}个超过{retention_days}天的记录: {deleted}")
+        logger.info(f"[历史自动清理] 已删除{len(deleted)}个超过{retention_days}天的记录(含照片): {deleted}")
     return len(deleted)
 
 
@@ -472,9 +513,10 @@ async def delete_history_task(task_id: str, request: Request):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"任务 {task_id} 的历史文件不存在")
 
         xlsx_file.unlink()
-        _prune_task_index_entries([task_id])  # 磁盘索引同步剔除, 防止列表"复活"
+        _rebuild_and_save_index()             # 从目录重建索引落盘, 防幽灵/漏条目
+        _remove_task_assets([task_id])        # 照片目录一并删除(含_R派生)
         invalidate_task_index()  # 刷新缓存
-        logger.info(f"已删除历史任务文件: {xlsx_file.name}")
+        logger.info(f"已删除历史任务文件(含照片): {xlsx_file.name}")
 
         client_host = request.client.host if request.client else "unknown"
         log_operation(
@@ -620,14 +662,14 @@ async def cleanup_history(request: Request):
                 logger.info(f"已清理过期文件: {xlsx_file.name}")
 
         if deleted_ids:
-            _prune_task_index_entries(deleted_ids)
-            invalidate_task_index()  # 刷新缓存
+            _remove_task_assets(deleted_ids)   # 照片目录一并删除
+            _rebuild_and_save_index()          # 从目录重建索引落盘
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "code": 200,
-                "message": f"已清理 {len(deleted_ids)} 个过期文件",
+                "message": f"已清理 {len(deleted_ids)} 个过期文件（含对应照片）",
                 # cleaned_count 与前端读取字段对齐; deletedCount 保留兼容
                 "data": {"cleaned_count": len(deleted_ids), "deletedCount": len(deleted_ids)},
             },

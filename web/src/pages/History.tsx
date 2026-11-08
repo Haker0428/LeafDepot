@@ -60,6 +60,18 @@ export default function History() {
   });
   const navigate = useNavigate();
 
+  // 清理确认弹窗预览: 勾选记录中最早的日期 + 受影响条数（防止误删方向搞反）
+  const selectedForCleanup = tasks.filter((t) => selectedTaskIds.includes(t.taskId));
+  const cutoffPreview = selectedForCleanup.length
+    ? selectedForCleanup.reduce<Date>(
+        (min, t) => (t.taskDate && t.taskDate.getTime() < min.getTime() ? t.taskDate : min),
+        selectedForCleanup[0].taskDate ?? new Date(),
+      )
+    : null;
+  const affectedCount = cutoffPreview
+    ? tasks.filter((t) => t.taskDate && t.taskDate.getTime() < cutoffPreview.getTime()).length
+    : 0;
+
   // 品规 → 系统垛型映射（品规下方小字展示）
   const [specPileTypes, setSpecPileTypes] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -1076,6 +1088,19 @@ export default function History() {
                   </span>{" "}
                   条记录
                 </p>
+                {cleanupMode === "beforeSelected" && cutoffPreview && (
+                  <p className="text-sm text-blue-800 mt-2">
+                    将删除 <span className="font-bold">{formatDate(cutoffPreview)}</span>
+                    （选中记录中最早日期，不含当天）之前的全部{" "}
+                    <span className="font-bold">{affectedCount}</span> 条记录，
+                    <span className="font-bold">对应照片一并删除</span>。
+                  </p>
+                )}
+                {cleanupMode === "selected" && (
+                  <p className="text-sm text-blue-800 mt-2">
+                    仅删除选中的 {selectedTaskIds.length} 条记录，<span className="font-bold">对应照片一并删除</span>。
+                  </p>
+                )}
               </div>
 
               <div className="mb-4">
