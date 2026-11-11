@@ -136,15 +136,16 @@ def sort_bins_by_path(bin_locations: List[str]) -> List[str]:
     """
     按物理路径对 bin 列表排序，使机器人行走路径最优。
 
-    距离公式：|Δrow| * 1000 + |Δcol| * 10 + |Δlayer|
-    row 差异代价最高（跨排代价极高），所以算法自然优先同排移动，
-    同排内可升序可降序列（贪心最近邻自动选择方向）。
+    (2026-11-10) 行优先扫描: 储位第三段视为"行"，优先走完同一行再换行；
+    行内按第二段"列"扫描，贪心最近邻自动蛇形折返（本行升序则下行降序）。
+    第一段(巷道)保持最高代价 ×1000，跨巷道仍最后考虑。
 
-    示例：20-18-01 → 下一站会是同一排的 bin（如 20-17-03），
-          而不是跨排的 bin（如 21-01-01）
+    距离公式：|Δ第一段|×1000 + |Δ第三段(行)|×10 + |Δ第二段(列)|×1
+    示例（20排 3×3）: 20-01-01→20-02-01→20-03-01→20-03-02
+                      →20-02-02→20-01-02→20-01-03→20-02-03→20-03-03
     """
     def parse_bin(bin_code: str) -> tuple:
-        """解析 bin_code "xx-xx-xx" → (row, col, layer)，解析失败返回 None"""
+        """解析 bin_code "xx-xx-xx" → (巷道, 列, 行)，解析失败返回 None"""
         try:
             parts = bin_code.strip().split("-")
             if len(parts) != 3:
@@ -154,10 +155,10 @@ def sort_bins_by_path(bin_locations: List[str]) -> List[str]:
             return None
 
     def weighted_distance(from_pos: tuple, to_pos: tuple) -> int:
-        """加权距离：row×1000 + col×10 + layer×1，跨排代价极高"""
+        """加权距离：巷道(第一段)×1000 + 行(第三段)×10 + 列(第二段)×1"""
         return abs(from_pos[0] - to_pos[0]) * 1000 + \
-               abs(from_pos[1] - to_pos[1]) * 10 + \
-               abs(from_pos[2] - to_pos[2])
+               abs(from_pos[2] - to_pos[2]) * 10 + \
+               abs(from_pos[1] - to_pos[1])
 
     # 解析并过滤无效 bin
     parsed = []
@@ -175,8 +176,8 @@ def sort_bins_by_path(bin_locations: List[str]) -> List[str]:
     sorted_result: List[str] = []
     remaining = list(parsed)
 
-    # 起点：选 row 最小的 bin（同排优先）
-    remaining.sort(key=lambda x: (x[1][0], x[1][1], x[1][2]))
+    # 起点：选 巷道(第一段) 最小的 bin（同巷道内行、列依次为次序）；整体仍为贪心最近邻
+    remaining.sort(key=lambda x: (x[1][0], x[1][2], x[1][1]))
     current_code, current_pos = remaining.pop(0)
     sorted_result.append(current_code)
 
@@ -1806,6 +1807,9 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                 from services.api.robot.router import prune_robot_status_queue
                 prune_robot_status_queue({next_rt_code})
                 # 发上一个 bin 的 continue，让车离开
+                # (2026-11-10) submit 与 continue 背靠背下发, RCS 偶发不响应——
+                # 中间加 500ms 间隔, 错开两个任务操作
+                await asyncio.sleep(0.5)
                 if _prev_robot_code:
                     try:
                         cr = await continue_inventory_task(is_sim=is_sim, robot_task_code=_prev_robot_code)

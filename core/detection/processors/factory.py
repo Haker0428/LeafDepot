@@ -206,6 +206,12 @@ class StackProcessorFactory:
             pile_roi["image_width"] = img.shape[1]
             pile_roi["image_height"] = img.shape[0]
 
+        # Step 2.5: 深度预过滤——在分层聚类之前删除深度超标的误识别box
+        # (2026-11-12) 此前顺序为 聚类→(处理器内)过滤: 超远幻影box先参与聚类,
+        # 抬高层数(如27-17-01/21-11-01的[1,1,2,2]), 过滤后层数已定死导致多数。
+        # 改为先删超远box再聚类, 使层数反映真实垛面。采样口径与stack_processor一致。
+        boxes = self._prefilter_far_boxes(boxes, pile_roi)
+
         # Step 3: 分层聚类（使用旋转后的图像，传入垛型名用于自适应阈值）
         layers = self._cluster_layers(boxes, pile_roi, processing_image_path, vis_output_dir, pile_id=pile_id)
         if not layers:
@@ -498,6 +504,43 @@ class StackProcessorFactory:
         
         return prepared
     
+    def _prefilter_far_boxes(self, boxes: List[Dict], pile_roi: Dict[str, float]) -> List[Dict]:
+        """分层聚类前的深度预过滤：删除深度>MAX_DEPTH 或采不出深度的 box。
+
+        采样口径与 stack_processor 一致：y=顶边+1/3箱高再上移3%，5x5 区域取值；
+        深度矩阵缺失时不删（保持旧行为）。与 stack_processor 的 MAX_DEPTH(21500) 对齐。
+        """
+        if self.depth_image is None or not boxes:
+            return boxes
+        try:
+            from core.detection.depth import DepthProcessor
+            dp = DepthProcessor(enable_debug=False)
+            pile_w = pile_roi["x2"] - pile_roi["x1"]
+            kept, dropped = [], []
+            for b in boxes:
+                bx1, by1, bx2, by2 = b["x1"], b["y1"], b["x2"], b["y2"]
+                cx = (bx1 + bx2) / 2.0
+                sample_y = by1 + (by2 - by1) / 3.0
+                cx_n = max(0.0, min(1.0, cx / pile_roi["image_width"])) if pile_roi.get("image_width") else 0.0
+                cy_n = max(0.0, min(1.0, sample_y / pile_roi["image_height"] - 0.03)) if pile_roi.get("image_height") else 0.0
+                res = dp.extract_depth_at_position(self.depth_image, cx_n, cy_n)
+                depth_mm = None
+                if res.get("success") and 0 < res.get("value", 0) < 1e6:
+                    depth_mm = res["value"]
+                if depth_mm is None or depth_mm > 21500:
+                    dropped.append((b, depth_mm))
+                else:
+                    kept.append(b)
+            if dropped:
+                desc = ", ".join(
+                    f"w={(b['x2']-b['x1'])/pile_w:.3f}/d={d}" for b, d in dropped
+                )
+                logger.info(f"[Detection] 深度预过滤(聚类前): 删除{len(dropped)}个超远box: {desc}")
+            return kept
+        except Exception as e:
+            logger.warning(f"[Detection] 深度预过滤异常(跳过, 保持全部box): {e}")
+            return boxes
+
     def _cluster_layers(self, boxes: List[Dict], pile_roi: Dict[str, float],
                        image_path: Union[str, Path], vis_output_dir: Optional[Path],
                        pile_id: Optional[int] = None) -> List[Dict]:
