@@ -32,7 +32,10 @@ async def get_user_info_from_token(auth_token: str) -> dict:
     """根据authToken获取用户信息，LMS 不可用时返回模拟用户"""
     try:
         lms_auth_url = f"{LMS_BASE_URL}/auth/token?token={auth_token}"
-        response = requests.get(lms_auth_url, timeout=5)
+        # (2026-11-14) 同步HTTP挪线程池: 此前直接在事件循环里调用,
+        # LMS慢时所有请求排队, 打开历史记录等鉴权页面整体卡顿
+        import asyncio
+        response = await asyncio.to_thread(requests.get, lms_auth_url, timeout=5)
 
         if response.status_code == 200:
             response_data = response.json()

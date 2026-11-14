@@ -744,27 +744,35 @@ async def get_monthly_count():
         count = len(monthly_files)
 
         # 计算准确率
+        # (2026-11-14) 两处修正: ① read_only模式下 cell() 随机访问每次从头解析XML,
+        # 当月数十个文件曾把事件循环卡近1分钟(/tasks等接口排队57s)——改 iter_rows 流式读;
+        # ② 整段计算挪 asyncio.to_thread, 即使文件再多也不再冻结其他请求。
         accuracy = None
         if count > 0:
-            total_count = 0
-            match_count = 0
+            import asyncio
 
-            for file_info in monthly_files:
-                try:
-                    wb = openpyxl.load_workbook(file_info["filepath"], read_only=True)
-                    ws = wb.active
+            def _calc_accuracy(files):
+                total_count = 0
+                match_count = 0
+                for file_info in files:
+                    try:
+                        wb = openpyxl.load_workbook(file_info["filepath"], read_only=True)
+                        ws = wb.active
+                        # 第8列(H列)=差异; iter_rows流式读取, 不用随机cell访问
+                        for row in ws.iter_rows(min_row=2, values_only=True):
+                            if len(row) >= 8 and row[7] is not None:
+                                total_count += 1
+                                if str(row[7]).strip() == "一致":
+                                    match_count += 1
+                        wb.close()
+                    except Exception as e:
+                        logger.error(f"读取Excel失败 {file_info['filename']}: {str(e)}")
+                        continue
+                return (match_count / total_count * 100) if total_count > 0 else None
 
-                    for row_idx in range(2, ws.max_row + 1):
-                        cell_h = ws.cell(row=row_idx, column=8)  # 第H列（差异）
-                        if cell_h.value is not None:
-                            total_count += 1
-                            if str(cell_h.value).strip() == "一致":
-                                match_count += 1
-
-                    wb.close()
-                except Exception as e:
-                    logger.error(f"读取Excel失败 {file_info['filename']}: {str(e)}")
-                    continue
+            accuracy = await asyncio.to_thread(_calc_accuracy, monthly_files)
+            if accuracy is not None:
+                accuracy = round(accuracy, 1)
 
             if total_count > 0:
                 accuracy = round((match_count / total_count) * 100, 1)

@@ -2,10 +2,11 @@
 LMS 系统对接路由
 """
 import json
+import asyncio
 import logging
 import requests
 from fastapi import APIRouter, Request, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from services.api.shared.config import LMS_BASE_URL, logger
 import services.api.custom_utils as custom_utils
@@ -24,10 +25,13 @@ async def get_lms_bin(authToken: str, useLocal: bool = False):
 
     当 useLocal=True 或 LMS 服务不可用时，从本地 bins_data.xlsx 读取数据
     """
-    # 如果指定使用本地数据，直接读取
+    # 如果指定使用本地数据，直接读取（缓存命中时直接返回，未命中时挪线程池不阻塞事件循环）
     if useLocal:
+        cached = _get_local_bins_data_cached()
+        if cached is not None:
+            return cached
         logger.info("使用本地文件读取库位数据 (useLocal=True)")
-        return _get_local_bins_data()
+        return await asyncio.to_thread(_get_local_bins_data)
 
     from pathlib import Path
     from fastapi.responses import JSONResponse
@@ -37,7 +41,8 @@ async def get_lms_bin(authToken: str, useLocal: bool = False):
     try:
         lms_bin_url = f"{LMS_BASE_URL}/third/api/v1/lmsToRcsService/getLmsBin"
         headers = {"authToken": authToken}
-        response = requests.get(lms_bin_url, headers=headers, timeout=10)
+        # 挪线程池执行, 避免LMS慢时把事件循环卡住10s
+        response = await asyncio.to_thread(requests.get, lms_bin_url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             try:
@@ -59,6 +64,28 @@ async def get_lms_bin(authToken: str, useLocal: bool = False):
     except Exception as e:
         logger.error(f"获取库位信息请求失败: {str(e)}")
         return _get_local_bins_data()
+
+
+# 本地库位数据缓存: bins_data.xlsx 未变化(按mtime+size判断)时直接返回上次结果
+# (2026-11-14) 此前每次请求都同步读xlsx并阻塞事件循环~0.45s, 盘点开始页一次2连调,
+# 多客户端叠加导致整个网关卡顿。WMS同步脚本写完新文件后 mtime 变化自动失效。
+_LOCAL_BINS_CACHE = {"key": None, "body": None}
+
+
+def _get_local_bins_data_cached():
+    """bins_data.xlsx 未变化时返回缓存的响应体，变化/首访返回 None(走正常读取)"""
+    from services.api.shared.config import project_root
+    bins_path = project_root / "services" / "sim" / "lms" / "bins_data.xlsx"
+    try:
+        if not bins_path.exists():
+            return None
+        st = bins_path.stat()
+        key = (st.st_mtime_ns, st.st_size)
+        if _LOCAL_BINS_CACHE["key"] == key and _LOCAL_BINS_CACHE["body"] is not None:
+            return Response(content=_LOCAL_BINS_CACHE["body"], media_type="application/json")
+    except Exception:
+        return None
+    return None
 
 
 def _get_local_bins_data():
@@ -111,10 +138,18 @@ def _get_local_bins_data():
         wb.close()
 
         logger.info(f"从本地文件读取 {len(bins_list)} 条库位数据作为备用")
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"code": 200, "message": "从本地文件获取库位数据成功", "data": bins_list}
-        )
+        # 序列化一次并缓存(按文件mtime+size失效), 后续请求直接返回缓存体
+        body = json.dumps(
+            {"code": 200, "message": "从本地文件获取库位数据成功", "data": bins_list},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        try:
+            st = bins_data_path.stat()
+            _LOCAL_BINS_CACHE["key"] = (st.st_mtime_ns, st.st_size)
+            _LOCAL_BINS_CACHE["body"] = body
+        except Exception:
+            pass
+        return Response(content=body, media_type="application/json", status_code=200)
 
     except Exception as e:
         logger.error(f"读取本地库位文件失败: {str(e)}")
@@ -131,7 +166,8 @@ async def get_count_tasks(authToken: str):
         logger.info(f"收到获取盘点任务请求，authToken: {authToken[:20]}...")
         lms_tasks_url = f"{LMS_BASE_URL}/third/api/v1/lmsToRcsService/getCountTasks"
         headers = {"authToken": authToken}
-        response = requests.get(lms_tasks_url, headers=headers, timeout=30)
+        # 挪线程池执行, 避免LMS慢时把事件循环卡住30s
+        response = await asyncio.to_thread(requests.get, lms_tasks_url, headers=headers, timeout=30)
 
         if response.status_code == 200:
             try:

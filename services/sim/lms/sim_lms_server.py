@@ -286,9 +286,15 @@ def save_users_to_excel(operator: str = "system"):
         return False
 
 
+# (2026-11-14) bins 缓存: 此前每次 getLmsBin 请求都 pd.read_excel 整表+逐行转换(~0.3s),
+# gateway 同步等待期间事件循环被冻结, 是界面卡顿主因之一。按 mtime+size 失效,
+# WMS 同步脚本写新文件后自动重读。
+_BINS_CACHE = {"key": None, "data": None}
+
+
 def load_bins_from_excel():
     """
-    从Excel文件加载储位信息数据
+    从Excel文件加载储位信息数据（带 mtime 缓存）
     按照新的列顺序：
     1. whCode
     2. areaCode
@@ -302,6 +308,15 @@ def load_bins_from_excel():
     10. tobaccoName
     11. rcsCode
     """
+    # 缓存命中: 文件未变化直接返回
+    try:
+        st = EXCEL_FILE_PATH.stat()
+        key = (st.st_mtime_ns, st.st_size)
+        if _BINS_CACHE["key"] == key and _BINS_CACHE["data"] is not None:
+            return _BINS_CACHE["data"]
+    except Exception:
+        pass
+
     bins_data = []
 
     if not EXCEL_FILE_PATH.exists():
@@ -372,6 +387,13 @@ def load_bins_from_excel():
                 bins_data.append(bin_info)
 
         _lms_logger.info(f"成功从Excel加载 {len(bins_data)} 条储位信息")
+        # 写入缓存(按文件mtime+size)
+        try:
+            st = EXCEL_FILE_PATH.stat()
+            _BINS_CACHE["key"] = (st.st_mtime_ns, st.st_size)
+            _BINS_CACHE["data"] = bins_data
+        except Exception:
+            pass
         return bins_data
 
     except Exception as e:
