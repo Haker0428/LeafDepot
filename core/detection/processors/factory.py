@@ -220,6 +220,9 @@ class StackProcessorFactory:
 
         logger.info(f"[Detection] 分层聚类完成: 层数={len(layers)}, 每层箱数={[len(l.get('boxes',[])) for l in layers]}")
 
+        # Step 3.5: 顶层劈裂去重——顶层内 x 对齐的箱删矮片（劈裂碎片与本体必落同层）
+        layers = self._dedup_split_boxes(layers)
+
         # Step 4: 处理层（去误层、重新索引）
         layers = self._process_layers(layers)
 
@@ -504,6 +507,68 @@ class StackProcessorFactory:
         
         return prepared
     
+    def _dedup_split_boxes(self, layers: List[Dict]) -> List[Dict]:
+        """顶层劈裂去重：顶层内 x 对齐的两个箱，矮的那个是劈裂碎片，删掉。
+
+        物理依据：层内箱只左右并排，不可能上下叠——顶层出现 x 几乎重合的一对箱
+        = 同一箱被 YOLO 上下劈开（劈裂片 y 中心差不超过半箱高，聚类必落同层）。
+        只处理顶层（pattern 匹配用的是顶层箱），其他层不动。
+        高度参考取全 pile 最高箱，避免顶层全是碎片时阈值失真。
+        """
+        if not layers:
+            return layers
+        top_boxes = layers[0].get("boxes", [])
+        if len(top_boxes) < 2:
+            return layers
+
+        # 正常箱高: 全 pile 最高的箱
+        all_heights = [abs(b.get("roi", b)["y2"] - b.get("roi", b)["y1"])
+                       for layer in layers for b in layer.get("boxes", [])]
+        if not all_heights:
+            return layers
+        ref_h = max(all_heights)
+
+        removed = set()
+        for i in range(len(top_boxes)):
+            if i in removed:
+                continue
+            a = top_boxes[i]
+            ar = a.get("roi", a)
+            acx = (ar["x1"] + ar["x2"]) / 2
+            aw = ar["x2"] - ar["x1"]
+            for j in range(i + 1, len(top_boxes)):
+                if j in removed:
+                    continue
+                b = top_boxes[j]
+                br = b.get("roi", b)
+                bcx = (br["x1"] + br["x2"]) / 2
+                bw = br["x2"] - br["x1"]
+                bh = abs(br["y2"] - br["y1"])
+                # ① x 方向几乎完全重叠: 中心偏差 < 15% 平均宽
+                avg_w = (aw + bw) / 2
+                if abs(acx - bcx) > 0.15 * avg_w:
+                    continue
+                # ② 被删的箱必须是矮片（只删劈裂碎片，不删正常箱）
+                if bh >= ref_h * 0.8:
+                    # 两个都是正常高度 → 不是劈裂，是两个真箱恰好 x 相近（不应该出现，但防御）
+                    continue
+                # 删矮片（低置信度的那个如果是矮片的话优先删低置信度的）
+                ah = abs(ar["y2"] - ar["y1"])
+                victim = j if bh <= ah else i
+                v = top_boxes[victim]
+                vr = v.get("roi", v)
+                logger.info(
+                    f"[Detection] 顶层劈裂去重: 删 (cx={(vr['x1']+vr['x2'])/2:.0f} "
+                    f"{vr['x2']-vr['x1']:.0f}x{abs(vr['y2']-vr['y1']):.0f} conf={v.get('conf', 0):.2f}) "
+                    f"[正常高{ref_h:.0f}]"
+                )
+                removed.add(victim)
+        if removed:
+            layers[0]["boxes"] = [b for k, b in enumerate(top_boxes) if k not in removed]
+            logger.info(f"[Detection] 顶层劈裂去重完成: 删{len(removed)}片, "
+                        f"层箱数={[len(l.get('boxes', [])) for l in layers]}")
+        return layers
+
     def _prefilter_far_boxes(self, boxes: List[Dict], pile_roi: Dict[str, float]) -> List[Dict]:
         """分层聚类前的深度预过滤：删除深度>MAX_DEPTH 或采不出深度的 box。
 
