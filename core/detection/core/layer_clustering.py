@@ -24,6 +24,8 @@ def _adaptive_gap_threshold(avg_h: float, gap_ratio: float, total_box_count: int
         return avg_h * 0.85
     if pile_name == "4*7+2" and total_box_count <= 5:
         return avg_h * 0.85
+    if pile_name == "3*10" and total_box_count <= 4:
+        return avg_h * 0.85
     return avg_h * gap_ratio
 
 
