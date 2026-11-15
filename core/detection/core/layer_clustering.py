@@ -42,7 +42,7 @@ def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: flo
         centers.append((yc, h, b))
     centers.sort(key=lambda x: x[0])  # 从上到下排序
 
-    avg_h = np.mean([c[1] for c in centers])
+    avg_h = np.median([c[1] for c in centers])
 
     layers, current = [], [centers[0]]
     for i in range(1, len(centers)):
@@ -91,7 +91,7 @@ def cluster_layers_with_roi(
         centers.append((yc, h, b))
     centers.sort(key=lambda x: x[0])
 
-    avg_h = np.mean([c[1] for c in centers])
+    avg_h = np.median([c[1] for c in centers])
 
     layers, current = [], [centers[0]]
     for i in range(1, len(centers)):
@@ -149,7 +149,7 @@ def cluster_layers_with_box_roi(
         centers.append((yc, h, b))
     centers.sort(key=lambda x: x[0])
 
-    avg_h = np.mean([c[1] for c in centers])
+    avg_h = np.median([c[1] for c in centers])
 
     # 聚类逻辑
     layers, current = [], [centers[0]]
