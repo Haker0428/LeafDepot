@@ -633,7 +633,7 @@ class StackProcessorFactory:
                 boxes=boxes,
                 pile_roi=pile_roi,
                 save_path=f"{image_name}_step2_layers.jpg",
-                gap_ratio=0.6,
+                gap_ratio=0.5,
                 show=False,
                 output_dir=vis_output_dir
             )
@@ -642,7 +642,7 @@ class StackProcessorFactory:
                 boxes=boxes,
                 pile_roi=pile_roi,
                 save_path=f"{image_name}_step2_layers_roi.jpg",
-                gap_ratio=0.6,
+                gap_ratio=0.5,
                 padding_ratio=0.1,
                 show=False,
                 output_dir=vis_output_dir

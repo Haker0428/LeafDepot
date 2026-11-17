@@ -16,7 +16,11 @@ def _adaptive_gap_threshold(avg_h: float, gap_ratio: float, total_box_count: int
     - 总箱子数 < 3（≤2箱）：阈值 2.0×平均箱高 —— 两个箱无论在哪两层都必然聚为同一层。
     - 宽垛型 5*6/5*8 且箱数 ≤ 4，或 4*7+2 且箱数 ≤ 5：阈值 0.85×平均箱高 ——
       箱数偏少（部分遮挡/顶层残缺）时同层箱中心距偏大，放宽判定避免误分层。
-    - 其余情况：gap_ratio（默认 0.6×平均箱高）。
+    - 其余情况：gap_ratio（默认 0.5×平均箱高）。
+      (2026-11-18) 0.6→0.5: 后排更高一层的箱顶细条(可见高 0~1/3 正常箱高)与前排
+      顶层箱的中心距被压到 0.4~0.6h，0.6 时细条并进顶层(如顶层误读4箱)。
+      反向安全界: 真实相邻两层中心距 ≥ 0.5h+下层露出/2 > 0.5h(完全遮挡时检测不到
+      箱)，同层中心差实测 ≤0.04h，故 0.5 不会误断同层、也不会误并真实两层。
     """
     if total_box_count < 3:
         return avg_h * 2.0
@@ -29,7 +33,7 @@ def _adaptive_gap_threshold(avg_h: float, gap_ratio: float, total_box_count: int
     return avg_h * gap_ratio
 
 
-def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: float = 0.6,
+def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: float = 0.5,
                   pile_name: str = "") -> Dict:
     """
     根据 box 的中心 y 坐标进行分层聚类（自动层数）
@@ -76,7 +80,7 @@ def cluster_layers(boxes: List[Dict], pile_roi: Dict[str, float], gap_ratio: flo
 def cluster_layers_with_roi(
     boxes: List[Dict],
     pile_roi: Dict[str, float],
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.5,
     padding_ratio: float = 0.1,
     pile_name: str = ""
 ) -> Dict:
@@ -134,7 +138,7 @@ def cluster_layers_with_roi(
 def cluster_layers_with_box_roi(
     boxes: List[Dict],
     pile_roi: Dict[str, float],
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.5,
     padding_ratio: float = 0.1,
     pile_name: str = ""
 ) -> Dict:
@@ -425,7 +429,7 @@ def visualize_layers(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers.jpg",
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.5,
     show: bool = False,
     output_dir: Path = None
 ):
@@ -450,7 +454,7 @@ def visualize_layers_with_roi(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers_roi.jpg",
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.5,
     padding_ratio: float = 0.1,
     show: bool = False,
     output_dir: Path = None
@@ -476,7 +480,7 @@ def visualize_layers_with_box_roi(
     boxes: list,
     pile_roi: dict,
     save_path: str = "annotated_layers_boxes.jpg",
-    gap_ratio: float = 0.6,
+    gap_ratio: float = 0.5,
     padding_ratio: float = 0.1,
     show: bool = False,
     target_layers: Union[int, List[int], None] = None,   # 👈 新增参数
