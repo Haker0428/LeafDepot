@@ -27,6 +27,8 @@ sys.path.insert(0, str(_project_root))
 
 from services.api.shared.redis_queue import (
     pop_single_bin_task,
+    ack_single_bin_task,
+    reclaim_worker_queue,
     push_bin_result,
     add_to_completed_set,
 )
@@ -49,6 +51,10 @@ _root_logger.addHandler(_root_fh)
 
 # worker 自己的 logger
 logger = logging.getLogger("inventory_worker")
+
+# 可靠队列的 worker 标识（processing 列表按 worker 隔离，重启/异常时只捞回自己的）
+import socket
+_WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 
 # 过滤 redis DEBUG 日志（连接失败通知和 MAINT_NOTIFICATIONS 每 5 秒打印一次，无用且冗余）
 for _redis_logger_name in ("redis.client", "redis.connection"):
@@ -76,12 +82,22 @@ async def process_one_bin(task_no: str, bin_location: str, is_sim: bool) -> dict
 
 async def run_worker_loop():
     """主循环：从单bin队列消费，检测，写 Redis"""
-    logger.info("Inventory Worker 启动，等待任务...")
+    # 启动兜底：上次异常退出残留在 processing 列表的 bin 捞回主队列重跑
+    # (检测幂等：照片已存在会跳过拍照，结果覆盖写)
+    try:
+        reclaimed = reclaim_worker_queue(_WORKER_ID)
+        if reclaimed:
+            logger.warning(f"[启动恢复] 从processing捞回 {reclaimed} 个未完成bin，重新入队")
+    except Exception as e:
+        logger.error(f"[启动恢复] 捞回processing失败: {e}")
+
+    logger.info(f"Inventory Worker 启动 (worker_id={_WORKER_ID})，等待任务...")
 
     while True:
         try:
             # 阻塞等待单bin任务（超时5秒，队列为空时循环继续）
-            task = pop_single_bin_task(timeout=5)
+            # BRPOPLPUSH 可靠消费：弹出时原子落入本worker的processing列表
+            task = pop_single_bin_task(worker_id=_WORKER_ID, timeout=5)
             if task is None:
                 continue
 
@@ -110,8 +126,9 @@ async def run_worker_loop():
                 }
                 push_bin_result(task_no, bin_location, result)
 
-            # 标记 worker 完成
+            # 标记 worker 完成 + 从processing列表删除(ack)
             add_to_completed_set(task_no, "worker_completed", bin_location)
+            ack_single_bin_task(_WORKER_ID, task)
             logger.info(f"[{task_no}] 库位 {bin_location} 已标记完成: worker_completed")
 
         except Exception as e:

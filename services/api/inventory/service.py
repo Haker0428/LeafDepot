@@ -97,10 +97,10 @@ _TASKNO_COUNTER_FILE = str(logs_dir / "task_no_counter.txt")
 _active_bin_tracker: Dict[str, dict] = {}
 
 
-async def _wait_for_bin_result(task_no: str, bin_location: str) -> Optional[Dict]:
+async def _wait_for_bin_result(task_no: str, bin_location: str, timeout: int = 5) -> Optional[Dict]:
     """Gateway 内部用：等待 bin 检测结果（调用 redis_queue 中的 async 版本）"""
     from services.api.shared.redis_queue import wait_for_bin_result as _wfbr
-    return await _wfbr(task_no, bin_location, timeout=0)
+    return await _wfbr(task_no, bin_location, timeout=timeout)
 
 def _get_next_task_no() -> str:
     """获取下一个盘点任务号，格式: HS{YYYYMMDD}{NN}，每日从1开始递增"""
@@ -1783,7 +1783,10 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
                     logger.error(f"模拟模式拍照异常: {bin_location}, error={e}")
 
             # 推 Redis 触发 worker 检测（提前推，不等 continue）
-            push_single_bin_task(task_no, bin_location)
+            # (2026-11-19) 检查返回值: 入队失败(重试后仍失败)不再静默——
+            # 该bin无完成标记会拖死worker等待循环, 记ERROR后由停滞超时兜底记异常
+            if not push_single_bin_task(task_no, bin_location):
+                logger.error(f"[Detection→Worker] bin {bin_location} 入队失败(已重试3次), 该库位将按异常收尾")
 
             add_to_completed_set(task_no, "rcs_completed", bin_location)
             update_progress(task_no, i + 1)
@@ -1830,6 +1833,11 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
         logger.info(f"RCS END 全部处理完毕（{len(submitted_bins)}/{len(sorted_bins)}），等待 worker 检测结果...")
 
         worker_done_count = 0
+        # (2026-11-19) 等worker的循环加停滞超时: 此前无超时, 一个bin的完成标记
+        # 永远不到(队列丢包/worker挂)任务就永远挂在running(HS2026111904卡3.5小时)。
+        # 进度10分钟无变化 → 放弃等待, 缺失库位记"异常"按部分完成收尾。
+        _STALL_TIMEOUT = 600
+        _last_count, _progress_ts = -1, time.time()
         while worker_done_count < len(submitted_bins):
             # 轮询期间也检查取消状态，实现取消立即响应
             if task_no in _inventory_tasks and _inventory_tasks[task_no].status == "cancelled":
@@ -1838,9 +1846,19 @@ async def execute_inventory_workflow(task_no: str, bin_locations: List[str], is_
             await asyncio.sleep(3)
             worker_done_count = get_completed_count(task_no, "worker_completed")
             logger.debug(f"Worker 进度: {worker_done_count}/{len(submitted_bins)}")
+            if worker_done_count != _last_count:
+                _last_count, _progress_ts = worker_done_count, time.time()
+            elif time.time() - _progress_ts > _STALL_TIMEOUT:
+                logger.error(
+                    f"[Worker停滞] {task_no}: 进度 {worker_done_count}/{len(submitted_bins)} "
+                    f"超过{_STALL_TIMEOUT}s无变化，放弃等待，缺失库位将记为异常收尾"
+                )
+                break
 
         for bin_loc in submitted_bins:
-            worker_result = await _wait_for_bin_result(task_no, bin_loc)
+            # timeout=5: 正常情况结果先于完成标记写入Redis必然命中;
+            # 丢失的bin不再无限等(原来timeout=0会永久挂), 5s拿不到按异常处理
+            worker_result = await _wait_for_bin_result(task_no, bin_loc, timeout=5)
             result_data = worker_result.get("result", {}) if worker_result else {}
             if worker_result:
                 logger.info(f"Worker 结果: {bin_loc} → status={result_data.get('status')}, qty={result_data.get('actualQuantity')}")

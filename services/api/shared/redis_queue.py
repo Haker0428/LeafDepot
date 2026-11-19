@@ -17,6 +17,7 @@ _REDIS_PORT = 6379
 # 队列/键名常量
 PENDING_QUEUE = "inventory:pending_queue"           # 旧批量队列（废弃，仅保留接口兼容）
 SINGLE_BIN_QUEUE = "inventory:single_bin_queue"   # 单bin队列（gateway → worker，逐个推送）
+_PROCESSING_PREFIX = "inventory:single_bin_processing"  # 各worker的processing列表前缀(可靠消费)
 _RESULT_KEY_BASE = "inventory:task"               # 统一前缀
 RESULT_KEY_PREFIX = "inventory:task:results:"     # 向后兼容，结果 key = results:{task_no}
 
@@ -231,44 +232,96 @@ def get_progress(task_no: str) -> List[Dict]:
 
 def push_single_bin_task(task_no: str, bin_location: str) -> bool:
     """
-    gateway 调用：推送单个 bin 给 worker 处理
+    gateway 调用：推送单个 bin 给 worker 处理。
+    (2026-11-19) 加重试: 瞬断一次就丢bin会导致任务永远等不到完成标记
+    (HS2026111904 丢 21-14-03 卡死3.5小时), 重试3次仍失败返回False由调用方兜底。
     """
+    import time as _time
     client = _get_redis()
     if client is None:
         return False
-    try:
-        payload = _to_json({
-            "task_no": task_no,
-            "bin_location": bin_location,
-        })
-        client.lpush(SINGLE_BIN_QUEUE, payload)
-        logger.info(f"[Redis] 单bin入队: task={task_no}, bin={bin_location}")
-        return True
-    except Exception as e:
-        logger.error(f"[Redis] 单bin入队失败: {e}")
-        return False
+    payload = _to_json({
+        "task_no": task_no,
+        "bin_location": bin_location,
+    })
+    for attempt in range(1, 4):
+        try:
+            client.lpush(SINGLE_BIN_QUEUE, payload)
+            logger.info(f"[Redis] 单bin入队: task={task_no}, bin={bin_location}")
+            return True
+        except Exception as e:
+            logger.error(f"[Redis] 单bin入队失败(第{attempt}/3次): {e}")
+            _time.sleep(0.5)
+    return False
 
 
-def pop_single_bin_task(timeout: int = 5) -> Optional[Dict]:
+def pop_single_bin_task(worker_id: str = "default", timeout: int = 5) -> Optional[Dict]:
     """
-    worker 调用：阻塞消费单个 bin（timeout=5秒）
-    返回: {"task_no": ..., "bin_location": ...}
+    worker 调用：阻塞消费单个 bin（timeout=5秒），返回带 "_raw" 原文的任务 dict。
+    (2026-11-19) BRPOP→BRPOPLPUSH 可靠消费: BRPOP 是"至多一次"投递——
+    Redis服务端弹出条目后连接恰好断开(响应未送达), 客户端拿不到条目也不报错级别异常,
+    条目就永久丢了(HS2026111904 的 21-14-03 即此丢失)。改用 BRPOPLPUSH 原子落到
+    本 worker 的 processing 列表, 响应丢了条目仍可恢复:
+      - 弹出异常时立即尝试捞回(见 _reclaim_processing)
+      - worker 重启时 reclaim_worker_queue 兜底
+    处理完成(结果已推+worker_completed已标记)后必须调 ack_single_bin_task 删除。
     """
     client = _get_redis()
     if client is None:
         return None
+    pkey = f"{_PROCESSING_PREFIX}:{worker_id}"
     try:
-        result = client.brpop(SINGLE_BIN_QUEUE, timeout=timeout)
-        if result:
-            _, payload = result
-            return _from_json(payload)
+        payload = client.brpoplpush(SINGLE_BIN_QUEUE, pkey, timeout=timeout)
+        if payload:
+            task = _from_json(payload)
+            task["_raw"] = payload  # ack 时按原文精确 LREM
+            return task
         return None
     except Exception as e:
-        # BRPOP 超时是正常行为（队列为空），不记录为错误
         if "Timeout" in str(e):
             return None
-        logger.error(f"[Redis] 读取单bin任务失败: {e}")
+        logger.error(f"[Redis] 读取单bin任务失败(尝试捞回processing): {e}")
+        _reclaim_processing(client, pkey)
         return None
+
+
+def ack_single_bin_task(worker_id: str, task: Dict) -> None:
+    """worker 调用：bin 处理完成(结果已推+已标记)后从 processing 列表删除。
+    删除失败只打日志——条目残留会在下次启动时被捞回重跑(检测幂等, 结果覆盖写)。"""
+    client = _get_redis()
+    if client is None:
+        return
+    raw = task.get("_raw")
+    if not raw:
+        return
+    try:
+        client.lrem(f"{_PROCESSING_PREFIX}:{worker_id}", 1, raw)
+    except Exception as e:
+        logger.error(f"[Redis] ack失败(残留processing, 重启会重跑该bin): {e}")
+
+
+def _reclaim_processing(client, pkey: str) -> int:
+    """把本 worker processing 列表里的残留条目捞回主队列尾部(稍后被重新消费)"""
+    try:
+        n = 0
+        while True:
+            if client.rpoplpush(pkey, SINGLE_BIN_QUEUE) is None:
+                break
+            n += 1
+        if n:
+            logger.warning(f"[Redis] 已从processing捞回 {n} 条到主队列")
+        return n
+    except Exception as e:
+        logger.error(f"[Redis] 捞回processing失败(Redis恢复后下次异常/重启时重试): {e}")
+        return 0
+
+
+def reclaim_worker_queue(worker_id: str) -> int:
+    """worker 启动时调用：上次异常退出残留在 processing 的 bin 重新入队"""
+    client = _get_redis()
+    if client is None:
+        return 0
+    return _reclaim_processing(client, f"{_PROCESSING_PREFIX}:{worker_id}")
 
 
 def flush_single_bin_queue_by_task(task_no: str) -> int:

@@ -774,9 +774,6 @@ async def get_monthly_count():
             if accuracy is not None:
                 accuracy = round(accuracy, 1)
 
-            if total_count > 0:
-                accuracy = round((match_count / total_count) * 100, 1)
-
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
